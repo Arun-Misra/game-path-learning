@@ -1,9 +1,14 @@
+const path = require('node:path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
-
 const indexRouter = require('./routes/index');
+const authRouter = require('./routes/auth');
+const learningGoalsRouter = require('./routes/learning-goals');
 
 const app = express();
 
@@ -14,6 +19,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 app.get('/api/v1/health', (_req, res) => {
@@ -24,6 +30,8 @@ app.get('/api/v1/health', (_req, res) => {
   });
 });
 
+app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/learning-goals', learningGoalsRouter);
 app.use('/api/v1', indexRouter);
 
 app.use((req, res) => {

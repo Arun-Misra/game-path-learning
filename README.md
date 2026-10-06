@@ -13,15 +13,16 @@ A personalised learning platform for any skill. Learners describe their current 
 
 - Node.js 24+
 - npm
-- PostgreSQL (needed for database-backed workflows)
+- PostgreSQL (required for account and learning-goal operations)
 
 ## Setup
 
-1. Install dependencies: `npm install`
-2. Copy `.env.example` to `.env` and set `DATABASE_URL` to a real local PostgreSQL database.
-3. Start both applications: `npm run dev`
+1. Install dependencies: `npm install`.
+2. Configure the root `.env` file using `.env.example` as a guide. Set `DATABASE_URL` to a real PostgreSQL database. Do not commit `.env`.
+3. Apply the initial schema: `npm run db:migrate`.
+4. Start both applications: `npm run dev`.
 
-The web app runs on Vite's local development port. The API defaults to port 3000.
+The web app uses Vite's default local development port. The API defaults to port 3000. Vite proxies `/api` requests to the API.
 
 ## Commands
 
@@ -30,13 +31,26 @@ The web app runs on Vite's local development port. The API defaults to port 3000
 - `npm run dev:api` — run the API
 - `npm run build` — production-build the web app
 - `npm test` — API tests
-- `npm run check` — API syntax checks and web lint
+- `npm run check` — API JavaScript syntax checks and web lint
 - `npm run db:validate` — validate the Prisma schema
 - `npm run db:generate` — generate the Prisma Client
 - `npm run db:migrate` — create/apply a development migration (requires PostgreSQL)
 
-## Current status
+## Implemented API routes
 
-The generated JavaScript scaffolds, responsive onboarding screen, API health route, and initial Prisma domain schema are in place. The onboarding form is not yet connected to a persistent learning-goal endpoint. No database migration has been applied until a real PostgreSQL connection is configured.
+- `GET /api/v1/health`
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `GET /api/v1/auth/me`
+- `POST /api/v1/auth/logout`
+- `POST /api/v1/learning-goals`
+- `GET /api/v1/learning-goals`
+- `GET /api/v1/learning-goals/:goalId`
 
-See [context.md](./context.md) for current implementation status and the master implementation plan for the product requirements and work order.
+Authentication uses server-side sessions and HttpOnly cookies. Learning goals are scoped to the authenticated user.
+
+## Current limitations
+
+The initial SQL migration is generated but has not been applied. The local PostgreSQL service was found disabled/stopped, so live database connectivity and the full registration-to-goal persistence flow have not yet been verified. Roadmap generation is the next product feature after database-backed workflows are verified.
+
+See [context.md](./context.md) for the current implementation status and the master implementation plan for product requirements and implementation order.

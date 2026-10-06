@@ -23,12 +23,26 @@ enum ExperienceLevel {
 }
 
 model User {
-  id        String        @id @default(cuid())
-  email     String        @unique
-  name      String?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  goals     LearningGoal[]
+  id           String        @id @default(cuid())
+  email        String        @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  sessions     Session[]
+  goals        LearningGoal[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
 }
 
 model LearningGoal {
@@ -52,43 +66,42 @@ model LearningGoal {
 }
 
 model Roadmap {
-  id             String        @id @default(cuid())
-  learningGoalId String
-  version        Int           @default(1)
-  title          String
-  summary        String
-  generationState String       @default("DRAFT")
-  activatedAt    DateTime?
-  createdAt      DateTime      @default(now())
-  learningGoal   LearningGoal  @relation(fields: [learningGoalId], references: [id], onDelete: Cascade)
-  topics         RoadmapTopic[]
+  id              String        @id @default(cuid())
+  learningGoalId  String
+  version         Int           @default(1)
+  title           String
+  summary         String
+  generationState String        @default("DRAFT")
+  activatedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  learningGoal    LearningGoal  @relation(fields: [learningGoalId], references: [id], onDelete: Cascade)
+  topics          RoadmapTopic[]
 
   @@unique([learningGoalId, version])
   @@index([learningGoalId, generationState])
 }
 
 model RoadmapTopic {
-  id             String             @id @default(cuid())
-  roadmapId      String
-  parentTopicId  String?
-  title          String
-  description    String
-  learningObjectives Json
-  estimatedMinutes Int
-  position       Int
-  roadmap        Roadmap            @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
-  prerequisites  TopicPrerequisite[] @relation("TopicPrerequisites")
-  requiredBy     TopicPrerequisite[] @relation("TopicDependents")
+  id                  String              @id @default(cuid())
+  roadmapId           String
+  title               String
+  description         String
+  learningObjectives  Json
+  estimatedMinutes    Int
+  position            Int
+  roadmap             Roadmap             @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  prerequisites       TopicPrerequisite[] @relation("TopicPrerequisites")
+  requiredBy          TopicPrerequisite[] @relation("TopicDependents")
 
   @@unique([roadmapId, position])
   @@index([roadmapId])
 }
 
 model TopicPrerequisite {
-  topicId          String
-  prerequisiteId   String
-  topic             RoadmapTopic @relation("TopicPrerequisites", fields: [topicId], references: [id], onDelete: Cascade)
-  prerequisite      RoadmapTopic @relation("TopicDependents", fields: [prerequisiteId], references: [id], onDelete: Cascade)
+  topicId        String
+  prerequisiteId String
+  topic          RoadmapTopic @relation("TopicPrerequisites", fields: [topicId], references: [id], onDelete: Cascade)
+  prerequisite   RoadmapTopic @relation("TopicDependents", fields: [prerequisiteId], references: [id], onDelete: Cascade)
 
   @@id([topicId, prerequisiteId])
   @@index([prerequisiteId])
