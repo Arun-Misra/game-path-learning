@@ -1,0 +1,174 @@
+import { useEffect, useState } from 'react';
+import {
+  ArrowRight,
+  BookOpen,
+  Check,
+  Clock3,
+  Compass,
+  Flame,
+  GraduationCap,
+  Sparkles,
+  Target,
+  Zap,
+} from 'lucide-react';
+
+const initialForm = {
+  skill: '',
+  experience: 'beginner',
+  outcome: '',
+  minutesPerDay: '30',
+  daysPerWeek: '5',
+};
+
+function App() {
+  const [form, setForm] = useState(initialForm);
+  const [apiStatus, setApiStatus] = useState('checking');
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/v1/health')
+      .then((response) => {
+        if (!response.ok) throw new Error('API unavailable');
+        return response.json();
+      })
+      .then(() => setApiStatus('online'))
+      .catch(() => setApiStatus('offline'));
+  }, []);
+
+  function updateField(event) {
+    setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+    setSubmitted(false);
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    if (!form.skill.trim() || !form.outcome.trim()) return;
+    setSubmitted(true);
+  }
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f2] text-[#20241f]">
+      <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5 sm:px-8">
+        <a href="/" className="flex items-center gap-3" aria-label="Pathwise home">
+          <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#263f32] text-white">
+            <Compass size={21} />
+          </span>
+          <span className="text-lg font-bold tracking-tight">pathwise<span className="text-[#73916f]">.</span></span>
+        </a>
+        <div className="flex items-center gap-2 rounded-full border border-[#e3e6dc] bg-white px-3 py-2 text-xs font-medium text-[#5b6658]">
+          <span className={`h-2 w-2 rounded-full ${apiStatus === 'online' ? 'bg-emerald-500' : apiStatus === 'offline' ? 'bg-rose-500' : 'bg-amber-400'}`} />
+          {apiStatus === 'online' ? 'Learning engine connected' : apiStatus === 'offline' ? 'API disconnected' : 'Connecting to learning engine'}
+        </div>
+      </header>
+
+      <section className="mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-8 sm:px-8 lg:grid-cols-[1.03fr_.97fr] lg:gap-20 lg:pt-16">
+        <div className="flex flex-col justify-center">
+          <div className="mb-6 inline-flex w-fit items-center gap-2 rounded-full border border-[#dce5d7] bg-[#edf3e9] px-3 py-1.5 text-xs font-semibold text-[#476b49]">
+            <Sparkles size={14} /> A learning path built around you
+          </div>
+          <h1 className="max-w-2xl text-5xl font-semibold leading-[1.06] tracking-[-0.055em] sm:text-6xl xl:text-7xl">
+            Make progress<br />that <span className="font-serif italic font-normal text-[#72916d]">actually sticks.</span>
+          </h1>
+          <p className="mt-6 max-w-lg text-base leading-7 text-[#6d756a] sm:text-lg">
+            Tell us what you want to learn. Get a practical roadmap that fits your starting point, your goal, and your real life.
+          </p>
+
+          <div className="mt-10 grid max-w-lg grid-cols-3 gap-3">
+            <Stat icon={<Target size={17} />} title="Your goal" text="Your destination" />
+            <Stat icon={<Clock3 size={17} />} title="Your pace" text="Your schedule" />
+            <Stat icon={<Flame size={17} />} title="Your growth" text="Visible progress" />
+          </div>
+
+          <div className="mt-12 hidden items-center gap-4 border-t border-[#e3e5dc] pt-6 sm:flex">
+            <div className="flex -space-x-2">
+              <span className="grid h-9 w-9 place-items-center rounded-full border-2 border-[#f7f7f2] bg-[#d9e6d2] text-xs font-bold">ML</span>
+              <span className="grid h-9 w-9 place-items-center rounded-full border-2 border-[#f7f7f2] bg-[#f0dfc4] text-xs font-bold">♪</span>
+              <span className="grid h-9 w-9 place-items-center rounded-full border-2 border-[#f7f7f2] bg-[#d7dfed] text-xs font-bold">JS</span>
+            </div>
+            <p className="text-sm text-[#7b8277]">One place for <strong className="font-semibold text-[#424a40]">any skill</strong> you want to build.</p>
+          </div>
+        </div>
+
+        <div className="relative">
+          <div className="absolute -right-4 -top-5 h-28 w-28 rounded-full bg-[#dfe9d5] blur-2xl" />
+          <div className="relative rounded-[2rem] border border-[#e6e8de] bg-white p-5 shadow-[0_24px_80px_-40px_rgba(38,63,50,0.28)] sm:p-8">
+            <div className="mb-7 flex items-start justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#82917b]">Start your journey</p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight">What would you like to learn?</h2>
+                <p className="mt-2 text-sm text-[#7c8378]">We’ll shape a plan around your life.</p>
+              </div>
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#edf3e9] text-[#4c704b]"><GraduationCap size={22} /></span>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <Field label="The skill you want to learn">
+                <input name="skill" value={form.skill} onChange={updateField} required maxLength={160} placeholder="e.g. Machine learning, guitar, public speaking..." className="field" />
+              </Field>
+
+              <Field label="Where are you starting from?">
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    ['beginner', 'New to it'],
+                    ['some', 'Know a little'],
+                    ['experienced', 'Experienced'],
+                  ].map(([value, label]) => (
+                    <button key={value} type="button" onClick={() => setForm((current) => ({ ...current, experience: value }))} className={`rounded-xl border px-2 py-3 text-xs font-semibold transition sm:text-sm ${form.experience === value ? 'border-[#557b54] bg-[#edf3e9] text-[#355a39] ring-1 ring-[#557b54]' : 'border-[#e5e8df] text-[#737b70] hover:bg-[#fafbf8]'}`}>
+                      {form.experience === value && <Check size={13} className="mr-1 inline" />}{label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+
+              <Field label="What does success look like?">
+                <textarea name="outcome" value={form.outcome} onChange={updateField} required maxLength={1000} rows={3} placeholder="e.g. Build and deploy my first ML model..." className="field resize-none" />
+              </Field>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Minutes per day">
+                  <select name="minutesPerDay" value={form.minutesPerDay} onChange={updateField} className="field">
+                    <option value="15">15 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option><option value="90">1.5 hours</option><option value="120">2 hours</option>
+                  </select>
+                </Field>
+                <Field label="Days per week">
+                  <select name="daysPerWeek" value={form.daysPerWeek} onChange={updateField} className="field">
+                    {[2, 3, 4, 5, 6, 7].map((days) => <option key={days} value={days}>{days} days</option>)}
+                  </select>
+                </Field>
+              </div>
+
+              <button type="submit" className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#263f32] px-5 py-4 text-sm font-semibold text-white transition hover:bg-[#355640] focus:outline-none focus:ring-4 focus:ring-[#d8e5d3]">
+                Build my learning path <ArrowRight size={17} className="transition group-hover:translate-x-1" />
+              </button>
+              {submitted && (
+                <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+                  Your goal is captured in this form. Roadmap generation will be enabled once the persistent learning-goal API is connected; nothing has been saved yet.
+                </div>
+              )}
+              <p className="text-center text-xs text-[#9aa095]">Designed around your goal, not a fixed catalogue of courses.</p>
+            </form>
+          </div>
+
+          <div className="absolute -bottom-5 -left-5 hidden items-center gap-3 rounded-2xl border border-[#e5e8df] bg-white px-4 py-3 shadow-lg sm:flex">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#fff2d9] text-[#9d7333]"><Zap size={19} /></span>
+            <div><p className="text-sm font-semibold">Small steps, real momentum</p><p className="mt-0.5 text-xs text-[#8a9186]">Your next step, always clear</p></div>
+          </div>
+        </div>
+      </section>
+
+      <footer className="border-t border-[#e6e8df] px-5 py-5 text-center text-xs text-[#969d91]">
+        <span className="inline-flex items-center gap-2"><BookOpen size={13} /> Learn with intention. Grow at your pace.</span>
+      </footer>
+    </main>
+  );
+}
+
+function Field({ label, children }) {
+  return <label className="block space-y-2"><span className="block text-sm font-semibold text-[#424a40]">{label}</span>{children}</label>;
+}
+
+function Stat({ icon, title, text }) {
+  return <div className="rounded-2xl border border-[#e3e6dc] bg-white/70 p-3 sm:p-4"><span className="mb-3 inline-flex text-[#688663]">{icon}</span><p className="text-sm font-semibold">{title}</p><p className="mt-1 text-[11px] leading-4 text-[#8b9287] sm:text-xs">{text}</p></div>;
+}
+
+export default App;

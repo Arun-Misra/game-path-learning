@@ -1,0 +1,26 @@
+{
+  "name": "gamified-learning-v2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/web",
+    "apps/api"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"npm run dev -w @gamified-learning/api\" \"npm run dev -w @gamified-learning/web\"",
+    "dev:web": "npm run dev -w @gamified-learning/web",
+    "dev:api": "npm run dev -w @gamified-learning/api",
+    "build": "npm run build -w @gamified-learning/web",
+    "test": "npm test -w @gamified-learning/api",
+    "check": "npm run check -w @gamified-learning/api && npm run lint -w @gamified-learning/web",
+    "db:generate": "prisma generate",
+    "db:validate": "prisma validate",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6",
+    "prisma": "^6.19.0"
+  }
+}
