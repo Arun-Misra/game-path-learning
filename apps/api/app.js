@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
+const { prisma } = require('./lib/prisma');
 const indexRouter = require('./routes/index');
 const authRouter = require('./routes/auth');
 const learningGoalsRouter = require('./routes/learning-goals');
@@ -28,6 +29,18 @@ app.get('/api/v1/health', (_req, res) => {
     service: 'gamified-learning-api',
     timestamp: new Date().toISOString(),
   });
+});
+
+app.get('/api/v1/ready', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return res.status(200).json({ status: 'ready', database: 'connected' });
+  } catch {
+    return res.status(503).json({
+      status: 'not_ready',
+      error: { code: 'DATABASE_UNAVAILABLE', message: 'The database is not available.' },
+    });
+  }
 });
 
 app.use('/api/v1/auth', authRouter);
