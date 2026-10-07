@@ -24,9 +24,34 @@ function sessionCookie(response) {
   return header.split(';', 1)[0];
 }
 
-test('database integration: auth, goal persistence, logout, and user isolation', {
+function proposedRoadmap(title) {
+  return {
+    title,
+    summary: 'A staged plan adapted to the learner’s goal and weekly availability.',
+    topics: [
+      {
+        key: 'fundamentals',
+        title: 'Fundamentals',
+        description: 'Build the foundations needed for later practice.',
+        learningObjectives: ['Explain the key concepts'],
+        estimatedMinutes: 30,
+        prerequisiteKeys: [],
+      },
+      {
+        key: 'guided-practice',
+        title: 'Guided practice',
+        description: 'Apply the fundamentals in a practical exercise.',
+        learningObjectives: ['Complete a guided practical task'],
+        estimatedMinutes: 45,
+        prerequisiteKeys: ['fundamentals'],
+      },
+    ],
+  };
+}
+
+test('database integration: auth, goals, roadmap versions, activation, and user isolation', {
   skip: !testDatabaseUrl && 'Set TEST_DATABASE_URL to an isolated migrated PostgreSQL test database.',
-  timeout: 30000,
+  timeout: 45000,
 }, async (t) => {
   const suffix = randomUUID();
   const firstEmail = `integration-first-${suffix}@example.test`;
@@ -86,6 +111,49 @@ test('database integration: auth, goal persistence, logout, and user isolation',
         headers: { Cookie: second.cookie },
       });
       assert.equal(secondCannotRead.status, 404);
+
+      const firstDraftResponse = await fetch(`${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
+        body: JSON.stringify(proposedRoadmap('Guitar foundations')),
+      });
+      assert.equal(firstDraftResponse.status, 201);
+      const firstDraft = (await firstDraftResponse.json()).data.roadmap;
+      assert.equal(firstDraft.version, 1);
+      assert.equal(firstDraft.generationState, 'DRAFT');
+      assert.equal(firstDraft.topics.length, 2);
+      assert.equal(firstDraft.topics[1].prerequisites[0].prerequisite.title, 'Fundamentals');
+
+      const secondDraftResponse = await fetch(`${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
+        body: JSON.stringify(proposedRoadmap('Guitar foundations revised')),
+      });
+      assert.equal(secondDraftResponse.status, 201);
+      const secondDraft = (await secondDraftResponse.json()).data.roadmap;
+      assert.equal(secondDraft.version, 2);
+
+      const activate = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps/${secondDraft.id}/activate`,
+        { method: 'POST', headers: { Cookie: first.cookie } },
+      );
+      assert.equal(activate.status, 200);
+      assert.equal((await activate.json()).data.roadmap.generationState, 'ACTIVE');
+
+      const roadmapsResponse = await fetch(`${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps`, {
+        headers: { Cookie: first.cookie },
+      });
+      assert.equal(roadmapsResponse.status, 200);
+      const roadmaps = (await roadmapsResponse.json()).data.roadmaps;
+      assert.deepEqual(roadmaps.map((item) => item.version), [2, 1]);
+      assert.equal(roadmaps[0].generationState, 'ACTIVE');
+      assert.equal(roadmaps[1].generationState, 'SUPERSEDED');
+
+      const secondCannotListRoadmaps = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps`,
+        { headers: { Cookie: second.cookie } },
+      );
+      assert.equal(secondCannotListRoadmaps.status, 404);
 
       const login = await fetch(`${baseUrl}/api/v1/auth/login`, {
         method: 'POST',
