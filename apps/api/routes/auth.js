@@ -59,16 +59,31 @@ router.post('/register', authLimiter, async (req, res, next) => {
 
   try {
     const passwordHash = await bcrypt.hash(parsed.data.password, 12);
-    const user = await prisma.user.create({
-      data: {
-        email: parsed.data.email,
-        name: parsed.data.name || null,
-        passwordHash,
-      },
-      select: { id: true, email: true, name: true },
+    const token = createSessionToken();
+    const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
+
+    const user = await prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({
+        data: {
+          email: parsed.data.email,
+          name: parsed.data.name || null,
+          passwordHash,
+        },
+        select: { id: true, email: true, name: true },
+      });
+
+      await tx.session.create({
+        data: {
+          userId: createdUser.id,
+          tokenHash: hashSessionToken(token),
+          expiresAt,
+        },
+      });
+      return createdUser;
     });
-    const safeUser = await issueSession(user, res);
-    return res.status(201).json({ data: { user: safeUser } });
+
+    res.cookie(SESSION_COOKIE, token, cookieOptions());
+    return res.status(201).json({ data: { user } });
   } catch (error) {
     if (error.code === 'P2002') {
       return res.status(409).json({
