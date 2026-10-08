@@ -7,20 +7,17 @@ A personalised learning platform for any skill. Learners describe their current 
 - **Web:** React, JavaScript, Vite, Tailwind CSS
 - **API:** Node.js, Express, JavaScript, Zod
 - **Persistence:** PostgreSQL + Prisma
+- **Roadmap generation:** OpenAI structured output, validated server-side before persistence
 - **Tests:** Node.js built-in test runner
-
-## Requirements
-
-- Node.js 24+
-- npm
-- PostgreSQL (required for account and learning-goal operations)
 
 ## Setup
 
 1. Install dependencies: `npm install`.
-2. Configure the root `.env` file using `.env.example` as a guide. Set `DATABASE_URL` to a real PostgreSQL database. Do not commit `.env`.
-3. Apply the initial schema: `npm run db:migrate`.
-4. Start both applications: `npm run dev`.
+2. Configure the root `.env` using `.env.example` as a guide.
+3. Set `DATABASE_URL` to a real PostgreSQL database.
+4. Set `OPENAI_API_KEY` to a valid API key with access to the configured model. Keep it only in the ignored root `.env`; never commit it.
+5. Apply the initial schema: `npm run db:migrate`.
+6. Start both applications: `npm run dev`.
 
 The web app uses Vite's default local development port. The API defaults to port 3000. Vite proxies `/api` requests to the API.
 
@@ -30,7 +27,7 @@ The web app uses Vite's default local development port. The API defaults to port
 - `npm run dev:web` — run the web app
 - `npm run dev:api` — run the API
 - `npm run build` — production-build the web app
-- `npm test` — API tests; database integration tests are skipped unless `TEST_DATABASE_URL` is configured
+- `npm test` — API tests; DB integration tests are skipped unless `TEST_DATABASE_URL` is configured
 - `npm run check` — API JavaScript syntax checks and web lint
 - `npm run db:validate` — validate the Prisma schema
 - `npm run db:generate` — generate the Prisma Client
@@ -49,7 +46,7 @@ npx prisma migrate deploy
 npm test
 ```
 
-The integration test exercises registration, session lookup, login, logout, learning-goal persistence, roadmap versioning, activation, prerequisite persistence, and cross-user isolation. It only cleans up the uniquely named test users it creates.
+The integration test exercises registration, login, logout, goal persistence, roadmap versioning and activation, prerequisite persistence, and cross-user isolation. It cleans up only the uniquely named test users it creates.
 
 ## Implemented API routes
 
@@ -62,16 +59,17 @@ The integration test exercises registration, session lookup, login, logout, lear
 - `POST /api/v1/learning-goals`
 - `GET /api/v1/learning-goals`
 - `GET /api/v1/learning-goals/:goalId`
-- `POST /api/v1/learning-goals/:goalId/roadmaps` — validate and persist a draft roadmap version
-- `GET /api/v1/learning-goals/:goalId/roadmaps` — list roadmap versions
+- `POST /api/v1/learning-goals/:goalId/roadmaps/generate` — generate and persist a personalised draft
+- `POST /api/v1/learning-goals/:goalId/roadmaps` — validate and persist a supplied draft
+- `GET /api/v1/learning-goals/:goalId/roadmaps` — list versions
 - `POST /api/v1/learning-goals/:goalId/roadmaps/:roadmapId/activate` — activate a draft version
 
-Roadmap draft input is validated server-side, including prerequisite graph checks. Draft creation and prerequisite persistence are transactional. Activating a new version supersedes the previously active version. The generation provider and frontend roadmap-review flow are not yet connected; the endpoint persists a structured proposal rather than pretending an AI provider is configured.
+Roadmap generation uses the learner's skill, experience level, desired outcome, available weekly time, and target date. It requests structured JSON from the configured model and validates the result, including prerequisite references and cycles, before saving. Generation is rate-limited. Missing credentials, provider errors, rate limits, and invalid output are surfaced as safe API errors rather than silently substituting a canned roadmap.
 
-Authentication uses server-side sessions and HttpOnly cookies. Learning goals and roadmaps are scoped to the authenticated user.
+The frontend can generate, inspect, and activate roadmap versions for saved goals. Database operations remain unavailable until valid database credentials and a migrated PostgreSQL database are configured.
 
 ## Current limitations
 
-The initial SQL migration is generated but has not been applied. The local PostgreSQL service is disabled/stopped, and the current environment cannot enable/start it without elevated Windows permissions. Live database connectivity and the database integration suite have therefore not yet been verified. Next, enable the local database, apply the migration, run the integration suite, then connect the roadmap generation provider and review UI.
+The PostgreSQL service is running, but the configured connection is currently rejected by PostgreSQL with Prisma error P1010. The initial migration has not been applied, and the database integration suite has not yet passed against a real test database. A valid database role/credentials and separate test database are still required.
 
 See `context.md` for current implementation status and the master implementation plan for product requirements and implementation order.

@@ -30,6 +30,8 @@ function App() {
   const [notice, setNotice] = useState(null);
   const [user, setUser] = useState(null);
   const [goals, setGoals] = useState([]);
+  const [roadmapsByGoal, setRoadmapsByGoal] = useState({});
+  const [roadmapBusyGoal, setRoadmapBusyGoal] = useState(null);
 
   useEffect(() => {
     requestJson('/api/v1/health')
@@ -44,8 +46,15 @@ function App() {
         }
         return null;
       })
-      .then((result) => {
-        if (result?.data?.goals) setGoals(result.data.goals);
+      .then(async (result) => {
+        if (result?.data?.goals) {
+          setGoals(result.data.goals);
+          const entries = await Promise.all(result.data.goals.map(async (goal) => {
+            const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps`);
+            return [goal.id, saved.data.roadmaps];
+          }));
+          setRoadmapsByGoal(Object.fromEntries(entries));
+        }
       })
       .catch((error) => {
         if (error.message.includes('fetch') || error.message.includes('Failed to fetch')) {
@@ -98,11 +107,57 @@ function App() {
     }
   }
 
+  async function handleGenerateRoadmap(goal) {
+    setRoadmapBusyGoal(goal.id);
+    setNotice(null);
+    try {
+      const result = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps/generate`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setRoadmapsByGoal((current) => ({
+        ...current,
+        [goal.id]: [result.data.roadmap, ...(current[goal.id] || [])],
+      }));
+      setNotice({ type: 'success', message: `A personalised draft roadmap for ${goal.skill} is ready to review.` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setRoadmapBusyGoal(null);
+    }
+  }
+
+  async function handleActivateRoadmap(goal, roadmap) {
+    setRoadmapBusyGoal(goal.id);
+    setNotice(null);
+    try {
+      const result = await requestJson(
+        `/api/v1/learning-goals/${goal.id}/roadmaps/${roadmap.id}/activate`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      setRoadmapsByGoal((current) => ({
+        ...current,
+        [goal.id]: (current[goal.id] || []).map((item) => {
+          if (item.id === result.data.roadmap.id) return result.data.roadmap;
+          if (item.generationState === 'ACTIVE') return { ...item, generationState: 'SUPERSEDED' };
+          return item;
+        }),
+      }));
+      setGoals((current) => current.map((item) => item.id === goal.id ? { ...item, status: 'active' } : item));
+      setNotice({ type: 'success', message: `Roadmap activated for ${goal.skill}.` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setRoadmapBusyGoal(null);
+    }
+  }
+
   async function handleLogout() {
     try {
       await requestJson('/api/v1/auth/logout', { method: 'POST' });
       setUser(null);
       setGoals([]);
+      setRoadmapsByGoal({});
       setNotice({ type: 'success', message: 'You have signed out.' });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
@@ -172,7 +227,7 @@ function App() {
         </div>
       </section>
 
-      {user && goals.length > 0 && <section className="mx-auto max-w-7xl px-5 pb-12 sm:px-8"><div className="rounded-3xl border border-[#e3e6dc] bg-white p-6"><h2 className="text-xl font-semibold">Your saved learning goals</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.map((goal) => <article key={goal.id} className="rounded-2xl border border-[#e7e9e1] p-4"><p className="font-semibold">{goal.skill}</p><p className="mt-1 text-sm text-[#737b70]">{goal.outcome}</p><p className="mt-3 text-xs text-[#82917b]">{goal.minutesPerDay} min/day · {goal.daysPerWeek} days/week · {goal.status}</p></article>)}</div></div></section>}
+      {user && goals.length > 0 && <section className="mx-auto max-w-7xl px-5 pb-12 sm:px-8"><div className="rounded-3xl border border-[#e3e6dc] bg-white p-6"><h2 className="text-xl font-semibold">Your saved learning goals</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.map((goal) => <article key={goal.id} className="rounded-2xl border border-[#e7e9e1] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{goal.skill}</p><p className="mt-1 text-sm text-[#737b70]">{goal.outcome}</p><p className="mt-3 text-xs text-[#82917b]">{goal.minutesPerDay} min/day · {goal.daysPerWeek} days/week · {goal.status}</p></div><button type="button" onClick={() => handleGenerateRoadmap(goal)} disabled={roadmapBusyGoal !== null || apiStatus !== 'online'} className="rounded-xl bg-[#263f32] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{roadmapBusyGoal === goal.id ? 'Generating…' : 'Generate roadmap'}</button></div>{(roadmapsByGoal[goal.id] || []).map((roadmap) => <div key={roadmap.id} className="mt-4 rounded-xl bg-[#f7f8f4] p-4"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold">{roadmap.title}</p><p className="mt-1 text-xs text-[#737b70]">Version {roadmap.version} · {roadmap.generationState.toLowerCase()} · {roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0)} min</p></div>{roadmap.generationState === 'DRAFT' && <button type="button" onClick={() => handleActivateRoadmap(goal, roadmap)} disabled={roadmapBusyGoal !== null} className="rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">Activate</button>}</div><p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p><ol className="mt-3 space-y-2">{roadmap.topics.map((topic) => <li key={topic.id} className="flex gap-3 border-t border-[#e4e8df] pt-2"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-xs font-semibold text-[#557b54]">{topic.position + 1}</span><div><p className="text-sm font-semibold">{topic.title}</p><p className="mt-0.5 text-xs leading-5 text-[#737b70]">{topic.description}</p><p className="mt-1 text-[11px] text-[#82917b]">{topic.estimatedMinutes} min</p></div></li>)}</ol></div>)}</article>)}</div></div></section>}
 
       <footer className="border-t border-[#e6e8df] px-5 py-5 text-center text-xs text-[#969d91]"><span className="inline-flex items-center gap-2"><BookOpen size={13} /> Learn with intention. Grow at your pace.</span></footer>
     </main>

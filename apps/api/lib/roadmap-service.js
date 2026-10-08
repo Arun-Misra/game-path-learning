@@ -1,5 +1,6 @@
 const { prisma } = require('./prisma');
 const { validateRoadmap } = require('./roadmap-validation');
+const { generateRoadmap } = require('./roadmap-generator');
 
 class RoadmapServiceError extends Error {
   constructor(status, code, message) {
@@ -97,6 +98,35 @@ async function createRoadmapDraft({ userId, goalId, input, db = prisma }) {
   return getRoadmapWithTopics(db, roadmapId);
 }
 
+async function generateRoadmapDraft({ userId, goalId, db = prisma, generator = generateRoadmap }) {
+  const goal = await db.learningGoal.findFirst({
+    where: { id: goalId, userId },
+    select: {
+      id: true,
+      title: true,
+      targetOutcome: true,
+      experienceLevel: true,
+      minutesPerDay: true,
+      daysPerWeek: true,
+      targetDate: true,
+    },
+  });
+
+  if (!goal) {
+    throw new RoadmapServiceError(404, 'GOAL_NOT_FOUND', 'Learning goal not found.');
+  }
+
+  let proposed;
+  try {
+    proposed = await generator(goal);
+  } catch (error) {
+    if (error && Number.isInteger(error.status) && error.code) throw error;
+    throw new RoadmapServiceError(502, 'ROADMAP_GENERATION_FAILED', 'The roadmap could not be generated. Please try again.');
+  }
+
+  return createRoadmapDraft({ userId, goalId, input: proposed, db });
+}
+
 async function listRoadmaps({ userId, goalId, db = prisma }) {
   const goal = await db.learningGoal.findFirst({
     where: { id: goalId, userId },
@@ -182,6 +212,7 @@ async function activateRoadmap({ userId, goalId, roadmapId, db = prisma }) {
 module.exports = {
   RoadmapServiceError,
   createRoadmapDraft,
+  generateRoadmapDraft,
   listRoadmaps,
   activateRoadmap,
 };
