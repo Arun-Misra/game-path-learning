@@ -14,6 +14,7 @@
     "build": "npm run build -w @gamified-learning/web",
     "test": "npm test -w @gamified-learning/api",
     "check": "npm run check -w @gamified-learning/api && npm run lint -w @gamified-learning/web",
+    "smoke:ollama": "npm run smoke:ollama -w @gamified-learning/api",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",

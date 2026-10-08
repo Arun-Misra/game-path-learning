@@ -5,6 +5,7 @@ const {
   buildPrompt,
   generateRoadmap,
   isLocalOllama,
+  normalizeRoadmapProposal,
 } = require('../lib/roadmap-generator');
 
 const goal = {
@@ -48,6 +49,16 @@ test('prompt includes the learner skill, outcome, available time, and JSON schem
   assert.match(prompt, /30 minutes\/day, 4 days\/week/);
   assert.match(prompt, /"prerequisiteKeys"/);
   assert.match(prompt, /valid JSON only/);
+});
+
+test('normalizes empty prerequisite markers emitted by local models', () => {
+  const proposal = validProposal();
+  proposal.topics[0].prerequisiteKeys = ['[]'];
+  proposal.topics[1].prerequisiteKeys = ['shapes', 'none', 'missing-topic', 'character'];
+
+  const normalized = normalizeRoadmapProposal(proposal);
+  assert.deepEqual(normalized.topics[0].prerequisiteKeys, []);
+  assert.deepEqual(normalized.topics[1].prerequisiteKeys, ['shapes']);
 });
 
 test('recognises local Ollama endpoints so they do not require an API key', () => {
@@ -116,31 +127,29 @@ test('local Ollama generation works without a hosted API key', async () => {
   assert.equal(result.topics.length, 2);
 });
 
-test('generation rejects invalid provider output instead of persisting it', async () => {
-  await assert.rejects(
-    generateRoadmap(goal, {
-      apiKey: '',
-      baseUrl: 'http://localhost:11434/v1',
-      fetchImpl: async () => ({
-        ok: true,
-        json: async () => ({
-          choices: [{
-            message: {
-              content: JSON.stringify({
-                ...validProposal(),
-                topics: validProposal().topics.map((topic) => ({
-                  ...topic,
-                  prerequisiteKeys: ['missing-topic'],
-                })),
-              }),
-            },
-          }],
-        }),
+test('generation removes invalid external prerequisite references before validation', async () => {
+  const result = await generateRoadmap(goal, {
+    apiKey: '',
+    baseUrl: 'http://localhost:11434/v1',
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              ...validProposal(),
+              topics: validProposal().topics.map((topic) => ({
+                ...topic,
+                prerequisiteKeys: ['missing-topic'],
+              })),
+            }),
+          },
+        }],
       }),
     }),
-    (error) => error instanceof RoadmapGenerationError
-      && error.code === 'ROADMAP_PROVIDER_INVALID_ROADMAP',
-  );
+  });
+
+  assert.deepEqual(result.topics.map((topic) => topic.prerequisiteKeys), [[], []]);
 });
 
 test('provider rate limits are reported as retryable service errors', async () => {

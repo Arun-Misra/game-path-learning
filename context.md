@@ -18,7 +18,7 @@ A personalised learning platform for any skill. Learners provide their skill, ex
 - Unit tests cover provider configuration/response validation, roadmap validation, mission scheduling/timezones, and other pure logic. apps/api/test/database.integration.test.js includes auth, roadmap versioning, mission generation/completion, duplicate XP prevention, and isolation assertions, but it is opt-in and has not run against PostgreSQL yet.
 
 ## Validation
-Before the provider adapter change, 22 tests passed, 0 failed, and 1 DB integration test was skipped because TEST_DATABASE_URL was not configured. API syntax checks, frontend lint (0 warnings/errors), production build, Prisma validation, Prisma Client generation, and diff whitespace checks passed. Re-run these checks after provider configuration changes. Database-backed mission/XP assertions remain unexecuted until PostgreSQL credentials and a test database are configured. Local Ollama generation has been tested with a mocked HTTP response in unit tests; a live Ollama model call has not yet been verified.
+Before the provider adapter change, 22 tests passed, 0 failed, and 1 DB integration test was skipped because TEST_DATABASE_URL was not configured. API syntax checks, frontend lint (0 warnings/errors), production build, Prisma validation, Prisma Client generation, and diff whitespace checks passed. Re-run these checks after provider configuration changes. Database-backed mission/XP assertions remain unexecuted until PostgreSQL credentials and a test database are configured. Live Ollama was verified: gemma4:e2b is installed (4.6 GB), the local OpenAI-compatible chat endpoint responds, and strict JSON Schema output works. A live model response exposed empty prerequisite markers and some invalid external/self references; the generator now normalizes these to valid internal prerequisites before the normal roadmap validation. The full live generateRoadmap() smoke test now passes application validation and returned a 7-topic JavaScript roadmap (555 estimated minutes). Run it with `npm run smoke:ollama`.
 
 ## Database limitation
 The PostgreSQL 18 Windows service is RUNNING. Prisma migrate status returned P1010 (access denied) for the current example connection to database mydb. The migrations are not applied. Need valid PostgreSQL username/password and a separate isolated test database. Do not claim persistence verified until the integration suite passes. Root .env contains example credentials and must not be committed.
@@ -32,15 +32,14 @@ The PostgreSQL 18 Windows service is RUNNING. Prisma migrate status returned P10
 - 8bdc01f feat: persist and activate roadmap versions
 - f0ee9f9 feat: generate and review personalised roadmaps
 - d7b3728 feat: schedule missions and award completion XP
-- Provider adapter changes are currently uncommitted until tests and review pass.
+- 29bb927 feat: support free local and hosted AI providers
+- Follow-up Gemma prerequisite-normalization and `npm run smoke:ollama` live-provider smoke test are currently uncommitted pending final checks.
 - No remote configured; do not claim pushes.
 
 ## Next priorities
-1. Run checks for the configurable AI provider adapter and commit it if clean.
-2. Install/run Ollama and pull gemma4:e2b to verify a live local generation request. Alternatively, configure NVIDIA NIM credentials in the local ignored .env; do not put keys in Git or chat.
-3. Configure valid PostgreSQL credentials and a dedicated test database, apply migrations, and run the full DB integration suite.
-4. Add assessments and exercise submissions; then streaks, levels, and achievements using backend-owned events.
-5. Continue end-to-end workflow verification and improve onboarding persistence/roadmap editing.
+1. Configure valid PostgreSQL credentials and a dedicated test database, apply migrations, and run the full DB integration suite.
+2. Add assessments and exercise submissions; then streaks, levels, and achievements using backend-owned events.
+3. Continue end-to-end workflow verification and improve onboarding persistence/roadmap editing.
 
 ## Commands
 npm run dev | npm run dev:web | npm run dev:api | npm test | npm run check | npm run build | npm run db:validate | npm run db:generate | npm run db:migrate.

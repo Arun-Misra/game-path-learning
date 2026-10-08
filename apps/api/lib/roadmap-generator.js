@@ -47,7 +47,7 @@ function buildPrompt(goal) {
     'Start at the stated experience level, sequence foundations before dependent skills, and make each topic assessable.',
     'Each topic must include clear learning objectives, an actionable description, and an estimated number of minutes.',
     'Use stable, unique topic keys containing only letters, numbers, dots, underscores, or hyphens.',
-    'Every prerequisite key must refer to another topic key. Do not create cycles or self-dependencies.',
+    'IMPORTANT: prerequisiteKeys may contain ONLY exact key values from the key fields of topics in THIS response. Never put prior knowledge, generic concepts, or any external key in prerequisiteKeys. Use an empty array when a topic has no prerequisite. Put prerequisite topics earlier in the topics array, and never create cycles or self-dependencies.',
     'Create between 4 and 10 topics. Do not promise mastery by a date; be realistic and focus on measurable milestones.',
     'Keep the plan feasible for the weekly time budget and include practice and feedback, not only theory.',
     'Return valid JSON only, matching this exact structure. Do not wrap it in Markdown fences or add commentary.',
@@ -61,6 +61,32 @@ function buildPrompt(goal) {
     '',
     'Return only data matching the required JSON schema.',
   ].join('\n');
+}
+
+function normalizeRoadmapProposal(proposal) {
+  if (!proposal || !Array.isArray(proposal.topics)) return proposal;
+  const emptyPrerequisiteMarkers = new Set(['', '[]', 'none', 'null', 'no prerequisites']);
+  const topicKeys = new Set(proposal.topics.map((topic) => topic?.key).filter((key) => typeof key === 'string'));
+
+  return {
+    ...proposal,
+    topics: proposal.topics.map((topic) => {
+      if (!Array.isArray(topic.prerequisiteKeys)) return topic;
+      const markers = topic.prerequisiteKeys
+        .map((key) => typeof key === 'string' ? key.trim() : key);
+      if (markers.length > 0 && markers.every((key) => typeof key === 'string'
+        && emptyPrerequisiteMarkers.has(key.toLowerCase()))) {
+        return { ...topic, prerequisiteKeys: [] };
+      }
+      return {
+        ...topic,
+        prerequisiteKeys: [...new Set(markers.filter((key) => typeof key === 'string'
+          && !emptyPrerequisiteMarkers.has(key.toLowerCase())
+          && topicKeys.has(key)
+          && key !== topic.key))],
+      };
+    }),
+  };
 }
 
 function isLocalOllama(baseUrl) {
@@ -102,7 +128,7 @@ async function generateRoadmap(goal, {
         messages: [
           {
             role: 'system',
-            content: 'You are a careful learning designer. Create specific, achievable, skill-agnostic learning plans. Never invent learner credentials or claim guaranteed outcomes. Output only valid JSON matching the supplied schema.',
+            content: 'You are a careful learning designer. Create specific, achievable, skill-agnostic learning plans. Never invent learner credentials or claim guaranteed outcomes. prerequisiteKeys must reference only exact key values of other topics in your response; never use generic concepts or external keys. Use [] when there is no prerequisite. Output only valid JSON matching the supplied schema.',
           },
           { role: 'user', content: buildPrompt(goal) },
         ],
@@ -166,7 +192,7 @@ async function generateRoadmap(goal, {
     throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_RESPONSE', 'The AI provider returned invalid JSON. Please try generating the roadmap again.');
   }
 
-  const validated = validateRoadmap(proposed);
+  const validated = validateRoadmap(normalizeRoadmapProposal(proposed));
   if (!validated.success) {
     throw new RoadmapGenerationError(
       502,
@@ -178,4 +204,4 @@ async function generateRoadmap(goal, {
   return validated.data;
 }
 
-module.exports = { RoadmapGenerationError, buildPrompt, generateRoadmap, isLocalOllama };
+module.exports = { RoadmapGenerationError, buildPrompt, generateRoadmap, isLocalOllama, normalizeRoadmapProposal };
