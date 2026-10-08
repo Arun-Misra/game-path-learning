@@ -57,6 +57,7 @@ model User {
   completions    MissionCompletion[]
   xpTransactions XpTransaction[]
   topicProgress  UserTopicProgress[]
+  assessmentAttempts AssessmentAttempt[]
 }
 
 model Session {
@@ -122,6 +123,7 @@ model RoadmapTopic {
   requiredBy          TopicPrerequisite[] @relation("TopicDependents")
   missions            DailyMission[]
   userProgress        UserTopicProgress[]
+  assessment          TopicAssessment?
 
   @@unique([roadmapId, position])
   @@index([roadmapId])
@@ -206,4 +208,35 @@ model UserTopicProgress {
 
   @@unique([userId, topicId])
   @@index([userId, status])
+}
+
+model TopicAssessment {
+  id           String              @id @default(cuid())
+  topicId      String              @unique
+  title        String
+  instructions String
+  questions    Json
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  topic        RoadmapTopic        @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  attempts     AssessmentAttempt[]
+
+  @@index([createdAt])
+}
+
+model AssessmentAttempt {
+  id           String           @id @default(cuid())
+  userId       String
+  assessmentId String
+  answers      Json
+  score        Float
+  correctCount Int
+  questionCount Int
+  passed       Boolean
+  createdAt    DateTime         @default(now())
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assessment   TopicAssessment  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([assessmentId, createdAt])
 }

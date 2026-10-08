@@ -34,6 +34,10 @@ function App() {
   const [roadmapBusyGoal, setRoadmapBusyGoal] = useState(null);
   const [missionsByGoal, setMissionsByGoal] = useState({});
   const [missionBusyId, setMissionBusyId] = useState(null);
+  const [assessmentByTopic, setAssessmentByTopic] = useState({});
+  const [assessmentBusyId, setAssessmentBusyId] = useState(null);
+  const [assessmentAnswers, setAssessmentAnswers] = useState({});
+  const [assessmentResultByTopic, setAssessmentResultByTopic] = useState({});
 
   useEffect(() => {
     requestJson('/api/v1/health')
@@ -214,6 +218,59 @@ function App() {
     }
   }
 
+  async function handleGenerateAssessment(goal, topic) {
+    setAssessmentBusyId(topic.id);
+    setNotice(null);
+    try {
+      const result = await requestJson(
+        `/api/v1/learning-goals/${goal.id}/assessments/${topic.id}/generate`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      setAssessmentByTopic((current) => ({ ...current, [topic.id]: result.data.assessment }));
+      setAssessmentAnswers((current) => ({ ...current, [topic.id]: {} }));
+      setAssessmentResultByTopic((current) => ({ ...current, [topic.id]: null }));
+      setNotice({ type: 'success', message: result.data.alreadyExisted
+        ? `Loaded your assessment for ${topic.title}.`
+        : `A new assessment for ${topic.title} is ready.` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setAssessmentBusyId(null);
+    }
+  }
+
+  async function handleSubmitAssessment(goal, topic) {
+    const assessment = assessmentByTopic[topic.id];
+    if (!assessment) return;
+    const answers = assessment.questions.map((question) => ({
+      key: question.key,
+      answerIndex: assessmentAnswers[topic.id]?.[question.key],
+    }));
+    if (answers.some((answer) => !Number.isInteger(answer.answerIndex))) {
+      setNotice({ type: 'error', message: 'Answer every question before submitting.' });
+      return;
+    }
+
+    setAssessmentBusyId(topic.id);
+    setNotice(null);
+    try {
+      const result = await requestJson(
+        `/api/v1/learning-goals/${goal.id}/assessments/${topic.id}/attempts`,
+        { method: 'POST', body: JSON.stringify({ answers }) },
+      );
+      setAssessmentResultByTopic((current) => ({ ...current, [topic.id]: result.data }));
+      setNotice({
+        type: result.data.attempt.passed ? 'success' : 'error',
+        message: `Assessment score: ${result.data.attempt.score}%. ${result.data.attempt.passed ? 'You passed!' : 'Review the explanations and try again.'}`,
+      });
+      setMissionsByGoal((current) => ({ ...current }));
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setAssessmentBusyId(null);
+    }
+  }
+
   async function handleLogout() {
     try {
       await requestJson('/api/v1/auth/logout', { method: 'POST' });
@@ -221,6 +278,9 @@ function App() {
       setGoals([]);
       setRoadmapsByGoal({});
       setMissionsByGoal({});
+      setAssessmentByTopic({});
+      setAssessmentAnswers({});
+      setAssessmentResultByTopic({});
       setNotice({ type: 'success', message: 'You have signed out.' });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
@@ -290,7 +350,101 @@ function App() {
         </div>
       </section>
 
-      {user && goals.length > 0 && <section className="mx-auto max-w-7xl px-5 pb-12 sm:px-8"><div className="rounded-3xl border border-[#e3e6dc] bg-white p-6"><h2 className="text-xl font-semibold">Your saved learning goals</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.map((goal) => <article key={goal.id} className="rounded-2xl border border-[#e7e9e1] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{goal.skill}</p><p className="mt-1 text-sm text-[#737b70]">{goal.outcome}</p><p className="mt-3 text-xs text-[#82917b]">{goal.minutesPerDay} min/day · {goal.daysPerWeek} days/week · {goal.status} · {missionsByGoal[goal.id]?.totalXp || 0} XP</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => handleGenerateRoadmap(goal)} disabled={roadmapBusyGoal !== null || apiStatus !== 'online'} className="rounded-xl bg-[#263f32] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{roadmapBusyGoal === goal.id ? 'Generating…' : 'Generate roadmap'}</button>{(roadmapsByGoal[goal.id] || []).some((item) => item.generationState === 'ACTIVE') && <button type="button" onClick={() => handleGenerateMissions(goal)} disabled={missionBusyId !== null || apiStatus !== 'online'} className="rounded-xl border border-[#b9cbb2] px-3 py-2 text-xs font-semibold text-[#355a39] disabled:opacity-50">{missionBusyId === goal.id ? 'Scheduling…' : 'Plan this week'}</button>}</div></div>{(roadmapsByGoal[goal.id] || []).map((roadmap) => <div key={roadmap.id} className="mt-4 rounded-xl bg-[#f7f8f4] p-4"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold">{roadmap.title}</p><p className="mt-1 text-xs text-[#737b70]">Version {roadmap.version} · {roadmap.generationState.toLowerCase()} · {roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0)} min</p></div>{roadmap.generationState === 'DRAFT' && <button type="button" onClick={() => handleActivateRoadmap(goal, roadmap)} disabled={roadmapBusyGoal !== null} className="rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">Activate</button>}</div><p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p><ol className="mt-3 space-y-2">{roadmap.topics.map((topic) => <li key={topic.id} className="flex gap-3 border-t border-[#e4e8df] pt-2"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-xs font-semibold text-[#557b54]">{topic.position + 1}</span><div><p className="text-sm font-semibold">{topic.title}</p><p className="mt-0.5 text-xs leading-5 text-[#737b70]">{topic.description}</p><p className="mt-1 text-[11px] text-[#82917b]">{topic.estimatedMinutes} min</p></div></li>)}</ol></div>)}{(missionsByGoal[goal.id]?.missions || []).length > 0 && <div className="mt-4 rounded-xl border border-[#e4e8df] p-4"><div className="flex items-center justify-between gap-3"><p className="font-semibold">This week’s missions</p><span className="text-xs text-[#82917b]">{missionsByGoal[goal.id].missions.filter((item) => item.status === 'COMPLETED').length}/{missionsByGoal[goal.id].missions.length} complete</span></div><div className="mt-3 space-y-2">{missionsByGoal[goal.id].missions.map((mission) => <div key={mission.id} className="flex items-start justify-between gap-3 rounded-xl bg-[#f7f8f4] p-3"><div><p className="text-sm font-semibold">{mission.title}</p><p className="mt-1 text-xs text-[#737b70]">{mission.topic?.title} · {mission.estimatedMinutes} min · {mission.scheduledDate.slice(0, 10)}</p><p className="mt-1 text-xs leading-5 text-[#737b70]">{mission.description}</p></div>{mission.status !== 'COMPLETED' && <button type="button" onClick={() => handleCompleteMission(goal, mission)} disabled={missionBusyId !== null} className="shrink-0 rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">{missionBusyId === mission.id ? 'Saving…' : 'Complete'}</button>} </div>)}</div></div>}</article>)}</div></div></section>}
+      {user && goals.length > 0 && <section className="mx-auto max-w-7xl px-5 pb-12 sm:px-8">
+<div className="rounded-3xl border border-[#e3e6dc] bg-white p-6">
+<h2 className="text-xl font-semibold">Your saved learning goals</h2>
+
+<div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.map((goal) => <article key={goal.id} className="rounded-2xl border border-[#e7e9e1] p-4">
+<div className="flex flex-wrap items-start justify-between gap-3">
+<div>
+<p className="font-semibold">{goal.skill}</p>
+
+<p className="mt-1 text-sm text-[#737b70]">{goal.outcome}</p>
+
+<p className="mt-3 text-xs text-[#82917b]">{goal.minutesPerDay} min/day · {goal.daysPerWeek} days/week · {goal.status} · {missionsByGoal[goal.id]?.totalXp || 0} XP</p>
+
+</div>
+<div className="flex flex-wrap gap-2">
+<button type="button" onClick={() => handleGenerateRoadmap(goal)} disabled={roadmapBusyGoal !== null || apiStatus !== 'online'} className="rounded-xl bg-[#263f32] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{roadmapBusyGoal === goal.id ? 'Generating…' : 'Generate roadmap'}</button>
+{(roadmapsByGoal[goal.id] || []).some((item) => item.generationState === 'ACTIVE') && <button type="button" onClick={() => handleGenerateMissions(goal)} disabled={missionBusyId !== null || apiStatus !== 'online'} className="rounded-xl border border-[#b9cbb2] px-3 py-2 text-xs font-semibold text-[#355a39] disabled:opacity-50">{missionBusyId === goal.id ? 'Scheduling…' : 'Plan this week'}</button>
+}</div>
+
+</div>{(roadmapsByGoal[goal.id] || []).map((roadmap) => <div key={roadmap.id} className="mt-4 rounded-xl bg-[#f7f8f4] p-4">
+<div className="flex flex-wrap items-start justify-between gap-2">
+<div>
+<p className="font-semibold">{roadmap.title}</p>
+
+<p className="mt-1 text-xs text-[#737b70]">Version {roadmap.version} · {roadmap.generationState.toLowerCase()} · {roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0)} min</p>
+
+</div>{roadmap.generationState === 'DRAFT' && <button type="button" onClick={() => handleActivateRoadmap(goal, roadmap)} disabled={roadmapBusyGoal !== null} className="rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">Activate</button>
+}</div>
+
+<p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p>
+
+<ol className="mt-3 space-y-2">{roadmap.topics.map((topic) => <li key={topic.id} className="border-t border-[#e4e8df] pt-3">
+<div className="flex gap-3">
+<span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-xs font-semibold text-[#557b54]">{topic.position + 1}</span>
+
+<div className="min-w-0 flex-1">
+<p className="text-sm font-semibold">{topic.title}</p>
+
+<p className="mt-0.5 text-xs leading-5 text-[#737b70]">{topic.description}</p>
+
+<div className="mt-2 flex flex-wrap items-center gap-2">
+<span className="text-[11px] text-[#82917b]">{topic.estimatedMinutes} min</span>
+{roadmap.generationState === 'ACTIVE' && <button type="button" onClick={() => handleGenerateAssessment(goal, topic)} disabled={assessmentBusyId !== null} className="rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">{assessmentBusyId === topic.id ? 'Preparing…' : assessmentByTopic[topic.id] ? 'Reload assessment' : 'Take assessment'}</button>
+}</div>
+{assessmentByTopic[topic.id] && <div className="mt-3 rounded-xl border border-[#dfe7d9] bg-white p-3">
+<p className="font-semibold text-sm">{assessmentByTopic[topic.id].title}</p>
+
+<p className="mt-1 text-xs leading-5 text-[#737b70]">{assessmentByTopic[topic.id].instructions}</p>
+
+<div className="mt-3 space-y-4">{assessmentByTopic[topic.id].questions.map((question, questionIndex) => <fieldset key={question.key} className="space-y-2">
+<legend className="text-sm font-medium">{questionIndex + 1}. {question.prompt}</legend>
+{question.options.map((option, optionIndex) => <label key={optionIndex} className="flex cursor-pointer items-start gap-2 rounded-lg border border-[#e8ebe3] p-2 text-xs leading-5 hover:bg-[#f7f8f4]">
+<input type="radio" name={`${topic.id}-${question.key}`} value={optionIndex} checked={assessmentAnswers[topic.id]?.[question.key] === optionIndex} onChange={() => { setAssessmentAnswers((current) => ({ ...current, [topic.id]: { ...(current[topic.id] || {}), [question.key]: optionIndex } })); setAssessmentResultByTopic((current) => ({ ...current, [topic.id]: null })); }} className="mt-1 accent-[#355a39]" />{option}</label>
+)}</fieldset>
+)}</div>
+
+<button type="button" onClick={() => handleSubmitAssessment(goal, topic)} disabled={assessmentBusyId !== null} className="mt-4 rounded-xl bg-[#263f32] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{assessmentBusyId === topic.id ? 'Checking answers…' : 'Submit assessment'}</button>
+{assessmentResultByTopic[topic.id] && <div className="mt-4 space-y-2 rounded-xl bg-[#f7f8f4] p-3">
+<p className="text-sm font-semibold">Score: {assessmentResultByTopic[topic.id].attempt.score}% · {assessmentResultByTopic[topic.id].attempt.passed ? 'Passed' : 'Keep practising'}</p>
+{assessmentResultByTopic[topic.id].feedback.map((item, index) => <div key={item.key} className="border-t border-[#e2e7dc] pt-2">
+<p className={`text-xs font-semibold ${item.correct ? 'text-emerald-700' : 'text-rose-700'}`}>Question {index + 1}: {item.correct ? 'Correct' : 'Incorrect'}</p>
+
+<p className="mt-1 text-xs leading-5 text-[#737b70]">{item.explanation}</p>
+
+</div>)}</div>
+}</div>
+}</div>
+</div>
+</li>)}</ol>
+
+</div>)}
+{(missionsByGoal[goal.id]?.missions || []).length > 0 && <div className="mt-4 rounded-xl border border-[#e4e8df] p-4">
+<div className="flex items-center justify-between gap-3">
+<p className="font-semibold">This week’s missions</p>
+
+<span className="text-xs text-[#82917b]">{missionsByGoal[goal.id].missions.filter((item) => item.status === 'COMPLETED').length}/{missionsByGoal[goal.id].missions.length} complete</span>
+
+</div>
+<div className="mt-3 space-y-2">{missionsByGoal[goal.id].missions.map((mission) => <div key={mission.id} className="flex items-start justify-between gap-3 rounded-xl bg-[#f7f8f4] p-3">
+<div>
+<p className="text-sm font-semibold">{mission.title}</p>
+
+<p className="mt-1 text-xs text-[#737b70]">{mission.topic?.title} · {mission.estimatedMinutes} min · {mission.scheduledDate.slice(0, 10)}</p>
+
+<p className="mt-1 text-xs leading-5 text-[#737b70]">{mission.description}</p>
+
+</div>{mission.status !== 'COMPLETED' && <button type="button" onClick={() => handleCompleteMission(goal, mission)} disabled={missionBusyId !== null} className="shrink-0 rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">{missionBusyId === mission.id ? 'Saving…' : 'Complete'}</button>
+} </div>
+)}</div>
+
+</div>}</article>
+)}</div>
+
+</div>
+</section>}
 
       <footer className="border-t border-[#e6e8df] px-5 py-5 text-center text-xs text-[#969d91]"><span className="inline-flex items-center gap-2"><BookOpen size={13} /> Learn with intention. Grow at your pace.</span></footer>
     </main>

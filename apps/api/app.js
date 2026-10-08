@@ -12,6 +12,7 @@ const authRouter = require('./routes/auth');
 const learningGoalsRouter = require('./routes/learning-goals');
 const roadmapsRouter = require('./routes/roadmaps');
 const missionsRouter = require('./routes/missions');
+const assessmentsRouter = require('./routes/assessments');
 
 const app = express();
 
@@ -48,6 +49,7 @@ app.get('/api/v1/ready', async (_req, res) => {
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/learning-goals/:goalId/roadmaps', roadmapsRouter);
 app.use('/api/v1/learning-goals/:goalId/missions', missionsRouter);
+app.use('/api/v1/learning-goals/:goalId/assessments', assessmentsRouter);
 app.use('/api/v1/learning-goals', learningGoalsRouter);
 app.use('/api/v1', indexRouter);
 

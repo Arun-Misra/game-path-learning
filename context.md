@@ -14,14 +14,15 @@ A personalised learning platform for any skill. Learners provide their skill, ex
 - apps/api/lib/mission-scheduler.js is a pure, tested scheduler. It spaces sessions across the week in the learner's timezone, respects daily time budget, splits oversized topics, and does not invent tasks after roadmap work is exhausted.
 - apps/api/lib/mission-service.js schedules missions from an active roadmap, persists idempotent mission instances, checks prerequisites, records mission completion, updates topic progress, and awards XP in a transaction. XP is 10 + ceil(estimated minutes / 5), capped at 60, and unique mission/idempotency keys prevent duplicate rewards.
 - apps/api/routes/missions.js exposes authenticated weekly generation, date-range listing, and completion endpoints. Generation is rate-limited.
+- Topic assessments are being added: apps/api/lib/assessment-generator.js generates validated 5–8 question multiple-choice checks through the same local/hosted AI provider; the API stores the answer key server-side, never returns it before submission, scores submissions server-side, persists attempts, and updates topic mastery evidence. `apps/api/routes/assessments.js` exposes authenticated topic assessment generation, retrieval, and attempt submission. The React goal/roadmap UI now lets learners open and submit these assessments and review feedback.
 - Prisma schema and migration 20261018010000_daily_missions_progress add DailyMission, MissionCompletion, XpTransaction, and UserTopicProgress with indexes and foreign keys.
-- Unit tests cover provider configuration/response validation, roadmap validation, mission scheduling/timezones, and other pure logic. apps/api/test/database.integration.test.js includes auth, roadmap versioning, mission generation/completion, duplicate XP prevention, and isolation assertions, but it is opt-in and has not run against PostgreSQL yet.
+- Unit tests cover assessment validation/scoring, provider configuration/response validation, roadmap validation, mission scheduling/timezones, and other pure logic. apps/api/test/database.integration.test.js includes auth, roadmap versioning, mission generation/completion, duplicate XP prevention, and isolation assertions, but it is opt-in and has not run against PostgreSQL yet.
 
 ## Validation
-Before the provider adapter change, 22 tests passed, 0 failed, and 1 DB integration test was skipped because TEST_DATABASE_URL was not configured. API syntax checks, frontend lint (0 warnings/errors), production build, Prisma validation, Prisma Client generation, and diff whitespace checks passed. Re-run these checks after provider configuration changes. Database-backed mission/XP assertions remain unexecuted until PostgreSQL credentials and a test database are configured. Live Ollama was verified: gemma4:e2b is installed (4.6 GB), the local OpenAI-compatible chat endpoint responds, and strict JSON Schema output works. A live model response exposed empty prerequisite markers and some invalid external/self references; the generator now normalizes these to valid internal prerequisites before the normal roadmap validation. The full live generateRoadmap() smoke test now passes application validation and returned a 7-topic JavaScript roadmap (555 estimated minutes). Run it with `npm run smoke:ollama`.
+Latest non-database validation: 33 tests passed, 0 failed, and 1 database integration test skipped because TEST_DATABASE_URL is not configured. API syntax checks, frontend lint (0 warnings/errors), production build, Prisma schema validation, Prisma Client generation, and diff whitespace checks passed. Re-run these checks after provider configuration changes. Database-backed mission/XP assertions remain unexecuted until PostgreSQL credentials and a test database are configured. Live Ollama was verified: gemma4:e2b is installed (4.6 GB), the local OpenAI-compatible chat endpoint responds, and strict JSON Schema output works. A live model response exposed empty prerequisite markers and some invalid external/self references; the generator now normalizes these before normal roadmap validation. The full live generateRoadmap() smoke test passes and returned a validated 6-topic JavaScript roadmap. The live assessment-generation smoke test also passes, returning a validated 6-question quiz. Run `npm run smoke:ollama` and `npm run smoke:assessment`.
 
 ## Database limitation
-The PostgreSQL 18 Windows service is RUNNING. Prisma migrate status returned P1010 (access denied) for the current example connection to database mydb. The migrations are not applied. Need valid PostgreSQL username/password and a separate isolated test database. Do not claim persistence verified until the integration suite passes. Root .env contains example credentials and must not be committed.
+The PostgreSQL 18 Windows service was previously running, but on 2026-10-18 the current check found `postgresql-x64-18` STOPPED and no listener on localhost:5432. `Start-Service` failed with a service access/permission error in the current non-elevated shell. `npx prisma migrate status` currently returns P1001 (database server unreachable), before credentials can be checked. First start PostgreSQL from an elevated PowerShell (`Start-Service postgresql-x64-18`), then configure valid local database credentials and a separate isolated test database. The migrations are not applied. Do not claim persistence verified until the integration suite passes. Root .env contains example credentials and must not be committed.
 
 ## Git
 - a2c2812 chore: scaffold JavaScript learning platform
@@ -33,13 +34,15 @@ The PostgreSQL 18 Windows service is RUNNING. Prisma migrate status returned P10
 - f0ee9f9 feat: generate and review personalised roadmaps
 - d7b3728 feat: schedule missions and award completion XP
 - 29bb927 feat: support free local and hosted AI providers
-- Follow-up Gemma prerequisite-normalization and `npm run smoke:ollama` live-provider smoke test are currently uncommitted pending final checks.
+- 583d078 fix: validate Ollama generated roadmaps
+- 3f8a1bd feat: add generated topic assessments
 - No remote configured; do not claim pushes.
 
 ## Next priorities
-1. Configure valid PostgreSQL credentials and a dedicated test database, apply migrations, and run the full DB integration suite.
-2. Add assessments and exercise submissions; then streaks, levels, and achievements using backend-owned events.
-3. Continue end-to-end workflow verification and improve onboarding persistence/roadmap editing.
+1. Start the PostgreSQL 18 Windows service with administrator permissions, configure valid credentials and a dedicated test database, apply migrations, and run the expanded DB integration suite.
+2. Test the committed assessment workflow end to end against PostgreSQL.
+3. Add streaks, levels, and achievements using backend-owned events.
+4. Continue end-to-end workflow verification and improve onboarding persistence/roadmap editing.
 
 ## Commands
 npm run dev | npm run dev:web | npm run dev:api | npm test | npm run check | npm run build | npm run db:validate | npm run db:generate | npm run db:migrate.

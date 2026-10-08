@@ -289,17 +289,24 @@ async function completeMission({ userId, goalId, missionId, evidence, db = prism
       _sum: { estimatedMinutes: true },
     });
     const isTopicComplete = (completedTopicMinutes._sum.estimatedMinutes || 0) >= mission.topic.estimatedMinutes;
+    const currentTopicProgress = await tx.userTopicProgress.findUnique({
+      where: { userId_topicId: { userId, topicId: mission.topicId } },
+      select: { status: true },
+    });
+    const topicStatus = currentTopicProgress?.status === 'MASTERED'
+      ? 'MASTERED'
+      : isTopicComplete ? 'COMPLETED' : 'IN_PROGRESS';
     await tx.userTopicProgress.upsert({
       where: { userId_topicId: { userId, topicId: mission.topicId } },
       create: {
         userId,
         topicId: mission.topicId,
-        status: isTopicComplete ? 'COMPLETED' : 'IN_PROGRESS',
+        status: topicStatus,
         attempts: 1,
         lastActivityAt: completedAt,
       },
       update: {
-        status: isTopicComplete ? 'COMPLETED' : 'IN_PROGRESS',
+        status: topicStatus,
         attempts: { increment: 1 },
         lastActivityAt: completedAt,
       },

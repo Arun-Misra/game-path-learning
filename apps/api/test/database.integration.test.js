@@ -49,7 +49,7 @@ function proposedRoadmap(title) {
   };
 }
 
-test('database integration: auth, goals, roadmap versions, activation, and user isolation', {
+test('database integration: auth, goals, roadmaps, assessments, missions, rewards, and user isolation', {
   skip: !testDatabaseUrl && 'Set TEST_DATABASE_URL to an isolated migrated PostgreSQL test database.',
   timeout: 45000,
 }, async (t) => {
@@ -139,6 +139,54 @@ test('database integration: auth, goals, roadmap versions, activation, and user 
       );
       assert.equal(activate.status, 200);
       assert.equal((await activate.json()).data.roadmap.generationState, 'ACTIVE');
+
+      const assessmentQuestions = Array.from({ length: 5 }, (_, index) => ({
+        key: `assessment-question-${index + 1}`,
+        prompt: `Question ${index + 1}: choose the correct option.`,
+        options: ['Correct option', 'Wrong option B', 'Wrong option C', 'Wrong option D'],
+        answerIndex: 0,
+        explanation: 'The first option is correct.',
+      }));
+      await prisma.topicAssessment.create({
+        data: {
+          topicId: secondDraft.topics[0].id,
+          title: 'Guitar fundamentals check',
+          instructions: 'Answer every question.',
+          questions: assessmentQuestions,
+        },
+      });
+
+      const assessmentResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/assessments/${secondDraft.topics[0].id}`,
+        { headers: { Cookie: first.cookie } },
+      );
+      assert.equal(assessmentResponse.status, 200);
+      const assessmentData = (await assessmentResponse.json()).data;
+      assert.equal(assessmentData.assessment.questions.length, 5);
+      assert.equal('answerIndex' in assessmentData.assessment.questions[0], false);
+      assert.equal('explanation' in assessmentData.assessment.questions[0], false);
+
+      const otherUserAssessmentResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/assessments/${secondDraft.topics[0].id}`,
+        { headers: { Cookie: second.cookie } },
+      );
+      assert.equal(otherUserAssessmentResponse.status, 404);
+
+      const attemptResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/assessments/${secondDraft.topics[0].id}/attempts`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
+          body: JSON.stringify({
+            answers: assessmentQuestions.map((question) => ({ key: question.key, answerIndex: 0 })),
+          }),
+        },
+      );
+      assert.equal(attemptResponse.status, 201);
+      const attemptData = (await attemptResponse.json()).data;
+      assert.equal(attemptData.attempt.score, 100);
+      assert.equal(attemptData.attempt.passed, true);
+      assert.equal(attemptData.topicProgress.status, 'MASTERED');
 
       const roadmapsResponse = await fetch(`${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps`, {
         headers: { Cookie: first.cookie },

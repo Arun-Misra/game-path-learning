@@ -18,7 +18,8 @@
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "smoke:assessment": "npm run smoke:assessment -w @gamified-learning/api"
   },
   "devDependencies": {
     "concurrently": "^10.0.6",

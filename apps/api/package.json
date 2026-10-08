@@ -7,7 +7,8 @@
     "dev": "node --watch ./bin/www",
     "test": "node --test",
     "smoke:ollama": "node ./ollama-smoke.js",
-    "check": "node --check app.js && node --check bin/www && node --check routes/index.js && node --check routes/auth.js && node --check routes/learning-goals.js && node --check routes/roadmaps.js && node --check routes/missions.js && node --check middleware/require-auth.js && node --check lib/session.js && node --check lib/prisma.js && node --check lib/roadmap-validation.js && node --check lib/roadmap-service.js && node --check lib/roadmap-generator.js && node --check lib/mission-scheduler.js && node --check lib/mission-service.js && node --check ollama-smoke.js"
+    "check": "node --check assessment-smoke.js && node --check app.js && node --check routes/assessments.js && node --check lib/assessment-generator.js && node --check lib/assessment-service.js && node --check bin/www && node --check routes/index.js && node --check routes/auth.js && node --check routes/learning-goals.js && node --check routes/roadmaps.js && node --check routes/missions.js && node --check middleware/require-auth.js && node --check lib/session.js && node --check lib/prisma.js && node --check lib/roadmap-validation.js && node --check lib/roadmap-service.js && node --check lib/roadmap-generator.js && node --check lib/mission-scheduler.js && node --check lib/mission-service.js && node --check ollama-smoke.js",
+    "smoke:assessment": "node ./assessment-smoke.js"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
