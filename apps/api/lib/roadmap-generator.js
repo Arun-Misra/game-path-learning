@@ -50,6 +50,8 @@ function buildPrompt(goal) {
     'Every prerequisite key must refer to another topic key. Do not create cycles or self-dependencies.',
     'Create between 4 and 10 topics. Do not promise mastery by a date; be realistic and focus on measurable milestones.',
     'Keep the plan feasible for the weekly time budget and include practice and feedback, not only theory.',
+    'Return valid JSON only, matching this exact structure. Do not wrap it in Markdown fences or add commentary.',
+    JSON.stringify(responseSchema),
     '',
     `Skill: ${goal.title}`,
     `Starting experience: ${goal.experienceLevel}`,
@@ -61,34 +63,46 @@ function buildPrompt(goal) {
   ].join('\n');
 }
 
+function isLocalOllama(baseUrl) {
+  try {
+    const url = new URL(baseUrl);
+    return ['localhost', '127.0.0.1', '::1'].includes(url.hostname)
+      && url.port === '11434';
+  } catch {
+    return false;
+  }
+}
+
 async function generateRoadmap(goal, {
-  apiKey = process.env.OPENAI_API_KEY,
-  model = process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+  apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '',
+  baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1',
+  model = process.env.AI_MODEL || process.env.OPENAI_MODEL || 'gemma4:e2b',
   fetchImpl = globalThis.fetch,
 } = {}) {
-  if (!apiKey) {
+  const endpoint = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  if (!apiKey && !isLocalOllama(baseUrl)) {
     throw new RoadmapGenerationError(
       503,
       'ROADMAP_GENERATOR_NOT_CONFIGURED',
-      'Roadmap generation is not configured. Add OPENAI_API_KEY to the API environment.',
+      'No AI API key is configured. Set AI_API_KEY for a hosted provider, or run Ollama locally and set AI_BASE_URL and AI_MODEL in the API environment.',
     );
   }
 
+  const headers = { 'Content-Type': 'application/json' };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+
   let response;
   try {
-    response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
+    response = await fetchImpl(endpoint, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      signal: AbortSignal.timeout(60000),
+      headers,
+      signal: AbortSignal.timeout(120000),
       body: JSON.stringify({
         model,
         messages: [
           {
             role: 'system',
-            content: 'You are a careful learning designer. Create specific, achievable, skill-agnostic learning plans. Never invent learner credentials or claim guaranteed outcomes.',
+            content: 'You are a careful learning designer. Create specific, achievable, skill-agnostic learning plans. Never invent learner credentials or claim guaranteed outcomes. Output only valid JSON matching the supplied schema.',
           },
           { role: 'user', content: buildPrompt(goal) },
         ],
@@ -100,13 +114,14 @@ async function generateRoadmap(goal, {
             schema: responseSchema,
           },
         },
+        stream: false,
       }),
     });
   } catch {
     throw new RoadmapGenerationError(
       502,
       'ROADMAP_PROVIDER_UNAVAILABLE',
-      'The roadmap generation service could not be reached. Please try again.',
+      'The AI provider could not be reached. If using Ollama, make sure Ollama is running and the selected model has been downloaded.',
     );
   }
 
@@ -115,20 +130,20 @@ async function generateRoadmap(goal, {
       throw new RoadmapGenerationError(
         503,
         'ROADMAP_PROVIDER_CONFIGURATION',
-        'The roadmap generation provider rejected its credentials or permissions.',
+        'The AI provider rejected its API key or permissions. Check AI_API_KEY and provider access.',
       );
     }
     if (response.status === 429) {
       throw new RoadmapGenerationError(
         503,
         'ROADMAP_PROVIDER_RATE_LIMITED',
-        'The roadmap generation service is busy. Please try again shortly.',
+        'The AI provider is rate-limited. Please try again shortly.',
       );
     }
     throw new RoadmapGenerationError(
       502,
       'ROADMAP_PROVIDER_ERROR',
-      'The roadmap generation service returned an error. Please try again.',
+      'The AI provider returned an error. Check the configured model name and whether it supports structured JSON output.',
     );
   }
 
@@ -136,19 +151,19 @@ async function generateRoadmap(goal, {
   try {
     payload = await response.json();
   } catch {
-    throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_RESPONSE', 'The generation service returned an unreadable response.');
+    throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_RESPONSE', 'The AI provider returned an unreadable response.');
   }
 
   const content = payload.choices?.[0]?.message?.content;
   if (typeof content !== 'string' || !content.trim()) {
-    throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_RESPONSE', 'The generation service returned no roadmap.');
+    throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_RESPONSE', 'The AI provider returned no roadmap.');
   }
 
   let proposed;
   try {
     proposed = JSON.parse(content);
   } catch {
-    throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_RESPONSE', 'The generation service returned invalid structured data.');
+    throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_RESPONSE', 'The AI provider returned invalid JSON. Please try generating the roadmap again.');
   }
 
   const validated = validateRoadmap(proposed);
@@ -163,4 +178,4 @@ async function generateRoadmap(goal, {
   return validated.data;
 }
 
-module.exports = { RoadmapGenerationError, buildPrompt, generateRoadmap };
+module.exports = { RoadmapGenerationError, buildPrompt, generateRoadmap, isLocalOllama };
