@@ -155,6 +155,47 @@ test('database integration: auth, goals, roadmap versions, activation, and user 
       );
       assert.equal(secondCannotListRoadmaps.status, 404);
 
+      const generatedMissionsResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/missions/generate?timeZone=UTC`,
+        { method: 'POST', headers: { Cookie: first.cookie } },
+      );
+      assert.equal(generatedMissionsResponse.status, 201);
+      const generatedMissions = (await generatedMissionsResponse.json()).data;
+      assert.equal(generatedMissions.missions.length, 3);
+      assert.ok(generatedMissions.missions.every((mission) => mission.estimatedMinutes <= 30));
+
+      const firstMission = generatedMissions.missions[0];
+      const completeFirstMission = async (mission) => fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/missions/${mission.id}/complete`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: first.cookie }, body: JSON.stringify({}) },
+      );
+      const firstCompletionResponse = await completeFirstMission(firstMission);
+      assert.equal(firstCompletionResponse.status, 200);
+      const firstCompletion = (await firstCompletionResponse.json()).data;
+      assert.equal(firstCompletion.xpAwarded, 16);
+      assert.equal(firstCompletion.totalXp, 16);
+
+      const duplicateCompletionResponse = await completeFirstMission(firstMission);
+      assert.equal(duplicateCompletionResponse.status, 200);
+      const duplicateCompletion = (await duplicateCompletionResponse.json()).data;
+      assert.equal(duplicateCompletion.alreadyCompleted, true);
+      assert.equal(duplicateCompletion.xpAwarded, 0);
+
+      const secondMissionResponse = await completeFirstMission(generatedMissions.missions[1]);
+      assert.equal(secondMissionResponse.status, 200);
+      assert.equal((await secondMissionResponse.json()).data.totalXp, 32);
+
+      const thirdMissionResponse = await completeFirstMission(generatedMissions.missions[2]);
+      assert.equal(thirdMissionResponse.status, 200);
+      const thirdMission = (await thirdMissionResponse.json()).data;
+      assert.equal(thirdMission.totalXp, 45);
+
+      const secondUserCannotListMissions = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/missions`,
+        { headers: { Cookie: second.cookie } },
+      );
+      assert.equal(secondUserCannotListMissions.status, 404);
+
       const login = await fetch(`${baseUrl}/api/v1/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -32,6 +32,8 @@ function App() {
   const [goals, setGoals] = useState([]);
   const [roadmapsByGoal, setRoadmapsByGoal] = useState({});
   const [roadmapBusyGoal, setRoadmapBusyGoal] = useState(null);
+  const [missionsByGoal, setMissionsByGoal] = useState({});
+  const [missionBusyId, setMissionBusyId] = useState(null);
 
   useEffect(() => {
     requestJson('/api/v1/health')
@@ -54,6 +56,15 @@ function App() {
             return [goal.id, saved.data.roadmaps];
           }));
           setRoadmapsByGoal(Object.fromEntries(entries));
+          const missionEntries = await Promise.all(result.data.goals.map(async (goal) => {
+            try {
+              const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/missions?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`);
+              return [goal.id, saved.data];
+            } catch {
+              return [goal.id, { missions: [], totalXp: 0 }];
+            }
+          }));
+          setMissionsByGoal(Object.fromEntries(missionEntries));
         }
       })
       .catch((error) => {
@@ -152,12 +163,64 @@ function App() {
     }
   }
 
+  async function handleGenerateMissions(goal) {
+    setMissionBusyId(goal.id);
+    setNotice(null);
+    try {
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const result = await requestJson(
+        `/api/v1/learning-goals/${goal.id}/missions/generate?timeZone=${encodeURIComponent(timeZone)}`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      setMissionsByGoal((current) => ({ ...current, [goal.id]: result.data }));
+      setNotice({ type: 'success', message: result.data.missions.length
+        ? `Your missions for this week are ready for ${goal.skill}.`
+        : 'No new missions are needed for this week.' });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setMissionBusyId(null);
+    }
+  }
+
+  async function handleCompleteMission(goal, mission) {
+    setMissionBusyId(mission.id);
+    setNotice(null);
+    try {
+      const result = await requestJson(
+        `/api/v1/learning-goals/${goal.id}/missions/${mission.id}/complete`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      setMissionsByGoal((current) => {
+        const state = current[goal.id] || { missions: [], totalXp: 0 };
+        return {
+          ...current,
+          [goal.id]: {
+            ...state,
+            missions: state.missions.map((item) => item.id === mission.id
+              ? { ...item, status: 'COMPLETED', completedAt: result.data.mission.completedAt || new Date().toISOString() }
+              : item),
+            totalXp: result.data.totalXp ?? state.totalXp,
+          },
+        };
+      });
+      setNotice({ type: 'success', message: result.data.alreadyCompleted
+        ? 'This mission was already completed.'
+        : `Mission complete! You earned ${result.data.xpAwarded} XP.` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setMissionBusyId(null);
+    }
+  }
+
   async function handleLogout() {
     try {
       await requestJson('/api/v1/auth/logout', { method: 'POST' });
       setUser(null);
       setGoals([]);
       setRoadmapsByGoal({});
+      setMissionsByGoal({});
       setNotice({ type: 'success', message: 'You have signed out.' });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
@@ -227,7 +290,7 @@ function App() {
         </div>
       </section>
 
-      {user && goals.length > 0 && <section className="mx-auto max-w-7xl px-5 pb-12 sm:px-8"><div className="rounded-3xl border border-[#e3e6dc] bg-white p-6"><h2 className="text-xl font-semibold">Your saved learning goals</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.map((goal) => <article key={goal.id} className="rounded-2xl border border-[#e7e9e1] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{goal.skill}</p><p className="mt-1 text-sm text-[#737b70]">{goal.outcome}</p><p className="mt-3 text-xs text-[#82917b]">{goal.minutesPerDay} min/day · {goal.daysPerWeek} days/week · {goal.status}</p></div><button type="button" onClick={() => handleGenerateRoadmap(goal)} disabled={roadmapBusyGoal !== null || apiStatus !== 'online'} className="rounded-xl bg-[#263f32] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{roadmapBusyGoal === goal.id ? 'Generating…' : 'Generate roadmap'}</button></div>{(roadmapsByGoal[goal.id] || []).map((roadmap) => <div key={roadmap.id} className="mt-4 rounded-xl bg-[#f7f8f4] p-4"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold">{roadmap.title}</p><p className="mt-1 text-xs text-[#737b70]">Version {roadmap.version} · {roadmap.generationState.toLowerCase()} · {roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0)} min</p></div>{roadmap.generationState === 'DRAFT' && <button type="button" onClick={() => handleActivateRoadmap(goal, roadmap)} disabled={roadmapBusyGoal !== null} className="rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">Activate</button>}</div><p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p><ol className="mt-3 space-y-2">{roadmap.topics.map((topic) => <li key={topic.id} className="flex gap-3 border-t border-[#e4e8df] pt-2"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-xs font-semibold text-[#557b54]">{topic.position + 1}</span><div><p className="text-sm font-semibold">{topic.title}</p><p className="mt-0.5 text-xs leading-5 text-[#737b70]">{topic.description}</p><p className="mt-1 text-[11px] text-[#82917b]">{topic.estimatedMinutes} min</p></div></li>)}</ol></div>)}</article>)}</div></div></section>}
+      {user && goals.length > 0 && <section className="mx-auto max-w-7xl px-5 pb-12 sm:px-8"><div className="rounded-3xl border border-[#e3e6dc] bg-white p-6"><h2 className="text-xl font-semibold">Your saved learning goals</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.map((goal) => <article key={goal.id} className="rounded-2xl border border-[#e7e9e1] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{goal.skill}</p><p className="mt-1 text-sm text-[#737b70]">{goal.outcome}</p><p className="mt-3 text-xs text-[#82917b]">{goal.minutesPerDay} min/day · {goal.daysPerWeek} days/week · {goal.status} · {missionsByGoal[goal.id]?.totalXp || 0} XP</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => handleGenerateRoadmap(goal)} disabled={roadmapBusyGoal !== null || apiStatus !== 'online'} className="rounded-xl bg-[#263f32] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{roadmapBusyGoal === goal.id ? 'Generating…' : 'Generate roadmap'}</button>{(roadmapsByGoal[goal.id] || []).some((item) => item.generationState === 'ACTIVE') && <button type="button" onClick={() => handleGenerateMissions(goal)} disabled={missionBusyId !== null || apiStatus !== 'online'} className="rounded-xl border border-[#b9cbb2] px-3 py-2 text-xs font-semibold text-[#355a39] disabled:opacity-50">{missionBusyId === goal.id ? 'Scheduling…' : 'Plan this week'}</button>}</div></div>{(roadmapsByGoal[goal.id] || []).map((roadmap) => <div key={roadmap.id} className="mt-4 rounded-xl bg-[#f7f8f4] p-4"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold">{roadmap.title}</p><p className="mt-1 text-xs text-[#737b70]">Version {roadmap.version} · {roadmap.generationState.toLowerCase()} · {roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0)} min</p></div>{roadmap.generationState === 'DRAFT' && <button type="button" onClick={() => handleActivateRoadmap(goal, roadmap)} disabled={roadmapBusyGoal !== null} className="rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">Activate</button>}</div><p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p><ol className="mt-3 space-y-2">{roadmap.topics.map((topic) => <li key={topic.id} className="flex gap-3 border-t border-[#e4e8df] pt-2"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-xs font-semibold text-[#557b54]">{topic.position + 1}</span><div><p className="text-sm font-semibold">{topic.title}</p><p className="mt-0.5 text-xs leading-5 text-[#737b70]">{topic.description}</p><p className="mt-1 text-[11px] text-[#82917b]">{topic.estimatedMinutes} min</p></div></li>)}</ol></div>)}{(missionsByGoal[goal.id]?.missions || []).length > 0 && <div className="mt-4 rounded-xl border border-[#e4e8df] p-4"><div className="flex items-center justify-between gap-3"><p className="font-semibold">This week’s missions</p><span className="text-xs text-[#82917b]">{missionsByGoal[goal.id].missions.filter((item) => item.status === 'COMPLETED').length}/{missionsByGoal[goal.id].missions.length} complete</span></div><div className="mt-3 space-y-2">{missionsByGoal[goal.id].missions.map((mission) => <div key={mission.id} className="flex items-start justify-between gap-3 rounded-xl bg-[#f7f8f4] p-3"><div><p className="text-sm font-semibold">{mission.title}</p><p className="mt-1 text-xs text-[#737b70]">{mission.topic?.title} · {mission.estimatedMinutes} min · {mission.scheduledDate.slice(0, 10)}</p><p className="mt-1 text-xs leading-5 text-[#737b70]">{mission.description}</p></div>{mission.status !== 'COMPLETED' && <button type="button" onClick={() => handleCompleteMission(goal, mission)} disabled={missionBusyId !== null} className="shrink-0 rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">{missionBusyId === mission.id ? 'Saving…' : 'Complete'}</button>} </div>)}</div></div>}</article>)}</div></div></section>}
 
       <footer className="border-t border-[#e6e8df] px-5 py-5 text-center text-xs text-[#969d91]"><span className="inline-flex items-center gap-2"><BookOpen size={13} /> Learn with intention. Grow at your pace.</span></footer>
     </main>

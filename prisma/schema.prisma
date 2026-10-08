@@ -22,15 +22,41 @@ enum ExperienceLevel {
   EXPERIENCED
 }
 
+enum MissionStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  EXPIRED
+}
+
+enum MissionType {
+  LEARN
+  PRACTICE
+  REVIEW
+  ASSESSMENT
+}
+
+enum TopicProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  MASTERED
+}
+
 model User {
-  id           String        @id @default(cuid())
-  email        String        @unique
-  name         String?
-  passwordHash String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  sessions     Session[]
-  goals        LearningGoal[]
+  id             String          @id @default(cuid())
+  email          String          @unique
+  name           String?
+  passwordHash   String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  sessions       Session[]
+  goals          LearningGoal[]
+  missions       DailyMission[]
+  completions    MissionCompletion[]
+  xpTransactions XpTransaction[]
+  topicProgress  UserTopicProgress[]
 }
 
 model Session {
@@ -60,22 +86,24 @@ model LearningGoal {
   updatedAt           DateTime           @updatedAt
   user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   roadmaps            Roadmap[]
+  missions            DailyMission[]
 
   @@index([userId, status])
   @@index([createdAt])
 }
 
 model Roadmap {
-  id              String        @id @default(cuid())
+  id              String         @id @default(cuid())
   learningGoalId  String
-  version         Int           @default(1)
+  version         Int            @default(1)
   title           String
   summary         String
-  generationState String        @default("DRAFT")
+  generationState String         @default("DRAFT")
   activatedAt     DateTime?
-  createdAt       DateTime      @default(now())
-  learningGoal    LearningGoal  @relation(fields: [learningGoalId], references: [id], onDelete: Cascade)
+  createdAt       DateTime       @default(now())
+  learningGoal    LearningGoal   @relation(fields: [learningGoalId], references: [id], onDelete: Cascade)
   topics          RoadmapTopic[]
+  missions        DailyMission[]
 
   @@unique([learningGoalId, version])
   @@index([learningGoalId, generationState])
@@ -92,6 +120,8 @@ model RoadmapTopic {
   roadmap             Roadmap             @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
   prerequisites       TopicPrerequisite[] @relation("TopicPrerequisites")
   requiredBy          TopicPrerequisite[] @relation("TopicDependents")
+  missions            DailyMission[]
+  userProgress        UserTopicProgress[]
 
   @@unique([roadmapId, position])
   @@index([roadmapId])
@@ -105,4 +135,75 @@ model TopicPrerequisite {
 
   @@id([topicId, prerequisiteId])
   @@index([prerequisiteId])
+}
+
+model DailyMission {
+  id                  String          @id @default(cuid())
+  userId              String
+  learningGoalId      String
+  roadmapId           String
+  topicId             String
+  scheduledDate       DateTime        @db.Date
+  segmentIndex        Int             @default(0)
+  missionType         MissionType
+  title               String
+  description         String
+  estimatedMinutes    Int
+  completionCriteria  Json
+  status              MissionStatus   @default(SCHEDULED)
+  createdAt           DateTime        @default(now())
+  completedAt         DateTime?
+  user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  learningGoal        LearningGoal    @relation(fields: [learningGoalId], references: [id], onDelete: Cascade)
+  roadmap             Roadmap         @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  topic               RoadmapTopic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  completion          MissionCompletion?
+  xpTransaction       XpTransaction?
+
+  @@unique([userId, roadmapId, scheduledDate, topicId, segmentIndex])
+  @@index([userId, scheduledDate, status])
+  @@index([learningGoalId, scheduledDate])
+  @@index([topicId, status])
+}
+
+model MissionCompletion {
+  id          String       @id @default(cuid())
+  userId      String
+  missionId   String       @unique
+  completedAt DateTime     @default(now())
+  evidence    Json?
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mission     DailyMission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, completedAt])
+}
+
+model XpTransaction {
+  id             String        @id @default(cuid())
+  userId         String
+  missionId      String?       @unique
+  amount         Int
+  reason         String
+  idempotencyKey String        @unique
+  createdAt      DateTime      @default(now())
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mission        DailyMission? @relation(fields: [missionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+}
+
+model UserTopicProgress {
+  id             String             @id @default(cuid())
+  userId         String
+  topicId        String
+  status         TopicProgressStatus @default(NOT_STARTED)
+  masteryScore   Float?
+  attempts       Int                @default(0)
+  lastActivityAt DateTime?
+  updatedAt      DateTime           @updatedAt
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic          RoadmapTopic       @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, topicId])
+  @@index([userId, status])
 }

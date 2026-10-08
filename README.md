@@ -1,6 +1,6 @@
 # Gamified Learning V2
 
-A personalised learning platform for any skill. Learners describe their current knowledge, target outcome, and available time; the system will build an adaptive roadmap and daily learning missions.
+A personalised learning platform for any skill. Learners describe their current knowledge, target outcome, and available time; the system builds an adaptive roadmap and daily learning missions.
 
 ## Stack
 
@@ -27,7 +27,7 @@ The web app uses Vite's default local development port. The API defaults to port
 - `npm run dev:web` — run the web app
 - `npm run dev:api` — run the API
 - `npm run build` — production-build the web app
-- `npm test` — API tests; DB integration tests are skipped unless `TEST_DATABASE_URL` is configured
+- `npm test` — API tests; database integration tests are skipped unless `TEST_DATABASE_URL` is configured
 - `npm run check` — API JavaScript syntax checks and web lint
 - `npm run db:validate` — validate the Prisma schema
 - `npm run db:generate` — generate the Prisma Client
@@ -46,7 +46,7 @@ npx prisma migrate deploy
 npm test
 ```
 
-The integration test exercises registration, login, logout, goal persistence, roadmap versioning and activation, prerequisite persistence, and cross-user isolation. It cleans up only the uniquely named test users it creates.
+The integration test exercises registration, login, logout, goal persistence, roadmap versioning and activation, prerequisite persistence, mission scheduling, mission completion, duplicate reward prevention, XP totals, and cross-user isolation.
 
 ## Implemented API routes
 
@@ -63,13 +63,16 @@ The integration test exercises registration, login, logout, goal persistence, ro
 - `POST /api/v1/learning-goals/:goalId/roadmaps` — validate and persist a supplied draft
 - `GET /api/v1/learning-goals/:goalId/roadmaps` — list versions
 - `POST /api/v1/learning-goals/:goalId/roadmaps/:roadmapId/activate` — activate a draft version
+- `POST /api/v1/learning-goals/:goalId/missions/generate?timeZone=Asia%2FKolkata` — schedule the next week
+- `GET /api/v1/learning-goals/:goalId/missions?timeZone=Asia%2FKolkata` — list missions and current XP
+- `POST /api/v1/learning-goals/:goalId/missions/:missionId/complete` — complete a mission and award XP once
 
-Roadmap generation uses the learner's skill, experience level, desired outcome, available weekly time, and target date. It requests structured JSON from the configured model and validates the result, including prerequisite references and cycles, before saving. Generation is rate-limited. Missing credentials, provider errors, rate limits, and invalid output are surfaced as safe API errors rather than silently substituting a canned roadmap.
+Roadmap generation requests structured JSON from the configured model and validates the result, including prerequisite references and cycles, before saving. Generation is rate-limited and does not silently substitute a canned roadmap.
 
-The frontend can generate, inspect, and activate roadmap versions for saved goals. Database operations remain unavailable until valid database credentials and a migrated PostgreSQL database are configured.
+Mission scheduling uses the active roadmap, daily minute budget, days-per-week availability, and the user's IANA timezone. It splits long topics into manageable sessions, spaces sessions across the week, avoids creating arbitrary tasks solely for rewards, and persists mission instances idempotently. Completion checks ownership and prerequisite progress, writes completion and XP ledger records in one transaction, and returns authoritative XP totals. Duplicate completion requests do not award XP twice.
 
 ## Current limitations
 
-The PostgreSQL service is running, but the configured connection is currently rejected by PostgreSQL with Prisma error P1010. The initial migration has not been applied, and the database integration suite has not yet passed against a real test database. A valid database role/credentials and separate test database are still required.
+The PostgreSQL service is running, but the configured connection is currently rejected by PostgreSQL with Prisma error P1010. The initial migration has not been applied, and the database integration suite has not yet passed against a real test database. Valid PostgreSQL credentials and a separate test database are still required. The live OpenAI provider also requires a configured `OPENAI_API_KEY`.
 
 See `context.md` for current implementation status and the master implementation plan for product requirements and implementation order.
