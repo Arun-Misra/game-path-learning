@@ -1,29 +1,31 @@
 const { generateRoadmap } = require('./lib/roadmap-generator');
 
 async function main() {
-  const roadmap = await generateRoadmap({
-    title: 'Learn JavaScript',
-    targetOutcome: 'Build a small interactive web app',
+  const goal = {
+    title: 'Java',
+    targetOutcome: 'Build a client-server application that accepts a graph, implements Dijkstra’s shortest-path algorithm, exposes route queries through a REST API, and includes automated tests.',
     experienceLevel: 'BEGINNER',
-    minutesPerDay: 30,
-    daysPerWeek: 4,
+    minutesPerDay: 45,
+    daysPerWeek: 5,
     targetDate: null,
-  });
+  };
+  const roadmap = await generateRoadmap(goal);
 
-  console.log('Ollama roadmap generation passed validation.');
+  console.log('E4B planner + E2B reviewer roadmap generation passed validation.');
   console.log(JSON.stringify({
+    goal: goal.targetOutcome,
     title: roadmap.title,
     topicCount: roadmap.topics.length,
     estimatedTotalMinutes: roadmap.estimatedTotalMinutes,
-    topics: roadmap.topics.map(({ key, title, prerequisiteKeys }) => ({
-      key,
-      title,
-      prerequisiteKeys,
+    weeklyAvailableMinutes: goal.minutesPerDay * goal.daysPerWeek,
+    estimatedWeeks: Math.ceil(roadmap.estimatedTotalMinutes / (goal.minutesPerDay * goal.daysPerWeek)),
+    topics: roadmap.topics.map(({ key, title, description, learningObjectives, estimatedMinutes, prerequisiteKeys }) => ({
+      key, title, description, learningObjectives, estimatedMinutes, prerequisiteKeys,
     })),
   }, null, 2));
 }
 
 main().catch((error) => {
-  console.error('Ollama roadmap smoke test failed:', error.code || error.message);
+  console.error('Ollama roadmap smoke test failed:', error.code || error.message, error.message);
   process.exitCode = 1;
 });
