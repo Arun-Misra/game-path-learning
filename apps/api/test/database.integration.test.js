@@ -239,6 +239,42 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       );
       assert.equal(secondUserCannotListMissions.status, 404);
 
+      const gamificationResponse = await fetch(
+        `${baseUrl}/api/v1/gamification?timeZone=Asia%2FKolkata`,
+        { headers: { Cookie: first.cookie } },
+      );
+      assert.equal(gamificationResponse.status, 200);
+      const gamification = (await gamificationResponse.json()).data;
+      assert.equal(gamification.level.totalXp, 29);
+      assert.equal(gamification.completedMissionCount, 2);
+      assert.equal(gamification.currentStreak, 1);
+      assert.ok(gamification.achievements.some((item) => item.key === 'first_mission'));
+      assert.ok(gamification.newlyUnlocked.some((item) => item.key === 'first_mission'));
+
+      const gamificationAgain = await fetch(
+        `${baseUrl}/api/v1/gamification?timeZone=Asia%2FKolkata`,
+        { headers: { Cookie: first.cookie } },
+      );
+      const repeatedSummary = (await gamificationAgain.json()).data;
+      assert.equal(repeatedSummary.achievements.filter((item) => item.key === 'first_mission').length, 1);
+      assert.deepEqual(repeatedSummary.newlyUnlocked, []);
+
+      const otherUserGamification = await fetch(
+        `${baseUrl}/api/v1/gamification?timeZone=UTC`,
+        { headers: { Cookie: second.cookie } },
+      );
+      assert.equal(otherUserGamification.status, 200);
+      const otherSummary = (await otherUserGamification.json()).data;
+      assert.equal(otherSummary.level.totalXp, 0);
+      assert.equal(otherSummary.completedMissionCount, 0);
+      assert.deepEqual(otherSummary.achievements, []);
+
+      const invalidTimeZone = await fetch(
+        `${baseUrl}/api/v1/gamification?timeZone=Mars%2FOlympus`,
+        { headers: { Cookie: first.cookie } },
+      );
+      assert.equal(invalidTimeZone.status, 400);
+
       const login = await fetch(`${baseUrl}/api/v1/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

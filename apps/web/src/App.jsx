@@ -38,6 +38,7 @@ function App() {
   const [assessmentBusyId, setAssessmentBusyId] = useState(null);
   const [assessmentAnswers, setAssessmentAnswers] = useState({});
   const [assessmentResultByTopic, setAssessmentResultByTopic] = useState({});
+  const [gamification, setGamification] = useState(null);
 
   useEffect(() => {
     requestJson('/api/v1/health')
@@ -48,6 +49,7 @@ function App() {
       .then((result) => {
         if (result?.data?.user) {
           setUser(result.data.user);
+          void refreshGamification();
           return requestJson('/api/v1/learning-goals');
         }
         return null;
@@ -78,6 +80,16 @@ function App() {
       });
   }, []);
 
+  async function refreshGamification() {
+    try {
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const result = await requestJson(`/api/v1/gamification?timeZone=${encodeURIComponent(timeZone)}`);
+      setGamification(result.data);
+    } catch {
+      // Keep the rest of the learning dashboard usable if gamification is temporarily unavailable.
+    }
+  }
+
   function updateField(event) {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
     setNotice(null);
@@ -101,6 +113,7 @@ function App() {
         });
         activeUser = auth.data.user;
         setUser(activeUser);
+        void refreshGamification();
       }
       const result = await requestJson('/api/v1/learning-goals', {
         method: 'POST',
@@ -208,6 +221,7 @@ function App() {
           },
         };
       });
+      await refreshGamification();
       setNotice({ type: 'success', message: result.data.alreadyCompleted
         ? 'This mission was already completed.'
         : `Mission complete! You earned ${result.data.xpAwarded} XP.` });
@@ -281,6 +295,7 @@ function App() {
       setAssessmentByTopic({});
       setAssessmentAnswers({});
       setAssessmentResultByTopic({});
+      setGamification(null);
       setNotice({ type: 'success', message: 'You have signed out.' });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
@@ -349,6 +364,15 @@ function App() {
           <div className="absolute -bottom-5 -left-5 hidden items-center gap-3 rounded-2xl border border-[#e5e8df] bg-white px-4 py-3 shadow-lg sm:flex"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#fff2d9] text-[#9d7333]"><Zap size={19} /></span><div><p className="text-sm font-semibold">Small steps, real momentum</p><p className="mt-0.5 text-xs text-[#8a9186]">Your next step, always clear</p></div></div>
         </div>
       </section>
+
+      {user && gamification && <section className="mx-auto max-w-7xl px-5 pb-6 sm:px-8">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl border border-[#e3e6dc] bg-white p-4"><div className="flex items-center gap-2 text-[#688663]"><Zap size={17} /><span className="text-xs font-semibold uppercase tracking-wide">Level</span></div><p className="mt-2 text-2xl font-bold">{gamification.level.level}</p><p className="mt-1 text-xs text-[#737b70]">{gamification.level.currentLevelXp}/100 XP · {gamification.level.xpToNextLevel} to next level</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-[#edf0e8]"><div className="h-full rounded-full bg-[#688663]" style={{ width: `${gamification.level.currentLevelXp}%` }} /></div></div>
+          <div className="rounded-2xl border border-[#e3e6dc] bg-white p-4"><div className="flex items-center gap-2 text-[#b66a35]"><Flame size={17} /><span className="text-xs font-semibold uppercase tracking-wide">Current streak</span></div><p className="mt-2 text-2xl font-bold">{gamification.currentStreak} day{gamification.currentStreak === 1 ? '' : 's'}</p><p className="mt-1 text-xs text-[#737b70]">Based on completed missions in your local timezone</p></div>
+          <div className="rounded-2xl border border-[#e3e6dc] bg-white p-4"><div className="flex items-center gap-2 text-[#688663]"><Check size={17} /><span className="text-xs font-semibold uppercase tracking-wide">Missions completed</span></div><p className="mt-2 text-2xl font-bold">{gamification.completedMissionCount}</p><p className="mt-1 text-xs text-[#737b70]">Verified completions across your learning goals</p></div>
+          <div className="rounded-2xl border border-[#e3e6dc] bg-white p-4"><div className="flex items-center gap-2 text-[#688663]"><GraduationCap size={17} /><span className="text-xs font-semibold uppercase tracking-wide">Achievements</span></div><p className="mt-2 text-2xl font-bold">{gamification.achievements.length}<span className="ml-1 text-sm font-normal text-[#8b9287]">/ 5</span></p><p className="mt-1 text-xs text-[#737b70]">{gamification.achievements.length ? gamification.achievements.map((item) => item.title).join(' · ') : 'Complete missions to unlock your first badge.'}</p></div>
+        </div>
+      </section>}
 
       {user && goals.length > 0 && <section className="mx-auto max-w-7xl px-5 pb-12 sm:px-8">
 <div className="rounded-3xl border border-[#e3e6dc] bg-white p-6">

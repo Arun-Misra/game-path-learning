@@ -13,13 +13,14 @@
     "dev:api": "npm run dev -w @gamified-learning/api",
     "build": "npm run build -w @gamified-learning/web",
     "test": "npm test -w @gamified-learning/api",
-    "check": "npm run check -w @gamified-learning/api && npm run lint -w @gamified-learning/web",
+    "check": "npm run check -w @gamified-learning/api && npm run lint -w @gamified-learning/web && node --check apps/api/routes/gamification.js && node --check apps/api/lib/gamification-service.js",
     "smoke:ollama": "npm run smoke:ollama -w @gamified-learning/api",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "smoke:assessment": "npm run smoke:assessment -w @gamified-learning/api"
+    "smoke:assessment": "npm run smoke:assessment -w @gamified-learning/api",
+    "db:migrate:test": "node --env-file=.env scripts/migrate-test-db.js"
   },
   "devDependencies": {
     "concurrently": "^10.0.6",
