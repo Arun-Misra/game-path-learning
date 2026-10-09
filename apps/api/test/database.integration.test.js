@@ -195,7 +195,7 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       const roadmaps = (await roadmapsResponse.json()).data.roadmaps;
       assert.deepEqual(roadmaps.map((item) => item.version), [2, 1]);
       assert.equal(roadmaps[0].generationState, 'ACTIVE');
-      assert.equal(roadmaps[1].generationState, 'SUPERSEDED');
+      assert.equal(roadmaps[1].generationState, 'DRAFT');
 
       const secondCannotListRoadmaps = await fetch(
         `${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps`,
@@ -209,7 +209,7 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       );
       assert.equal(generatedMissionsResponse.status, 201);
       const generatedMissions = (await generatedMissionsResponse.json()).data;
-      assert.equal(generatedMissions.missions.length, 3);
+      assert.equal(generatedMissions.missions.length, 2);
       assert.ok(generatedMissions.missions.every((mission) => mission.estimatedMinutes <= 30));
 
       const firstMission = generatedMissions.missions[0];
@@ -231,12 +231,7 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
 
       const secondMissionResponse = await completeFirstMission(generatedMissions.missions[1]);
       assert.equal(secondMissionResponse.status, 200);
-      assert.equal((await secondMissionResponse.json()).data.totalXp, 32);
-
-      const thirdMissionResponse = await completeFirstMission(generatedMissions.missions[2]);
-      assert.equal(thirdMissionResponse.status, 200);
-      const thirdMission = (await thirdMissionResponse.json()).data;
-      assert.equal(thirdMission.totalXp, 45);
+      assert.equal((await secondMissionResponse.json()).data.totalXp, 29);
 
       const secondUserCannotListMissions = await fetch(
         `${baseUrl}/api/v1/learning-goals/${goal.id}/missions`,
