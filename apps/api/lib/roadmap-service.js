@@ -1,3 +1,5 @@
+
+
 const { prisma } = require('./prisma');
 const { validateRoadmap } = require('./roadmap-validation');
 const { generateRoadmap } = require('./roadmap-generator');
@@ -152,6 +154,36 @@ async function listRoadmaps({ userId, goalId, db = prisma }) {
   });
 }
 
+async function deleteRoadmapDraft({ userId, goalId, roadmapId, db = prisma }) {
+  return db.$transaction(async (tx) => {
+    const goal = await tx.learningGoal.findFirst({
+      where: { id: goalId, userId },
+      select: { id: true },
+    });
+    if (!goal) {
+      throw new RoadmapServiceError(404, 'GOAL_NOT_FOUND', 'Learning goal not found.');
+    }
+
+    const roadmap = await tx.roadmap.findFirst({
+      where: { id: roadmapId, learningGoalId: goalId },
+      select: { id: true, generationState: true },
+    });
+    if (!roadmap) {
+      throw new RoadmapServiceError(404, 'ROADMAP_NOT_FOUND', 'Roadmap not found.');
+    }
+    if (roadmap.generationState !== 'DRAFT') {
+      throw new RoadmapServiceError(
+        409,
+        'ROADMAP_NOT_DELETABLE',
+        'Only draft roadmaps can be deleted. Active and superseded roadmaps are preserved to protect learning history.',
+      );
+    }
+
+    await tx.roadmap.delete({ where: { id: roadmapId } });
+    return { id: roadmapId, deleted: true };
+  });
+}
+
 async function activateRoadmap({ userId, goalId, roadmapId, db = prisma }) {
   await db.$transaction(async (tx) => {
     const goal = await tx.learningGoal.findFirst({
@@ -214,5 +246,6 @@ module.exports = {
   createRoadmapDraft,
   generateRoadmapDraft,
   listRoadmaps,
+  deleteRoadmapDraft,
   activateRoadmap,
 };

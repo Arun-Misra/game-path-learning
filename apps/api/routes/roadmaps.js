@@ -1,3 +1,4 @@
+
 const express = require('express');
 const { z } = require('zod');
 const { rateLimit } = require('express-rate-limit');
@@ -7,6 +8,7 @@ const {
   createRoadmapDraft,
   generateRoadmapDraft,
   listRoadmaps,
+  deleteRoadmapDraft,
   activateRoadmap,
 } = require('../lib/roadmap-service');
 
@@ -86,6 +88,27 @@ router.get('/', async (req, res, next) => {
   try {
     const roadmaps = await listRoadmaps({ userId: req.user.id, goalId: parsedId.data });
     return res.json({ data: { roadmaps } });
+  } catch (error) {
+    return handleServiceError(error, res, next);
+  }
+});
+
+router.delete('/:roadmapId', async (req, res, next) => {
+  const parsedGoalId = idSchema.safeParse(req.params.goalId);
+  const parsedRoadmapId = idSchema.safeParse(req.params.roadmapId);
+  if (!parsedGoalId.success || !parsedRoadmapId.success) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION_ERROR', message: 'Valid goal and roadmap IDs are required.' },
+    });
+  }
+
+  try {
+    const result = await deleteRoadmapDraft({
+      userId: req.user.id,
+      goalId: parsedGoalId.data,
+      roadmapId: parsedRoadmapId.data,
+    });
+    return res.json({ data: result });
   } catch (error) {
     return handleServiceError(error, res, next);
   }

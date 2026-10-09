@@ -1,3 +1,4 @@
+
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const test = require('node:test');
@@ -133,12 +134,41 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       const secondDraft = (await secondDraftResponse.json()).data.roadmap;
       assert.equal(secondDraft.version, 2);
 
+      const disposableDraftResponse = await fetch(`${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
+        body: JSON.stringify(proposedRoadmap('Temporary draft to delete')),
+      });
+      assert.equal(disposableDraftResponse.status, 201);
+      const disposableDraft = (await disposableDraftResponse.json()).data.roadmap;
+      assert.equal(disposableDraft.version, 3);
+
+      const deleteDraftResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps/${disposableDraft.id}`,
+        { method: 'DELETE', headers: { Cookie: first.cookie } },
+      );
+      assert.equal(deleteDraftResponse.status, 200);
+      assert.deepEqual((await deleteDraftResponse.json()).data, { id: disposableDraft.id, deleted: true });
+
+      const otherUserCannotDeleteDraft = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps/${firstDraft.id}`,
+        { method: 'DELETE', headers: { Cookie: second.cookie } },
+      );
+      assert.equal(otherUserCannotDeleteDraft.status, 404);
+
       const activate = await fetch(
         `${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps/${secondDraft.id}/activate`,
         { method: 'POST', headers: { Cookie: first.cookie } },
       );
       assert.equal(activate.status, 200);
       assert.equal((await activate.json()).data.roadmap.generationState, 'ACTIVE');
+
+      const activeRoadmapDelete = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps/${secondDraft.id}`,
+        { method: 'DELETE', headers: { Cookie: first.cookie } },
+      );
+      assert.equal(activeRoadmapDelete.status, 409);
+      assert.equal((await activeRoadmapDelete.json()).error.code, 'ROADMAP_NOT_DELETABLE');
 
       const assessmentQuestions = Array.from({ length: 5 }, (_, index) => ({
         key: `assessment-question-${index + 1}`,

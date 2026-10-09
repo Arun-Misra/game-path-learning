@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from 'react';
 import {
   ArrowRight, BookOpen, Check, Clock3, Compass, Flame,
@@ -148,6 +149,31 @@ function App() {
         [goal.id]: [result.data.roadmap, ...(current[goal.id] || [])],
       }));
       setNotice({ type: 'success', message: `A personalised draft roadmap for ${goal.skill} is ready to review.` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setRoadmapBusyGoal(null);
+    }
+  }
+
+  async function handleDeleteRoadmap(goal, roadmap) {
+    const confirmed = window.confirm(
+      `Delete draft “${roadmap.title}”? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    setRoadmapBusyGoal(goal.id);
+    setNotice(null);
+    try {
+      await requestJson(
+        `/api/v1/learning-goals/${goal.id}/roadmaps/${roadmap.id}`,
+        { method: 'DELETE' },
+      );
+      setRoadmapsByGoal((current) => ({
+        ...current,
+        [goal.id]: (current[goal.id] || []).filter((item) => item.id !== roadmap.id),
+      }));
+      setNotice({ type: 'success', message: `Deleted draft roadmap “${roadmap.title}”.` });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
     } finally {
@@ -400,7 +426,10 @@ function App() {
 
 <p className="mt-1 text-xs text-[#737b70]">Version {roadmap.version} · {roadmap.generationState.toLowerCase()} · {roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0)} min</p>
 
-</div>{roadmap.generationState === 'DRAFT' && <button type="button" onClick={() => handleActivateRoadmap(goal, roadmap)} disabled={roadmapBusyGoal !== null} className="rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">Activate</button>
+</div>{roadmap.generationState === 'DRAFT' && <div className="flex flex-wrap gap-2">
+<button type="button" onClick={() => handleActivateRoadmap(goal, roadmap)} disabled={roadmapBusyGoal !== null} className="rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">Activate</button>
+<button type="button" onClick={() => handleDeleteRoadmap(goal, roadmap)} disabled={roadmapBusyGoal !== null} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 disabled:opacity-50">Delete</button>
+</div>
 }</div>
 
 <p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p>
