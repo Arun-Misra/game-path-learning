@@ -1,5 +1,7 @@
 
 
+
+
 const { validateRoadmap } = require('./roadmap-validation');
 
 class RoadmapGenerationError extends Error {
@@ -199,7 +201,7 @@ function parseStructuredContent(payload, description) {
   }
 }
 
-async function requestStructured({ endpoint, headers, model, schemaName, schema, messages, fetchImpl }) {
+async function requestStructured({ endpoint, headers, model, schemaName, schema, messages, fetchImpl, retryInvalidJson = true }) {
   let response;
   try {
     response = await fetchImpl(endpoint, {
@@ -245,7 +247,22 @@ async function requestStructured({ endpoint, headers, model, schemaName, schema,
   } catch {
     throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_RESPONSE', 'The AI provider returned an unreadable response.');
   }
-  return parseStructuredContent(payload, schemaName === 'roadmap_review' ? 'roadmap review' : 'roadmap');
+  const description = schemaName === 'roadmap_review'
+    ? 'roadmap review'
+    : schemaName === 'outcome_analysis'
+      ? 'outcome analysis'
+      : 'roadmap';
+  try {
+    return parseStructuredContent(payload, description);
+  } catch (error) {
+    if (retryInvalidJson && error.code === 'ROADMAP_PROVIDER_INVALID_RESPONSE') {
+      return requestStructured({
+        endpoint, headers, model, schemaName, schema, messages, fetchImpl,
+        retryInvalidJson: false,
+      });
+    }
+    throw error;
+  }
 }
 
 function validateReview(review) {
@@ -351,7 +368,7 @@ async function generateRoadmap(goal, {
         {
           role: 'user',
           content: [
-            buildPrompt(goal),
+            buildPrompt(goal, JSON.stringify(outcomeAnalysis)),
             '',
             `INITIAL ROADMAP:\n${JSON.stringify(roadmap)}`,
             '',

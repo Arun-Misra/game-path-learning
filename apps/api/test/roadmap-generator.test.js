@@ -1,5 +1,7 @@
 
 
+
+
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
@@ -144,6 +146,8 @@ test('E4B revises a draft when E2B finds major outcome-alignment issues', async 
   assert.equal(requests[2].model, 'gemma4:e2b');
   assert.equal(requests[3].model, 'gemma4:e4b');
   assert.match(requests[3].messages[1].content, /INDEPENDENT REVIEW AND REQUIRED FIXES/);
+  assert.match(requests[3].messages[1].content, /OUTCOME ANALYSIS TO HONOUR/);
+  assert.match(requests[3].messages[1].content, /framework is not a user requirement/);
   assert.equal(result.topics[1].title, 'Character drawing');
 });
 
@@ -178,6 +182,26 @@ test('generation normalizes invalid external prerequisite references before vali
   assert.deepEqual(result.topics.map((topic) => topic.prerequisiteKeys), [[], []]);
 });
 
+test('retries one malformed structured response before returning a provider error', async () => {
+  let calls = 0;
+  const result = await generateRoadmap(goal, {
+    apiKey: '',
+    baseUrl: 'http://localhost:11434/v1',
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      if (body.response_format.json_schema.name === 'outcome_analysis') {
+        calls += 1;
+        if (calls === 1) {
+          return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{invalid json' } }] }) };
+        }
+        return responseFor(validOutcomeAnalysis());
+      }
+      return responseFor(body.response_format.json_schema.name === 'roadmap_review' ? approvedReview() : validProposal());
+    },
+  });
+  assert.equal(calls, 2);
+  assert.equal(result.topics.length, 2);
+});
 test('provider rate limits are reported as retryable service errors', async () => {
   await assert.rejects(
     generateRoadmap(goal, { apiKey: 'test-key', baseUrl: 'https://example-provider.invalid/v1', fetchImpl: async () => ({ ok: false, status: 429 }) }),
