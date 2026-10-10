@@ -88,6 +88,29 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+router.delete('/:goalId', async (req, res, next) => {
+  const parsedId = z.string().trim().min(1).max(100).safeParse(req.params.goalId);
+  if (!parsedId.success) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION_ERROR', message: 'A valid learning goal ID is required.' },
+    });
+  }
+
+  try {
+    const result = await prisma.learningGoal.deleteMany({
+      where: { id: parsedId.data, userId: req.user.id },
+    });
+    if (result.count === 0) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'Learning goal not found.' },
+      });
+    }
+    return res.json({ data: { id: parsedId.data, deleted: true } });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get('/:goalId', async (req, res, next) => {
   try {
     const goal = await prisma.learningGoal.findFirst({

@@ -1,4 +1,5 @@
 
+
 import { useEffect, useState } from 'react';
 import {
   ArrowRight, BookOpen, Check, Clock3, Compass, Flame,
@@ -133,6 +134,31 @@ function App() {
       setNotice({ type: 'error', message: error.message });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleDeleteGoal(goal) {
+    const confirmed = window.confirm(
+      `Delete “${goal.skill}” and all its roadmaps, missions, and topic progress? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    setRoadmapBusyGoal(goal.id);
+    setNotice(null);
+    try {
+      await requestJson(`/api/v1/learning-goals/${goal.id}`, { method: 'DELETE' });
+      setGoals((current) => current.filter((item) => item.id !== goal.id));
+      setRoadmapsByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
+      setMissionsByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
+      setAssessmentByTopic({});
+      setAssessmentAnswers({});
+      setAssessmentResultByTopic({});
+      await refreshGamification();
+      setNotice({ type: 'success', message: `Deleted learning goal “${goal.skill}” and its learning data.` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setRoadmapBusyGoal(null);
     }
   }
 
@@ -415,6 +441,7 @@ function App() {
 
 </div>
 <div className="flex flex-wrap gap-2">
+<button type="button" onClick={() => handleDeleteGoal(goal)} disabled={roadmapBusyGoal !== null || apiStatus !== 'online'} className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">{roadmapBusyGoal === goal.id ? 'Working…' : 'Delete goal'}</button>
 <button type="button" onClick={() => handleGenerateRoadmap(goal)} disabled={roadmapBusyGoal !== null || apiStatus !== 'online'} className="rounded-xl bg-[#263f32] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{roadmapBusyGoal === goal.id ? 'Generating…' : 'Generate roadmap'}</button>
 {(roadmapsByGoal[goal.id] || []).some((item) => item.generationState === 'ACTIVE') && <button type="button" onClick={() => handleGenerateMissions(goal)} disabled={missionBusyId !== null || apiStatus !== 'online'} className="rounded-xl border border-[#b9cbb2] px-3 py-2 text-xs font-semibold text-[#355a39] disabled:opacity-50">{missionBusyId === goal.id ? 'Scheduling…' : 'Plan this week'}</button>
 }</div>

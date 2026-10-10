@@ -1,4 +1,5 @@
 
+
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const test = require('node:test');
@@ -304,6 +305,37 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
         { headers: { Cookie: first.cookie } },
       );
       assert.equal(invalidTimeZone.status, 400);
+
+      const disposableGoalResponse = await fetch(`${baseUrl}/api/v1/learning-goals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
+        body: JSON.stringify({ skill: 'Disposable goal', outcome: 'Verify goal deletion', experience: 'beginner', minutesPerDay: 30, daysPerWeek: 3 }),
+      });
+      assert.equal(disposableGoalResponse.status, 201);
+      const disposableGoal = (await disposableGoalResponse.json()).data.goal;
+
+      const disposableGoalRoadmap = await fetch(`${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/roadmaps`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
+        body: JSON.stringify(proposedRoadmap('Disposable goal roadmap')),
+      });
+      assert.equal(disposableGoalRoadmap.status, 201);
+
+      const otherUserCannotDeleteGoal = await fetch(`${baseUrl}/api/v1/learning-goals/${disposableGoal.id}`, {
+        method: 'DELETE', headers: { Cookie: second.cookie },
+      });
+      assert.equal(otherUserCannotDeleteGoal.status, 404);
+
+      const deleteGoalResponse = await fetch(`${baseUrl}/api/v1/learning-goals/${disposableGoal.id}`, {
+        method: 'DELETE', headers: { Cookie: first.cookie },
+      });
+      assert.equal(deleteGoalResponse.status, 200);
+      assert.deepEqual((await deleteGoalResponse.json()).data, { id: disposableGoal.id, deleted: true });
+
+      const deletedGoalLookup = await fetch(`${baseUrl}/api/v1/learning-goals/${disposableGoal.id}`, {
+        headers: { Cookie: first.cookie },
+      });
+      assert.equal(deletedGoalLookup.status, 404);
 
       const login = await fetch(`${baseUrl}/api/v1/auth/login`, {
         method: 'POST',
