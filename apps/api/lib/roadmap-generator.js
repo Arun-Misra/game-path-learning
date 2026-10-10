@@ -13,6 +13,8 @@
 
 
 
+
+
 const { validateRoadmap } = require('./roadmap-validation');
 
 class RoadmapGenerationError extends Error {
@@ -121,7 +123,8 @@ function buildPrompt(goal, outcomeBrief = '') {
     'SCOPE AND REALISM:',
     '- Produce 5–8 substantial topics for a focused outcome, fewer only when genuinely appropriate.',
     '- Weekly time is a hard constraint: estimate focused learning plus hands-on work, debugging, and review.',
-    '- Without a deadline, use 4–8 weeks as a planning guide only; never force a roadmap into that window by underestimating practice-heavy work. Derive the elapsed weeks from credible total effort and the learner’s availability. With a deadline, explain when the outcome is not realistic within the time remaining.',
+    '- Never use a default 4–8 week timeline. Estimate the actual repetitions and feedback cycles required for this exact outcome, then derive calendar duration from the learner’s weekly availability. Many beginner performance outcomes take months, not days. With a deadline, explain when the outcome is not realistic within the time remaining.',
+    '- For a complete song/performance by an absolute beginner, include repeated practice across many sessions, slow-section work, chord/fingering transitions, timing, recovery from mistakes, and several full run-throughs. A beginner learning guitar from scratch to play a complete named song usually needs multiple weeks of practice; do not claim a few hundred minutes is enough. A 30-minute daily schedule must not be mistaken for a 30-minute total effort.',
     '- Avoid duplicate topics, filler, generic motivation, and unrealistic mastery claims.',
     '- Give every topic 1–5 assessable learning objectives and an actionable description.',
     '',
@@ -151,7 +154,7 @@ function buildReviewPrompt(goal, roadmap, learningBrief = null) {
     'You are an independent, strict learning-roadmap auditor. Judge the plan against the learner’s actual goal, not against a generic course outline.',
     'Reject a roadmap if it is vague, generic, repetitive, disconnected from the desired outcome, missing a requested capability, poorly sequenced, or unrealistic for the available time.',
     'Check: (1) exact outcome alignment, (2) coverage of each distinct requested capability, (3) concrete actionable work per topic, (4) meaningful step-by-step progression, (5) relevant final deliverable, (6) appropriate prerequisites for experience level, (7) time-budget realism, and (8) no filler/repetition.',
-    'TIME AUDIT: Independently estimate the focused effort needed for this exact outcome at this experience level. Include repeated practice, feedback cycles, debugging, testing, integration, and final performance attempts where relevant. Do not simply accept the planner’s estimates or divide them by weekly availability. For music, sports, language, physical skills, and other practice-heavy outcomes, account for deliberate practice across multiple sessions; flag a complete polished beginner performance estimated at only a few hours unless the request provides evidence that this is realistic. Distinguish total focused minutes from elapsed calendar weeks. Do not approve a roadmap that appears short only because practice was undercounted; suggest a credible total effort and adjust the schedule instead of promising unrealistic mastery.',
+    'TIME AUDIT: Independently estimate the focused effort needed for this exact outcome at this experience level. Include repeated practice, feedback cycles, debugging, testing, integration, and final performance attempts where relevant. Do not simply accept the planner’s estimates or divide them by weekly availability. For music, sports, language, physical skills, and other practice-heavy outcomes, account for deliberate practice across multiple sessions; flag a complete polished beginner performance estimated at only a few hours unless the request provides evidence that this is realistic. Distinguish total focused minutes from elapsed calendar weeks. For a beginner learning guitar from scratch to perform a complete named song, treat 30 focused hours as a conservative minimum planning floor unless the learner already has relevant skills; at 150 minutes/week that is at least 12 weeks. A more demanding arrangement may need substantially longer. Do not approve a roadmap that appears short only because practice was undercounted; suggest a credible total effort and adjust the schedule instead of promising unrealistic mastery.',
     'Approve only when there are no critical or major issues and score is at least 80. Be specific: each issue should explain the mismatch and give an actionable fix. Do not invent requirements not implied by the goal.',
     learningBrief ? `ENHANCED LEARNING BRIEF TO AUDIT AGAINST:\n${JSON.stringify(learningBrief)}` : '',
     'Return JSON only matching this schema:',
@@ -189,6 +192,41 @@ function normalizeRoadmapProposal(proposal) {
           && key !== topic.key))],
       };
     }),
+  };
+}
+
+function applyRealismFloor(roadmap, goal) {
+  if (!roadmap || !Array.isArray(roadmap.topics) || roadmap.topics.length === 0) return roadmap;
+  const profile = `${goal.title || ''} ${goal.targetOutcome || ''}`.toLowerCase();
+  const isBeginner = String(goal.experienceLevel || '').toUpperCase() === 'BEGINNER';
+  const isGuitarSongPerformance = isBeginner
+    && /guitar/.test(profile)
+    && /(play|perform|learn|record|rendition|song|piece|arrangement)/.test(profile)
+    && /(song|play|perform|record|rendition|arrangement|from start to finish|complete)/.test(profile);
+  if (!isGuitarSongPerformance) return roadmap;
+
+  // Conservative planning floor for a complete named song when starting guitar from scratch.
+  const minimumMinutes = 1800;
+  const currentMinutes = roadmap.topics.reduce((total, topic) => total + topic.estimatedMinutes, 0);
+  if (currentMinutes >= minimumMinutes) return roadmap;
+
+  const scale = minimumMinutes / currentMinutes;
+  const scaledTopics = roadmap.topics.map((topic) => ({
+    ...topic,
+    estimatedMinutes: Math.max(5, Math.round(topic.estimatedMinutes * scale)),
+  }));
+  let difference = minimumMinutes - scaledTopics.reduce((total, topic) => total + topic.estimatedMinutes, 0);
+  for (let index = scaledTopics.length - 1; difference !== 0; index = (index - 1 + scaledTopics.length) % scaledTopics.length) {
+    const delta = difference > 0 ? 1 : -1;
+    if (scaledTopics[index].estimatedMinutes + delta >= 5) {
+      scaledTopics[index].estimatedMinutes += delta;
+      difference -= delta;
+    }
+  }
+  return {
+    ...roadmap,
+    topics: scaledTopics,
+    estimatedTotalMinutes: scaledTopics.reduce((total, topic) => total + topic.estimatedMinutes, 0),
   };
 }
 
@@ -309,7 +347,6 @@ async function generateRoadmap(goal, {
   apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '',
   baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1',
   model = process.env.AI_MODEL || process.env.OPENAI_MODEL || 'gemma4:e4b',
-  reviewModel = process.env.AI_REVIEW_MODEL || 'gemma4:e2b',
   fetchImpl = globalThis.fetch,
 } = {}) {
   const endpoint = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
@@ -324,9 +361,9 @@ async function generateRoadmap(goal, {
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
-  // Stage 1: E2B enhances the learner's original request into a structured learning brief without changing their intent.
+  // Stage 1: Use the same E4B model throughout so Ollama does not have to load/swap separate planner and reviewer models.
   const learningBrief = await requestStructured({
-    endpoint, headers, model: reviewModel, schemaName: 'enhanced_learning_brief', schema: learningBriefSchema, fetchImpl,
+    endpoint, headers, model, schemaName: 'enhanced_learning_brief', schema: learningBriefSchema, fetchImpl,
     messages: [
       {
         role: 'system',
@@ -365,11 +402,11 @@ async function generateRoadmap(goal, {
   if (!firstValidation.success) {
     throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_ROADMAP', 'The generated roadmap failed structural validation. Please try again.');
   }
-  let roadmap = firstValidation.data;
+  let roadmap = applyRealismFloor(firstValidation.data, goal);
 
-  // E2B independently challenges the E4B plan against the user's stated outcome.
+  // The same E4B model audits its plan against the learner's exact outcome and enhanced brief.
   const review = await requestStructured({
-    endpoint, headers, model: reviewModel, schemaName: 'roadmap_review', schema: reviewSchema, fetchImpl,
+    endpoint, headers, model, schemaName: 'roadmap_review', schema: reviewSchema, fetchImpl,
     messages: [
       {
         role: 'system',
@@ -409,7 +446,7 @@ async function generateRoadmap(goal, {
     if (!revisedValidation.success) {
       throw new RoadmapGenerationError(502, 'ROADMAP_REVISION_INVALID', 'The revised roadmap failed structural validation. Please try again.');
     }
-    roadmap = revisedValidation.data;
+    roadmap = applyRealismFloor(revisedValidation.data, goal);
   }
 
   return {
@@ -425,6 +462,7 @@ module.exports = {
   RoadmapGenerationError,
   buildPrompt,
   buildReviewPrompt,
+  applyRealismFloor,
   generateRoadmap,
   isLocalOllama,
   normalizeRoadmapProposal,

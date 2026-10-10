@@ -8,12 +8,16 @@
 
 
 
+
+
+
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   RoadmapGenerationError,
   buildPrompt,
   buildReviewPrompt,
+  applyRealismFloor,
   generateRoadmap,
   isLocalOllama,
   normalizeRoadmapProposal,
@@ -59,7 +63,7 @@ test('planner prompt prioritises the exact outcome, steps, deliverable, and week
   assert.match(prompt, /30 minutes\/day, 4 days\/week/);
   assert.match(prompt, /every distinct capability explicitly/i);
   assert.match(prompt, /capstone or performance task that directly demonstrates/i);
-  assert.match(prompt, /4–8 weeks/i);
+  assert.match(prompt, /Never use a default 4–8 week timeline/i);
   assert.match(prompt, /"prerequisiteKeys"/);
   assert.match(prompt, /valid JSON only/i);
 });
@@ -91,6 +95,29 @@ test('normalizes empty prerequisite markers and removes invalid edges emitted by
   assert.deepEqual(normalized.topics[1].prerequisiteKeys, ['shapes']);
 });
 
+test('realism floor stretches a beginner guitar song roadmap to at least 12 weeks at 150 minutes/week', () => {
+  const goal = {
+    title: 'Guitar',
+    targetOutcome: 'Able to play Neele Neele Ambar Par from start to finish',
+    experienceLevel: 'BEGINNER',
+    minutesPerDay: 30,
+    daysPerWeek: 5,
+  };
+  const shortRoadmap = {
+    title: 'Song roadmap',
+    summary: 'Play the song.',
+    topics: [
+      { key: 'basics', title: 'Basics', description: 'Learn the basics.', learningObjectives: ['Hold the guitar'], estimatedMinutes: 30, prerequisiteKeys: [] },
+      { key: 'song', title: 'Play song', description: 'Play the song.', learningObjectives: ['Play the song'], estimatedMinutes: 360, prerequisiteKeys: ['basics'] },
+    ],
+  };
+  const realistic = applyRealismFloor(shortRoadmap, goal);
+  assert.equal(realistic.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0), 1800);
+  assert.equal(realistic.estimatedTotalMinutes, 1800);
+  assert.ok(realistic.topics.every((topic) => topic.estimatedMinutes >= 5));
+  assert.equal(applyRealismFloor(shortRoadmap, { ...goal, experienceLevel: 'ADVANCED' }), shortRoadmap);
+});
+
 test('recognises local Ollama endpoints so they do not require an API key', () => {
   assert.equal(isLocalOllama('http://127.0.0.1:11434/v1'), true);
   assert.equal(isLocalOllama('http://localhost:11434/v1'), true);
@@ -105,10 +132,10 @@ test('hosted generation refuses to call provider when API key is missing', async
   );
 });
 
-test('E2B enhances the learner input, E4B plans from the brief, and E2B independently reviews', async () => {
+test('E4B handles the enhanced brief, planning, and independent review without loading a second model', async () => {
   const requests = [];
   const result = await generateRoadmap(goal, {
-    apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1', model: 'gemma4:e4b', reviewModel: 'gemma4:e2b',
+    apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1', model: 'gemma4:e4b',
     fetchImpl: async (url, options) => {
       const body = JSON.parse(options.body);
       requests.push({ url, body, headers: options.headers });
@@ -117,13 +144,13 @@ test('E2B enhances the learner input, E4B plans from the brief, and E2B independ
     },
   });
   assert.equal(requests.length, 3);
-  assert.equal(requests[0].body.model, 'gemma4:e2b');
+  assert.equal(requests[0].body.model, 'gemma4:e4b');
   assert.equal(requests[0].body.response_format.json_schema.name, 'enhanced_learning_brief');
   assert.equal(requests[1].body.model, 'gemma4:e4b');
   assert.equal(requests[1].body.response_format.json_schema.name, 'personalised_learning_roadmap');
   assert.equal(requests[1].body.max_tokens, 6144);
   assert.equal(requests[1].body.temperature, 0.2);
-  assert.equal(requests[2].body.model, 'gemma4:e2b');
+  assert.equal(requests[2].body.model, 'gemma4:e4b');
   assert.equal(requests[0].headers.Authorization, undefined);
   assert.equal(requests[0].body.response_format.json_schema.strict, true);
   assert.match(requests[2].body.messages[1].content, /Create a polished character illustration/);
@@ -137,7 +164,7 @@ test('learner clarifications override inferred assumptions and reach both models
   const clarification = 'Use plain Java without Spring Boot; keep the project local.';
   const requests = [];
   const result = await generateRoadmap({ ...goal, learnerClarifications: clarification }, {
-    apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1', model: 'gemma4:e4b', reviewModel: 'gemma4:e2b',
+    apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1', model: 'gemma4:e4b',
     fetchImpl: async (_url, options) => {
       const body = JSON.parse(options.body);
       requests.push(body);
@@ -152,10 +179,10 @@ test('learner clarifications override inferred assumptions and reach both models
   assert.equal(result.learningBrief.learnerClarifications, clarification);
 });
 
-test('E4B revises a draft when E2B finds major outcome-alignment issues', async () => {
+test('E4B revises a draft when its review finds major outcome-alignment issues', async () => {
   const requests = [];
   const result = await generateRoadmap(goal, {
-    apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1', model: 'gemma4:e4b', reviewModel: 'gemma4:e2b',
+    apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1', model: 'gemma4:e4b',
     fetchImpl: async (_url, options) => {
       const body = JSON.parse(options.body);
       requests.push(body);
@@ -170,10 +197,10 @@ test('E4B revises a draft when E2B finds major outcome-alignment issues', async 
     },
   });
   assert.equal(requests.length, 4);
-  assert.equal(requests[0].model, 'gemma4:e2b');
+  assert.equal(requests[0].model, 'gemma4:e4b');
   assert.equal(requests[0].response_format.json_schema.name, 'enhanced_learning_brief');
   assert.equal(requests[1].model, 'gemma4:e4b');
-  assert.equal(requests[2].model, 'gemma4:e2b');
+  assert.equal(requests[2].model, 'gemma4:e4b');
   assert.equal(requests[3].model, 'gemma4:e4b');
   assert.match(requests[3].messages[1].content, /INDEPENDENT REVIEW AND REQUIRED FIXES/);
   assert.match(requests[3].messages[1].content, /ENHANCED LEARNING BRIEF TO HONOUR/);

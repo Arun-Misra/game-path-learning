@@ -3,6 +3,7 @@
 
 
 
+
 if (process.argv.includes('--debug')) process.env.AI_DEBUG = 'true';
 const { generateRoadmap } = require('./lib/roadmap-generator');
 
@@ -18,8 +19,8 @@ const scenarios = [
   },
   {
     domain: 'music performance',
-    title: 'Fingerstyle guitar',
-    targetOutcome: 'Learn and perform one complete beginner-friendly fingerstyle guitar arrangement from start to finish in time, with clean chord transitions and a recorded performance at the target tempo.',
+    title: 'Guitar',
+    targetOutcome: 'Able to play Neele Neele Ambar Par from start to finish, with clean chord transitions and a steady strumming rhythm.',
     experienceLevel: 'BEGINNER',
     minutesPerDay: 30,
     daysPerWeek: 5,

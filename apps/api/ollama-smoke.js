@@ -1,4 +1,5 @@
 
+
 const { generateRoadmap } = require('./lib/roadmap-generator');
 
 async function main() {
@@ -12,7 +13,7 @@ async function main() {
   };
   const roadmap = await generateRoadmap(goal);
 
-  console.log('E2B brief enhancement + E4B planning + E2B review passed validation.');
+  console.log('Single-model E4B brief enhancement + planning + review passed validation.');
   console.log(JSON.stringify({
     goal: goal.targetOutcome,
     learningBrief: roadmap.learningBrief,
