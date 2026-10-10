@@ -1,5 +1,7 @@
 
 
+
+if (process.argv.includes('--debug')) process.env.AI_DEBUG = 'true';
 const { generateRoadmap } = require('./lib/roadmap-generator');
 
 async function main() {

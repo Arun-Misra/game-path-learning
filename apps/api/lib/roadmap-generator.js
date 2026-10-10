@@ -15,6 +15,8 @@
 
 
 
+
+
 const { validateRoadmap } = require('./roadmap-validation');
 
 class RoadmapGenerationError extends Error {
@@ -249,7 +251,7 @@ function parseStructuredContent(payload, description) {
     return JSON.parse(content);
   } catch (error) {
     if (process.env.AI_DEBUG === 'true') {
-      console.error(`[roadmap-generator] Invalid JSON for ${description}; chars=${content.length}; tail=${content.slice(-700)}`);
+      console.error(`[roadmap-generator] Invalid JSON for ${description}; chars=${content.length}; finish_reason=${payload.choices?.[0]?.finish_reason || 'unknown'}; usage=${JSON.stringify(payload.usage || {})}; messageKeys=${JSON.stringify(Object.keys(payload.choices?.[0]?.message || {}))}; tail=${content.slice(-700)}`);
     }
     throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_RESPONSE', `The AI provider returned invalid JSON for the ${description}.`);
   }
@@ -267,6 +269,8 @@ async function requestStructured({ endpoint, headers, model, schemaName, schema,
         messages,
         max_tokens: schemaName === 'personalised_learning_roadmap' ? 6144 : 4096,
         temperature: 0.2,
+        // E4B's hidden reasoning consumes the default 4k Ollama context; reserve tokens for complete structured output.
+        reasoning_effort: 'none',
         response_format: {
           type: 'json_schema',
           json_schema: { name: schemaName, strict: true, schema },

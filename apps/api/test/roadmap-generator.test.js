@@ -11,6 +11,7 @@
 
 
 
+
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
@@ -150,6 +151,7 @@ test('E4B handles the enhanced brief, planning, and independent review without l
   assert.equal(requests[1].body.response_format.json_schema.name, 'personalised_learning_roadmap');
   assert.equal(requests[1].body.max_tokens, 6144);
   assert.equal(requests[1].body.temperature, 0.2);
+  assert.equal(requests[1].body.reasoning_effort, 'none');
   assert.equal(requests[2].body.model, 'gemma4:e4b');
   assert.equal(requests[0].headers.Authorization, undefined);
   assert.equal(requests[0].body.response_format.json_schema.strict, true);
