@@ -95,17 +95,19 @@ model LearningGoal {
 }
 
 model Roadmap {
-  id              String         @id @default(cuid())
-  learningGoalId  String
-  version         Int            @default(1)
-  title           String
-  summary         String
-  generationState String         @default("DRAFT")
-  activatedAt     DateTime?
-  createdAt       DateTime       @default(now())
-  learningGoal    LearningGoal   @relation(fields: [learningGoalId], references: [id], onDelete: Cascade)
-  topics          RoadmapTopic[]
-  missions        DailyMission[]
+  id                       String         @id @default(cuid())
+  learningGoalId           String
+  version                  Int            @default(1)
+  title                    String
+  summary                  String
+  learningBrief            Json?
+  learningBriefConfirmedAt DateTime?
+  generationState          String         @default("DRAFT")
+  activatedAt              DateTime?
+  createdAt                DateTime       @default(now())
+  learningGoal             LearningGoal   @relation(fields: [learningGoalId], references: [id], onDelete: Cascade)
+  topics                   RoadmapTopic[]
+  missions                 DailyMission[]
 
   @@unique([learningGoalId, version])
   @@index([learningGoalId, generationState])

@@ -1,5 +1,8 @@
 
 
+
+
+
 import { useEffect, useState } from 'react';
 import {
   ArrowRight, BookOpen, Check, Clock3, Compass, Flame,
@@ -33,6 +36,8 @@ function App() {
   const [user, setUser] = useState(null);
   const [goals, setGoals] = useState([]);
   const [roadmapsByGoal, setRoadmapsByGoal] = useState({});
+  const [learningBriefConfirmedByRoadmap, setLearningBriefConfirmedByRoadmap] = useState({});
+  const [clarificationByRoadmap, setClarificationByRoadmap] = useState({});
   const [roadmapBusyGoal, setRoadmapBusyGoal] = useState(null);
   const [missionsByGoal, setMissionsByGoal] = useState({});
   const [missionBusyId, setMissionBusyId] = useState(null);
@@ -149,6 +154,8 @@ function App() {
       await requestJson(`/api/v1/learning-goals/${goal.id}`, { method: 'DELETE' });
       setGoals((current) => current.filter((item) => item.id !== goal.id));
       setRoadmapsByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
+      setLearningBriefConfirmedByRoadmap((current) => { const next = { ...current }; for (const roadmap of roadmapsByGoal[goal.id] || []) delete next[roadmap.id]; return next; });
+      setClarificationByRoadmap((current) => { const next = { ...current }; for (const roadmap of roadmapsByGoal[goal.id] || []) delete next[roadmap.id]; return next; });
       setMissionsByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
       setAssessmentByTopic({});
       setAssessmentAnswers({});
@@ -170,11 +177,37 @@ function App() {
         method: 'POST',
         body: JSON.stringify({}),
       });
+      setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [result.data.roadmap.id]: false }));
       setRoadmapsByGoal((current) => ({
         ...current,
         [goal.id]: [result.data.roadmap, ...(current[goal.id] || [])],
       }));
       setNotice({ type: 'success', message: `A personalised draft roadmap for ${goal.skill} is ready to review.` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setRoadmapBusyGoal(null);
+    }
+  }
+
+  async function handleRegenerateRoadmapWithClarification(goal, roadmap) {
+    const clarifications = (clarificationByRoadmap[roadmap.id] || '').trim();
+    if (!clarifications) return;
+
+    setRoadmapBusyGoal(goal.id);
+    setNotice(null);
+    try {
+      const result = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps/generate`, {
+        method: 'POST',
+        body: JSON.stringify({ clarifications }),
+      });
+      setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [result.data.roadmap.id]: false }));
+      setClarificationByRoadmap((current) => ({ ...current, [roadmap.id]: '' }));
+      setRoadmapsByGoal((current) => ({
+        ...current,
+        [goal.id]: [result.data.roadmap, ...(current[goal.id] || [])],
+      }));
+      setNotice({ type: 'success', message: 'Created a new draft using your clarification. Review its updated learning brief before activating it.' });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
     } finally {
@@ -213,7 +246,9 @@ function App() {
     try {
       const result = await requestJson(
         `/api/v1/learning-goals/${goal.id}/roadmaps/${roadmap.id}/activate`,
-        { method: 'POST', body: JSON.stringify({}) },
+        { method: 'POST', body: JSON.stringify({
+          confirmLearningBrief: Boolean(roadmap.learningBrief && learningBriefConfirmedByRoadmap[roadmap.id]),
+        }) },
       );
       setRoadmapsByGoal((current) => ({
         ...current,
@@ -343,6 +378,8 @@ function App() {
       setUser(null);
       setGoals([]);
       setRoadmapsByGoal({});
+      setLearningBriefConfirmedByRoadmap({});
+      setClarificationByRoadmap({});
       setMissionsByGoal({});
       setAssessmentByTopic({});
       setAssessmentAnswers({});
@@ -454,12 +491,37 @@ function App() {
 <p className="mt-1 text-xs text-[#737b70]">Version {roadmap.version} · {roadmap.generationState.toLowerCase()} · {roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0)} min</p>
 
 </div>{roadmap.generationState === 'DRAFT' && <div className="flex flex-wrap gap-2">
-<button type="button" onClick={() => handleActivateRoadmap(goal, roadmap)} disabled={roadmapBusyGoal !== null} className="rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">Activate</button>
+<button type="button" onClick={() => handleActivateRoadmap(goal, roadmap)} disabled={roadmapBusyGoal !== null || Boolean(roadmap.learningBrief && !learningBriefConfirmedByRoadmap[roadmap.id])} className="rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">Activate</button>
 <button type="button" onClick={() => handleDeleteRoadmap(goal, roadmap)} disabled={roadmapBusyGoal !== null} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 disabled:opacity-50">Delete</button>
 </div>
 }</div>
 
 <p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p>
+
+{roadmap.learningBrief && <section className="mt-4 rounded-xl border border-[#dfe7d9] bg-white p-4">
+<p className="text-xs font-bold uppercase tracking-wide text-[#688663]">Enhanced learning brief</p>
+<p className="mt-2 text-sm font-semibold">{roadmap.learningBrief.outcomeRestatement}</p>
+<p className="mt-2 text-xs leading-5 text-[#737b70]"><strong className="text-[#424a40]">Final deliverable:</strong> {roadmap.learningBrief.finalDeliverable}</p>
+{roadmap.learningBrief.capabilities?.length > 0 && <div className="mt-3">
+<p className="text-xs font-semibold text-[#424a40]">Capabilities this roadmap should cover</p>
+<ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-5 text-[#737b70]">{roadmap.learningBrief.capabilities.map((item, index) => <li key={index}><strong>{item.capability}</strong> — {item.evidenceOfSuccess}</li>)}</ul>
+</div>}
+{roadmap.learningBrief.prerequisiteKnowledge?.length > 0 && <div className="mt-3"><p className="text-xs font-semibold text-[#424a40]">Expected prerequisites</p><ul className="mt-1 list-disc pl-5 text-xs leading-5 text-[#737b70]">{roadmap.learningBrief.prerequisiteKnowledge.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
+{roadmap.learningBrief.assumptions?.length > 0 && <div className="mt-3 rounded-lg bg-[#fff6e5] p-3"><p className="text-xs font-semibold text-[#825a21]">Assumptions to review</p><ul className="mt-1 list-disc pl-5 text-xs leading-5 text-[#785d31]">{roadmap.learningBrief.assumptions.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
+{roadmap.learningBrief.outOfScope?.length > 0 && <div className="mt-3"><p className="text-xs font-semibold text-[#424a40]">Not included in this plan</p><ul className="mt-1 list-disc pl-5 text-xs leading-5 text-[#737b70]">{roadmap.learningBrief.outOfScope.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
+{roadmap.learningBrief.learnerClarifications && <p className="mt-3 rounded-lg bg-[#edf3e9] p-3 text-xs leading-5 text-[#355a39]"><strong>Clarification applied:</strong> {roadmap.learningBrief.learnerClarifications}</p>}
+{roadmap.generationState === 'DRAFT' && <div className="mt-4 border-t border-[#e4e8df] pt-3">
+<label className="block text-xs font-semibold text-[#424a40]" htmlFor={'roadmap-clarification-' + roadmap.id}>Need to correct an assumption?</label>
+<p className="mt-1 text-xs leading-5 text-[#737b70]">Tell Pathwise what you meant. It will enhance the request again and generate a separate draft, leaving this version untouched.</p>
+<textarea id={'roadmap-clarification-' + roadmap.id} value={clarificationByRoadmap[roadmap.id] || ''} onChange={(event) => setClarificationByRoadmap((current) => ({ ...current, [roadmap.id]: event.target.value }))} maxLength={1200} rows={2} placeholder="e.g. Use plain Java rather than Spring Boot; keep all work local." className="field mt-2 resize-y" />
+<button type="button" onClick={() => handleRegenerateRoadmapWithClarification(goal, roadmap)} disabled={roadmapBusyGoal !== null || !(clarificationByRoadmap[roadmap.id] || '').trim()} className="mt-2 rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">{roadmapBusyGoal === goal.id ? 'Regenerating…' : 'Regenerate with clarification'}</button>
+</div>}
+{roadmap.generationState === 'DRAFT' && <label className="mt-4 flex cursor-pointer items-start gap-2 border-t border-[#e4e8df] pt-3 text-xs leading-5 text-[#424a40]">
+<input type="checkbox" checked={Boolean(learningBriefConfirmedByRoadmap[roadmap.id])} onChange={(event) => setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [roadmap.id]: event.target.checked }))} className="mt-1 accent-[#355a39]" />
+<span>I’ve reviewed this brief, including its assumptions, and it reflects what I want to achieve. I understand I can delete this draft and generate another if it doesn’t.</span>
+</label>}
+{roadmap.learningBriefConfirmedAt && <p className="mt-3 text-xs text-[#688663]">Learning brief confirmed before activation.</p>}
+</section>}
 
 <ol className="mt-3 space-y-2">{roadmap.topics.map((topic) => <li key={topic.id} className="border-t border-[#e4e8df] pt-3">
 <div className="flex gap-3">

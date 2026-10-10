@@ -2,6 +2,17 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 const { validateRoadmap } = require('./roadmap-validation');
 
 class RoadmapGenerationError extends Error {
@@ -38,7 +49,7 @@ const responseSchema = {
   required: ['title', 'summary', 'topics'],
 };
 
-const outcomeAnalysisSchema = {
+const learningBriefSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -99,7 +110,7 @@ function buildPrompt(goal, outcomeBrief = '') {
     'Design a practical, outcome-specific learning roadmap for this learner. The desired outcome outranks the skill label.',
     'First understand the requested result; then plan the shortest complete path from the learner’s current level to a demonstrable result.',
     '',
-    'OUTCOME DECOMPOSITION:',
+    'ENHANCED LEARNING BRIEF:',
     '- Translate the desired outcome into concrete capabilities, prerequisite knowledge, and a final observable deliverable.',
     '- Cover every distinct capability explicitly. A capability mentioned only in the summary does not count as covered.',
     '- For each topic, specify what the learner will do, produce, solve, test, or demonstrate. Avoid vague titles and descriptions such as “learn the basics”, “explore concepts”, or “practice more”.',
@@ -110,7 +121,7 @@ function buildPrompt(goal, outcomeBrief = '') {
     'SCOPE AND REALISM:',
     '- Produce 5–8 substantial topics for a focused outcome, fewer only when genuinely appropriate.',
     '- Weekly time is a hard constraint: estimate focused learning plus hands-on work, debugging, and review.',
-    '- With no deadline, target a focused first roadmap of roughly 4–8 weeks at the learner’s stated availability. With a deadline, keep total hours realistic for the time remaining.',
+    '- Without a deadline, use 4–8 weeks as a planning guide only; never force a roadmap into that window by underestimating practice-heavy work. Derive the elapsed weeks from credible total effort and the learner’s availability. With a deadline, explain when the outcome is not realistic within the time remaining.',
     '- Avoid duplicate topics, filler, generic motivation, and unrealistic mastery claims.',
     '- Give every topic 1–5 assessable learning objectives and an actionable description.',
     '',
@@ -126,21 +137,23 @@ function buildPrompt(goal, outcomeBrief = '') {
     `Skill/domain: ${goal.title}`,
     `Starting experience: ${goal.experienceLevel}`,
     `Desired outcome: ${goal.targetOutcome}`,
+    goal.learnerClarifications ? `CLARIFICATIONS FROM THE LEARNER (preserve these exactly): ${goal.learnerClarifications}` : '',
     `Availability: ${goal.minutesPerDay} minutes/day, ${goal.daysPerWeek} days/week (${weeklyMinutes} minutes/week)`,
     `Target date: ${target}`,
-    outcomeBrief ? `OUTCOME ANALYSIS TO HONOUR:\n${outcomeBrief}` : '',
+    outcomeBrief ? `ENHANCED LEARNING BRIEF TO HONOUR:\n${outcomeBrief}` : '',
     '',
     'Before responding, verify that the final deliverable directly satisfies the desired outcome, every distinct capability is taught/practised, the order makes sense, and the total time is credible.',
   ].filter(Boolean).join('\n');
 }
 
-function buildReviewPrompt(goal, roadmap, outcomeAnalysis = null) {
+function buildReviewPrompt(goal, roadmap, learningBrief = null) {
   return [
     'You are an independent, strict learning-roadmap auditor. Judge the plan against the learner’s actual goal, not against a generic course outline.',
     'Reject a roadmap if it is vague, generic, repetitive, disconnected from the desired outcome, missing a requested capability, poorly sequenced, or unrealistic for the available time.',
     'Check: (1) exact outcome alignment, (2) coverage of each distinct requested capability, (3) concrete actionable work per topic, (4) meaningful step-by-step progression, (5) relevant final deliverable, (6) appropriate prerequisites for experience level, (7) time-budget realism, and (8) no filler/repetition.',
+    'TIME AUDIT: Independently estimate the focused effort needed for this exact outcome at this experience level. Include repeated practice, feedback cycles, debugging, testing, integration, and final performance attempts where relevant. Do not simply accept the planner’s estimates or divide them by weekly availability. For music, sports, language, physical skills, and other practice-heavy outcomes, account for deliberate practice across multiple sessions; flag a complete polished beginner performance estimated at only a few hours unless the request provides evidence that this is realistic. Distinguish total focused minutes from elapsed calendar weeks. Do not approve a roadmap that appears short only because practice was undercounted; suggest a credible total effort and adjust the schedule instead of promising unrealistic mastery.',
     'Approve only when there are no critical or major issues and score is at least 80. Be specific: each issue should explain the mismatch and give an actionable fix. Do not invent requirements not implied by the goal.',
-    outcomeAnalysis ? `OUTCOME BREAKDOWN TO AUDIT AGAINST:\\n${JSON.stringify(outcomeAnalysis)}` : '',
+    learningBrief ? `ENHANCED LEARNING BRIEF TO AUDIT AGAINST:\n${JSON.stringify(learningBrief)}` : '',
     'Return JSON only matching this schema:',
     JSON.stringify(reviewSchema),
     '',
@@ -196,7 +209,10 @@ function parseStructuredContent(payload, description) {
   }
   try {
     return JSON.parse(content);
-  } catch {
+  } catch (error) {
+    if (process.env.AI_DEBUG === 'true') {
+      console.error(`[roadmap-generator] Invalid JSON for ${description}; chars=${content.length}; tail=${content.slice(-700)}`);
+    }
     throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_RESPONSE', `The AI provider returned invalid JSON for the ${description}.`);
   }
 }
@@ -211,7 +227,8 @@ async function requestStructured({ endpoint, headers, model, schemaName, schema,
       body: JSON.stringify({
         model,
         messages,
-        max_tokens: 4096,
+        max_tokens: schemaName === 'personalised_learning_roadmap' ? 6144 : 4096,
+        temperature: 0.2,
         response_format: {
           type: 'json_schema',
           json_schema: { name: schemaName, strict: true, schema },
@@ -249,15 +266,23 @@ async function requestStructured({ endpoint, headers, model, schemaName, schema,
   }
   const description = schemaName === 'roadmap_review'
     ? 'roadmap review'
-    : schemaName === 'outcome_analysis'
-      ? 'outcome analysis'
+    : schemaName === 'enhanced_learning_brief'
+      ? 'enhanced learning brief'
       : 'roadmap';
   try {
     return parseStructuredContent(payload, description);
   } catch (error) {
     if (retryInvalidJson && error.code === 'ROADMAP_PROVIDER_INVALID_RESPONSE') {
       return requestStructured({
-        endpoint, headers, model, schemaName, schema, messages, fetchImpl,
+        endpoint, headers, model, schemaName, schema,
+        messages: [
+          ...messages,
+          {
+            role: 'system',
+            content: 'Your previous response was not valid parseable JSON. Start over and return one complete JSON object matching the required schema exactly. Do not use markdown, comments, trailing commas, or text outside the JSON. Keep every required field and finish the object completely.',
+          },
+        ],
+        fetchImpl,
         retryInvalidJson: false,
       });
     }
@@ -299,27 +324,28 @@ async function generateRoadmap(goal, {
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
-  // Stage 1: E4B turns the learner's natural-language request into explicit capabilities and evidence.
-  const outcomeAnalysis = await requestStructured({
-    endpoint, headers, model, schemaName: 'outcome_analysis', schema: outcomeAnalysisSchema, fetchImpl,
+  // Stage 1: E2B enhances the learner's original request into a structured learning brief without changing their intent.
+  const learningBrief = await requestStructured({
+    endpoint, headers, model: reviewModel, schemaName: 'enhanced_learning_brief', schema: learningBriefSchema, fetchImpl,
     messages: [
       {
         role: 'system',
-        content: 'You are an outcome analyst. Extract exactly what the learner wants to achieve, the capabilities required, what success would look like, and any assumptions. Do not expand the scope or invent a technology stack unless the goal requires it. Return only the structured analysis JSON.',
+        content: 'You are a learning-request enhancement specialist. Preserve the learner’s original intent and scope while making the request precise enough for a roadmap architect. Convert it into a structured brief with measurable success evidence, genuinely required capabilities, prerequisites, assumptions, and a final deliverable. Do not invent preferences, technologies, or commitments. State unresolved choices as assumptions and keep choices open where possible. Explicit learner clarifications override any inference or prior assumption; remove or update assumptions that the learner has clarified. Return only the structured brief JSON.',
       },
       {
         role: 'user',
         content: [
-          'Analyse this learning request before any roadmap is written.',
+          'Enhance and clarify this learning request before any roadmap is written. Preserve its intent; do not add requirements that the learner did not ask for.',
           `Skill/domain: ${goal.title}`,
           `Current experience: ${goal.experienceLevel}`,
           `Desired outcome: ${goal.targetOutcome}`,
+          goal.learnerClarifications ? `Learner clarification (takes precedence over inferred assumptions): ${goal.learnerClarifications}` : '',
           `Availability: ${goal.minutesPerDay} minutes/day, ${goal.daysPerWeek} days/week`,
           `Target date: ${goal.targetDate || 'None'}`,
           'Break a multi-part outcome into distinct required capabilities. Describe observable evidence of success for each. List only prerequisites genuinely needed. If a tool/framework is unspecified, keep it open or state it as an assumption rather than treating it as a user requirement.',
           'Return JSON only matching this schema:',
-          JSON.stringify(outcomeAnalysisSchema),
-        ].join('\\n'),
+          JSON.stringify(learningBriefSchema),
+        ].join('\n'),
       },
     ],
   });
@@ -331,7 +357,7 @@ async function generateRoadmap(goal, {
         role: 'system',
         content: 'You are a learning-path architect. Translate the learner’s exact desired outcome into a small sequence of concrete steps and a directly relevant final deliverable. No generic filler. Return only the requested JSON.',
       },
-      { role: 'user', content: buildPrompt(goal, JSON.stringify(outcomeAnalysis)) },
+      { role: 'user', content: buildPrompt(goal, JSON.stringify(learningBrief)) },
     ],
   });
 
@@ -349,7 +375,7 @@ async function generateRoadmap(goal, {
         role: 'system',
         content: 'Audit learning roadmaps rigorously. Be skeptical of vague, generic, repetitive, or outcome-mismatched plans. Approve only if the learner can see a credible step-by-step path to the exact requested result. Return only the review JSON.',
       },
-      { role: 'user', content: buildReviewPrompt(goal, roadmap, outcomeAnalysis) },
+      { role: 'user', content: buildReviewPrompt(goal, roadmap, learningBrief) },
     ],
   });
 
@@ -368,7 +394,7 @@ async function generateRoadmap(goal, {
         {
           role: 'user',
           content: [
-            buildPrompt(goal, JSON.stringify(outcomeAnalysis)),
+            buildPrompt(goal, JSON.stringify(learningBrief)),
             '',
             `INITIAL ROADMAP:\n${JSON.stringify(roadmap)}`,
             '',
@@ -386,7 +412,13 @@ async function generateRoadmap(goal, {
     roadmap = revisedValidation.data;
   }
 
-  return roadmap;
+  return {
+    ...roadmap,
+    learningBrief: {
+      ...learningBrief,
+      ...(goal.learnerClarifications ? { learnerClarifications: goal.learnerClarifications } : {}),
+    },
+  };
 }
 
 module.exports = {

@@ -2,6 +2,12 @@
 
 
 
+
+
+
+
+
+
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
@@ -27,7 +33,7 @@ function validProposal() {
   };
 }
 
-function validOutcomeAnalysis() {
+function validLearningBrief() {
   return {
     outcomeRestatement: 'Build a tested Java service that finds shortest paths in a graph and exposes them through a client-server API.',
     capabilities: [
@@ -71,6 +77,8 @@ test('review prompt checks the roadmap against the learner outcome rather than a
   assert.match(prompt, /strict learning-roadmap auditor/i);
   assert.match(prompt, /DESIRED OUTCOME: Create a polished character illustration/);
   assert.match(prompt, /time-budget realism/i);
+  assert.match(prompt, /Independently estimate the focused effort/i);
+  assert.match(prompt, /practice-heavy outcomes/i);
   assert.match(prompt, /Approve only when there are no critical or major issues/i);
 });
 
@@ -97,22 +105,24 @@ test('hosted generation refuses to call provider when API key is missing', async
   );
 });
 
-test('E4B plans and E2B independently reviews a valid roadmap', async () => {
+test('E2B enhances the learner input, E4B plans from the brief, and E2B independently reviews', async () => {
   const requests = [];
   const result = await generateRoadmap(goal, {
     apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1', model: 'gemma4:e4b', reviewModel: 'gemma4:e2b',
     fetchImpl: async (url, options) => {
       const body = JSON.parse(options.body);
       requests.push({ url, body, headers: options.headers });
-      if (body.response_format.json_schema.name === 'outcome_analysis') return responseFor(validOutcomeAnalysis());
+      if (body.response_format.json_schema.name === 'enhanced_learning_brief') return responseFor(validLearningBrief());
       return responseFor(body.response_format.json_schema.name === 'roadmap_review' ? approvedReview() : validProposal());
     },
   });
   assert.equal(requests.length, 3);
-  assert.equal(requests[0].body.model, 'gemma4:e4b');
-  assert.equal(requests[0].body.response_format.json_schema.name, 'outcome_analysis');
+  assert.equal(requests[0].body.model, 'gemma4:e2b');
+  assert.equal(requests[0].body.response_format.json_schema.name, 'enhanced_learning_brief');
   assert.equal(requests[1].body.model, 'gemma4:e4b');
   assert.equal(requests[1].body.response_format.json_schema.name, 'personalised_learning_roadmap');
+  assert.equal(requests[1].body.max_tokens, 6144);
+  assert.equal(requests[1].body.temperature, 0.2);
   assert.equal(requests[2].body.model, 'gemma4:e2b');
   assert.equal(requests[0].headers.Authorization, undefined);
   assert.equal(requests[0].body.response_format.json_schema.strict, true);
@@ -120,6 +130,26 @@ test('E4B plans and E2B independently reviews a valid roadmap', async () => {
   assert.equal(result.topics.length, 2);
   assert.equal(result.topics[1].position, 1);
   assert.equal(result.estimatedTotalMinutes, 75);
+  assert.equal(result.learningBrief.finalDeliverable, validLearningBrief().finalDeliverable);
+});
+
+test('learner clarifications override inferred assumptions and reach both models', async () => {
+  const clarification = 'Use plain Java without Spring Boot; keep the project local.';
+  const requests = [];
+  const result = await generateRoadmap({ ...goal, learnerClarifications: clarification }, {
+    apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1', model: 'gemma4:e4b', reviewModel: 'gemma4:e2b',
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      requests.push(body);
+      if (body.response_format.json_schema.name === 'enhanced_learning_brief') return responseFor(validLearningBrief());
+      return responseFor(body.response_format.json_schema.name === 'roadmap_review' ? approvedReview() : validProposal());
+    },
+  });
+
+  assert.match(requests[0].messages[0].content, /learner clarifications override/i);
+  assert.match(requests[0].messages[1].content, /Use plain Java without Spring Boot/);
+  assert.match(requests[1].messages[1].content, /CLARIFICATIONS FROM THE LEARNER/);
+  assert.equal(result.learningBrief.learnerClarifications, clarification);
 });
 
 test('E4B revises a draft when E2B finds major outcome-alignment issues', async () => {
@@ -129,7 +159,7 @@ test('E4B revises a draft when E2B finds major outcome-alignment issues', async 
     fetchImpl: async (_url, options) => {
       const body = JSON.parse(options.body);
       requests.push(body);
-      if (body.response_format.json_schema.name === 'outcome_analysis') return responseFor(validOutcomeAnalysis());
+      if (body.response_format.json_schema.name === 'enhanced_learning_brief') return responseFor(validLearningBrief());
       if (body.response_format.json_schema.name === 'roadmap_review') {
         return responseFor({
           approved: false, score: 55,
@@ -140,13 +170,13 @@ test('E4B revises a draft when E2B finds major outcome-alignment issues', async 
     },
   });
   assert.equal(requests.length, 4);
-  assert.equal(requests[0].model, 'gemma4:e4b');
-  assert.equal(requests[0].response_format.json_schema.name, 'outcome_analysis');
+  assert.equal(requests[0].model, 'gemma4:e2b');
+  assert.equal(requests[0].response_format.json_schema.name, 'enhanced_learning_brief');
   assert.equal(requests[1].model, 'gemma4:e4b');
   assert.equal(requests[2].model, 'gemma4:e2b');
   assert.equal(requests[3].model, 'gemma4:e4b');
   assert.match(requests[3].messages[1].content, /INDEPENDENT REVIEW AND REQUIRED FIXES/);
-  assert.match(requests[3].messages[1].content, /OUTCOME ANALYSIS TO HONOUR/);
+  assert.match(requests[3].messages[1].content, /ENHANCED LEARNING BRIEF TO HONOUR/);
   assert.match(requests[3].messages[1].content, /framework is not a user requirement/);
   assert.equal(result.topics[1].title, 'Character drawing');
 });
@@ -159,7 +189,7 @@ test('invalid reviewer output is rejected instead of silently trusting an unaudi
       apiKey: '', baseUrl: 'http://localhost:11434/v1',
       fetchImpl: async (_url, options) => {
         const body = JSON.parse(options.body);
-        if (body.response_format.json_schema.name === 'outcome_analysis') return responseFor(validOutcomeAnalysis());
+        if (body.response_format.json_schema.name === 'enhanced_learning_brief') return responseFor(validLearningBrief());
         return responseFor(body.response_format.json_schema.name === 'roadmap_review' ? { approved: true, score: 'high', issues: [] } : validProposal());
       },
     }),
@@ -173,7 +203,7 @@ test('generation normalizes invalid external prerequisite references before vali
     apiKey: '', baseUrl: 'http://localhost:11434/v1',
     fetchImpl: async (_url, options) => {
       const body = JSON.parse(options.body);
-      if (body.response_format.json_schema.name === 'outcome_analysis') return responseFor(validOutcomeAnalysis());
+      if (body.response_format.json_schema.name === 'enhanced_learning_brief') return responseFor(validLearningBrief());
       return responseFor(body.response_format.json_schema.name === 'roadmap_review'
         ? approvedReview()
         : { ...validProposal(), topics: invalidEdges });
@@ -182,24 +212,27 @@ test('generation normalizes invalid external prerequisite references before vali
   assert.deepEqual(result.topics.map((topic) => topic.prerequisiteKeys), [[], []]);
 });
 
-test('retries one malformed structured response before returning a provider error', async () => {
+test('retries one malformed structured response with an explicit JSON repair instruction', async () => {
   let calls = 0;
+  const retryBodies = [];
   const result = await generateRoadmap(goal, {
     apiKey: '',
     baseUrl: 'http://localhost:11434/v1',
     fetchImpl: async (_url, options) => {
       const body = JSON.parse(options.body);
-      if (body.response_format.json_schema.name === 'outcome_analysis') {
+      if (body.response_format.json_schema.name === 'enhanced_learning_brief') {
+        retryBodies.push(body);
         calls += 1;
         if (calls === 1) {
           return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{invalid json' } }] }) };
         }
-        return responseFor(validOutcomeAnalysis());
+        return responseFor(validLearningBrief());
       }
       return responseFor(body.response_format.json_schema.name === 'roadmap_review' ? approvedReview() : validProposal());
     },
   });
   assert.equal(calls, 2);
+  assert.match(retryBodies[1].messages.at(-1).content, /not valid parseable JSON/i);
   assert.equal(result.topics.length, 2);
 });
 test('provider rate limits are reported as retryable service errors', async () => {

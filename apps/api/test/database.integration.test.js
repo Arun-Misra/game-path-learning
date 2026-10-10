@@ -1,5 +1,6 @@
 
 
+
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const test = require('node:test');
@@ -314,12 +315,39 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       assert.equal(disposableGoalResponse.status, 201);
       const disposableGoal = (await disposableGoalResponse.json()).data.goal;
 
+      const learningBrief = {
+        outcomeRestatement: 'Build and test a small, working result.',
+        capabilities: [{ capability: 'Build the result', importance: 'required', evidenceOfSuccess: 'The result works in a repeatable test.' }],
+        prerequisiteKnowledge: ['Basic computer use'],
+        assumptions: ['Use a local development environment; no cloud hosting was requested.'],
+        finalDeliverable: 'A working result with an automated test.',
+        outOfScope: ['Cloud deployment'],
+      };
       const disposableGoalRoadmap = await fetch(`${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/roadmaps`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
-        body: JSON.stringify(proposedRoadmap('Disposable goal roadmap')),
+        body: JSON.stringify({ ...proposedRoadmap('Disposable goal roadmap'), learningBrief }),
       });
       assert.equal(disposableGoalRoadmap.status, 201);
+      const briefRoadmap = (await disposableGoalRoadmap.json()).data.roadmap;
+      assert.deepEqual(briefRoadmap.learningBrief, learningBrief);
+      assert.equal(briefRoadmap.learningBriefConfirmedAt, null);
+
+      const activationWithoutConfirmation = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/roadmaps/${briefRoadmap.id}/activate`,
+        { method: 'POST', headers: { Cookie: first.cookie }, body: JSON.stringify({}) },
+      );
+      assert.equal(activationWithoutConfirmation.status, 409);
+      assert.equal((await activationWithoutConfirmation.json()).error.code, 'LEARNING_BRIEF_CONFIRMATION_REQUIRED');
+
+      const activationWithConfirmation = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/roadmaps/${briefRoadmap.id}/activate`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: first.cookie }, body: JSON.stringify({ confirmLearningBrief: true }) },
+      );
+      assert.equal(activationWithConfirmation.status, 200);
+      const confirmedBriefRoadmap = (await activationWithConfirmation.json()).data.roadmap;
+      assert.equal(confirmedBriefRoadmap.generationState, 'ACTIVE');
+      assert.ok(confirmedBriefRoadmap.learningBriefConfirmedAt);
 
       const otherUserCannotDeleteGoal = await fetch(`${baseUrl}/api/v1/learning-goals/${disposableGoal.id}`, {
         method: 'DELETE', headers: { Cookie: second.cookie },

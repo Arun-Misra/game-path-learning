@@ -1,4 +1,6 @@
 
+
+
 const express = require('express');
 const { z } = require('zod');
 const { rateLimit } = require('express-rate-limit');
@@ -40,6 +42,12 @@ router.use(requireAuth);
 
 router.post('/generate', generationLimiter, async (req, res, next) => {
   const parsedId = idSchema.safeParse(req.params.goalId);
+  const parsedBody = z.object({ clarifications: z.string().trim().max(1200).optional() }).safeParse(req.body ?? {});
+  if (!parsedBody.success) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION_ERROR', message: 'Clarifications must be 1,200 characters or fewer.' },
+    });
+  }
   if (!parsedId.success) {
     return res.status(400).json({
       error: { code: 'VALIDATION_ERROR', message: 'A valid learning goal ID is required.' },
@@ -50,6 +58,7 @@ router.post('/generate', generationLimiter, async (req, res, next) => {
     const roadmap = await generateRoadmapDraft({
       userId: req.user.id,
       goalId: parsedId.data,
+      clarifications: parsedBody.data.clarifications || '',
     });
     return res.status(201).json({ data: { roadmap } });
   } catch (error) {
@@ -117,6 +126,12 @@ router.delete('/:roadmapId', async (req, res, next) => {
 router.post('/:roadmapId/activate', async (req, res, next) => {
   const parsedGoalId = idSchema.safeParse(req.params.goalId);
   const parsedRoadmapId = idSchema.safeParse(req.params.roadmapId);
+  const parsedBody = z.object({ confirmLearningBrief: z.boolean().optional() }).safeParse(req.body ?? {});
+  if (!parsedBody.success) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION_ERROR', message: 'The learning brief confirmation must be a boolean.' },
+    });
+  }
   if (!parsedGoalId.success || !parsedRoadmapId.success) {
     return res.status(400).json({
       error: { code: 'VALIDATION_ERROR', message: 'Valid goal and roadmap IDs are required.' },
@@ -128,6 +143,7 @@ router.post('/:roadmapId/activate', async (req, res, next) => {
       userId: req.user.id,
       goalId: parsedGoalId.data,
       roadmapId: parsedRoadmapId.data,
+      confirmLearningBrief: parsedBody.data.confirmLearningBrief === true,
     });
     return res.json({ data: { roadmap } });
   } catch (error) {

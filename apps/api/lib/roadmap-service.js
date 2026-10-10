@@ -1,5 +1,8 @@
 
 
+
+
+
 const { prisma } = require('./prisma');
 const { validateRoadmap } = require('./roadmap-validation');
 const { generateRoadmap } = require('./roadmap-generator');
@@ -38,6 +41,9 @@ async function getRoadmapWithTopics(db, roadmapId) {
 
 async function createRoadmapDraft({ userId, goalId, input, db = prisma }) {
   const roadmapData = getValidatedRoadmap(input);
+  const learningBrief = input?.learningBrief && typeof input.learningBrief === 'object' && !Array.isArray(input.learningBrief)
+    ? input.learningBrief
+    : null;
 
   const roadmapId = await db.$transaction(async (tx) => {
     const goal = await tx.learningGoal.findFirst({
@@ -60,6 +66,7 @@ async function createRoadmapDraft({ userId, goalId, input, db = prisma }) {
         version: (latest?.version || 0) + 1,
         title: roadmapData.title,
         summary: roadmapData.summary,
+        ...(learningBrief ? { learningBrief } : {}),
         generationState: 'DRAFT',
       },
       select: { id: true },
@@ -100,7 +107,7 @@ async function createRoadmapDraft({ userId, goalId, input, db = prisma }) {
   return getRoadmapWithTopics(db, roadmapId);
 }
 
-async function generateRoadmapDraft({ userId, goalId, db = prisma, generator = generateRoadmap }) {
+async function generateRoadmapDraft({ userId, goalId, clarifications = '', db = prisma, generator = generateRoadmap }) {
   const goal = await db.learningGoal.findFirst({
     where: { id: goalId, userId },
     select: {
@@ -120,7 +127,7 @@ async function generateRoadmapDraft({ userId, goalId, db = prisma, generator = g
 
   let proposed;
   try {
-    proposed = await generator(goal);
+    proposed = await generator({ ...goal, learnerClarifications: typeof clarifications === 'string' ? clarifications.trim() : '' });
   } catch (error) {
     if (error && Number.isInteger(error.status) && error.code) throw error;
     throw new RoadmapServiceError(502, 'ROADMAP_GENERATION_FAILED', 'The roadmap could not be generated. Please try again.');
@@ -184,7 +191,7 @@ async function deleteRoadmapDraft({ userId, goalId, roadmapId, db = prisma }) {
   });
 }
 
-async function activateRoadmap({ userId, goalId, roadmapId, db = prisma }) {
+async function activateRoadmap({ userId, goalId, roadmapId, confirmLearningBrief = false, db = prisma }) {
   await db.$transaction(async (tx) => {
     const goal = await tx.learningGoal.findFirst({
       where: { id: goalId, userId },
@@ -196,7 +203,7 @@ async function activateRoadmap({ userId, goalId, roadmapId, db = prisma }) {
 
     const roadmap = await tx.roadmap.findFirst({
       where: { id: roadmapId, learningGoalId: goalId },
-      select: { id: true, generationState: true },
+      select: { id: true, generationState: true, learningBrief: true, learningBriefConfirmedAt: true },
     });
     if (!roadmap) {
       throw new RoadmapServiceError(404, 'ROADMAP_NOT_FOUND', 'Roadmap not found.');
@@ -205,6 +212,9 @@ async function activateRoadmap({ userId, goalId, roadmapId, db = prisma }) {
     if (roadmap.generationState === 'ACTIVE') return;
     if (roadmap.generationState !== 'DRAFT') {
       throw new RoadmapServiceError(409, 'ROADMAP_NOT_ACTIVATABLE', 'Only a draft roadmap can be activated.');
+    }
+    if (roadmap.learningBrief && !roadmap.learningBriefConfirmedAt && confirmLearningBrief !== true) {
+      throw new RoadmapServiceError(409, 'LEARNING_BRIEF_CONFIRMATION_REQUIRED', 'Review the enhanced learning brief and confirm its assumptions before activating this roadmap.');
     }
 
     const topicCount = await tx.roadmapTopic.count({ where: { roadmapId } });
@@ -218,7 +228,11 @@ async function activateRoadmap({ userId, goalId, roadmapId, db = prisma }) {
     });
     await tx.roadmap.update({
       where: { id: roadmapId },
-      data: { generationState: 'ACTIVE', activatedAt: new Date() },
+      data: {
+        generationState: 'ACTIVE',
+        activatedAt: new Date(),
+        ...(roadmap.learningBrief && !roadmap.learningBriefConfirmedAt ? { learningBriefConfirmedAt: new Date() } : {}),
+      },
     });
     await tx.learningGoal.update({
       where: { id: goalId },

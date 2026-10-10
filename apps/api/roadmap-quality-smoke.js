@@ -1,4 +1,9 @@
 
+
+
+
+
+if (process.argv.includes('--debug')) process.env.AI_DEBUG = 'true';
 const { generateRoadmap } = require('./lib/roadmap-generator');
 
 const scenarios = [
@@ -52,8 +57,15 @@ function summarize(goal, roadmap) {
 }
 
 async function main() {
+  const requestedDomain = process.argv.slice(2).find((argument) => argument !== '--debug' && !argument.startsWith('-'));
+  const selectedScenarios = requestedDomain
+    ? scenarios.filter((goal) => goal.domain.includes(requestedDomain))
+    : scenarios;
+  if (requestedDomain && selectedScenarios.length === 0) {
+    throw new Error(`Unknown domain \"${requestedDomain}\". Choose: ${scenarios.map((goal) => goal.domain).join(', ')}.`);
+  }
   const results = [];
-  for (const goal of scenarios) {
+  for (const goal of selectedScenarios) {
     console.log(`Evaluating ${goal.domain}...`);
     try {
       const roadmap = await generateRoadmap(goal);
@@ -64,6 +76,7 @@ async function main() {
   }
   console.log('Cross-domain roadmap quality sample (review outcome coverage, actionability, progression, and time realism). Any generationError is a failed sample, not a pass:');
   console.log(JSON.stringify(results, null, 2));
+  if (results.some((result) => result.generationError)) process.exitCode = 1;
 }
 
 main().catch((error) => {
