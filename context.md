@@ -64,3 +64,13 @@ npm run dev | npm run dev:web | npm run dev:api | npm test | npm run check | npm
 
 ## Constraints
 Do not update master/reference docs frequently; update this context only for material changes. Do not claim DB persistence or visual parity without verifying them. Keep all secrets out of Git.
+
+## Incremental learning chunks (2026-10-18)
+- Roadmap generation now creates bounded learning chunks rather than estimating an entire curriculum. The planning horizon is configurable from 1–28 days; total focused minutes are capped to daily availability multiplied by the number of practice days in that horizon.
+- The authenticated POST /api/v1/learning-goals/:goalId/roadmaps/questions endpoint runs goal-specific AI clarification. It asks at most four high-impact questions with selectable options, and can return no questions when the goal is already clear.
+- The React UI offers 3, 7, 14, 21, or 28 day planning horizons. Answers and planning horizon are passed into roadmap generation.
+- Deterministic applyChunkBudget proportionally caps topic estimates to the chunk's available focused minutes. Planner and reviewer prompts are scoped to the chunk, not the whole course.
+- Each generated roadmap stores chunk number, planning horizon, chunk budget, learner answers, and the previous active chunk ID in the existing learningBrief JSON. Earlier versions remain in roadmap history.
+- Subsequent chunk generation reads the previous active chunk's mission completion state, topic progress, and recent assessment attempts, then passes this evidence into the next planning prompt.
+- Named song prompts prohibit inventing exact chords, tabs, lyrics, or strumming patterns without a supplied or verified reference. The AI clarification stage can ask which trusted tutorial or chart should be followed; the UI also accepts a freeform source link or extra constraint. A deterministic guard rewrites song-specific chord/progression/strumming activities into source-verification and generic practice until a reference is provided.
+- Validation: 47 tests passed against the isolated PostgreSQL test database; npm run check and npm run build passed. A live Ollama question-generation call succeeded, and a live guitar chunk returned six activities totaling exactly 150 minutes for 30 minutes/day across five practice days. The live smoke checked budget compliance, not source-specific musical accuracy.

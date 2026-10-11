@@ -5,7 +5,7 @@
 
 const { prisma } = require('./prisma');
 const { validateRoadmap } = require('./roadmap-validation');
-const { generateRoadmap } = require('./roadmap-generator');
+const { generateRoadmap, generateClarifyingQuestions } = require('./roadmap-generator');
 
 class RoadmapServiceError extends Error {
   constructor(status, code, message) {
@@ -107,7 +107,14 @@ async function createRoadmapDraft({ userId, goalId, input, db = prisma }) {
   return getRoadmapWithTopics(db, roadmapId);
 }
 
-async function generateRoadmapDraft({ userId, goalId, clarifications = '', db = prisma, generator = generateRoadmap }) {
+async function getClarifyingQuestions({ userId, goalId, db = prisma, questionGenerator = generateClarifyingQuestions }) {
+  const goal = await db.learningGoal.findFirst({ where: { id: goalId, userId }, select: { id: true, title: true, originalDescription: true, targetOutcome: true, experienceLevel: true, minutesPerDay: true, daysPerWeek: true } });
+  if (!goal) throw new RoadmapServiceError(404, 'GOAL_NOT_FOUND', 'Learning goal not found.');
+  try { return await questionGenerator(goal); }
+  catch (error) { if (error && Number.isInteger(error.status) && error.code) throw error; throw new RoadmapServiceError(502, 'CLARIFICATION_QUESTIONS_FAILED', 'Personalisation questions could not be generated. Please try again.'); }
+}
+
+async function generateRoadmapDraft({ userId, goalId, clarifications = '', planningDays = 7, answers = [], db = prisma, generator = generateRoadmap }) {
   const goal = await db.learningGoal.findFirst({
     where: { id: goalId, userId },
     select: {
@@ -118,21 +125,31 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', db = 
       minutesPerDay: true,
       daysPerWeek: true,
       targetDate: true,
+      originalDescription: true,
     },
   });
 
   if (!goal) {
     throw new RoadmapServiceError(404, 'GOAL_NOT_FOUND', 'Learning goal not found.');
   }
+  const normalizedPlanningDays = Number.isInteger(planningDays) ? Math.max(1, Math.min(28, planningDays)) : 7;
+  const activeRoadmap = await db.roadmap.findFirst({ where: { learningGoalId: goalId, generationState: 'ACTIVE' }, orderBy: { version: 'desc' }, include: { topics: { orderBy: { position: 'asc' }, select: { title: true, userProgress: { where: { userId }, select: { status: true, masteryScore: true, attempts: true } }, assessment: { include: { attempts: { where: { userId }, orderBy: { createdAt: 'desc' }, take: 2, select: { score: true, passed: true } } } } } }, missions: { where: { userId }, select: { title: true, estimatedMinutes: true, status: true, topic: { select: { title: true } } }, orderBy: { scheduledDate: 'desc' }, take: 50 } } });
+  const chunkNumber = activeRoadmap ? Number(activeRoadmap.learningBrief?.chunkNumber || 1) + 1 : 1;
+  const priorLearningContext = activeRoadmap ? JSON.stringify({ previousChunk: activeRoadmap.title, completedActivities: activeRoadmap.missions.filter((item) => item.status === 'COMPLETED').map((item) => ({ title: item.title, topic: item.topic.title, minutes: item.estimatedMinutes })), incompleteActivities: activeRoadmap.missions.filter((item) => item.status !== 'COMPLETED').map((item) => ({ title: item.title, topic: item.topic.title, status: item.status })), topics: activeRoadmap.topics.map((topic) => ({ title: topic.title, progress: topic.userProgress, assessments: topic.assessment?.attempts || [] })) }) : '';
+  const safeAnswers = Array.isArray(answers) ? answers.filter((item) => item && typeof item.question === 'string' && typeof item.answer === 'string').slice(0, 4) : [];
+  const answerText = safeAnswers.map((item) => item.question + ': ' + item.answer).join('\n');
+  const combinedClarifications = [typeof clarifications === 'string' ? clarifications.trim() : '', answerText].filter(Boolean).join('\n');
 
   let proposed;
   try {
-    proposed = await generator({ ...goal, learnerClarifications: typeof clarifications === 'string' ? clarifications.trim() : '' });
+    proposed = await generator({ ...goal, learnerClarifications: combinedClarifications, planningDays: normalizedPlanningDays, priorLearningContext });
   } catch (error) {
     if (error && Number.isInteger(error.status) && error.code) throw error;
     throw new RoadmapServiceError(502, 'ROADMAP_GENERATION_FAILED', 'The roadmap could not be generated. Please try again.');
   }
 
+  const brief = proposed.learningBrief && typeof proposed.learningBrief === 'object' ? proposed.learningBrief : {};
+  proposed.learningBrief = { ...brief, chunkNumber, planningDays: normalizedPlanningDays, chunkBudgetMinutes: goal.minutesPerDay * Math.ceil(goal.daysPerWeek * normalizedPlanningDays / 7), learnerAnswers: safeAnswers, priorChunkId: activeRoadmap?.id || null };
   return createRoadmapDraft({ userId, goalId, input: proposed, db });
 }
 
@@ -257,6 +274,7 @@ async function activateRoadmap({ userId, goalId, roadmapId, confirmLearningBrief
 
 module.exports = {
   RoadmapServiceError,
+  getClarifyingQuestions,
   createRoadmapDraft,
   generateRoadmapDraft,
   listRoadmaps,

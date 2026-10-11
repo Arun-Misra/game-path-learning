@@ -106,13 +106,16 @@ const reviewSchema = {
 
 function buildPrompt(goal, outcomeBrief = '') {
   const weeklyMinutes = goal.minutesPerDay * goal.daysPerWeek;
+  const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 7;
+  const practiceDays = Math.ceil(goal.daysPerWeek * planningDays / 7);
+  const chunkBudgetMinutes = goal.minutesPerDay * practiceDays;
   const target = goal.targetDate
     ? new Date(goal.targetDate).toISOString().slice(0, 10)
     : 'No fixed deadline';
 
   return [
-    'Design a practical, outcome-specific learning roadmap for this learner. The desired outcome outranks the skill label.',
-    'First understand the requested result; then plan the shortest complete path from the learner’s current level to a demonstrable result.',
+    'Design only the next small learning chunk. The desired outcome remains the long-term destination, but this chunk covers only the requested period.',
+    'Do not design the entire curriculum or estimate all work needed to reach the final outcome. Later chunks will use observed progress to decide what comes next.',
     '',
     'ENHANCED LEARNING BRIEF:',
     '- Translate the desired outcome into concrete capabilities, prerequisite knowledge, and a final observable deliverable.',
@@ -123,10 +126,11 @@ function buildPrompt(goal, outcomeBrief = '') {
     '- End with a capstone or performance task that directly demonstrates the stated outcome, not an unrelated portfolio project.',
     '',
     'SCOPE AND REALISM:',
-    '- Produce 5–8 substantial topics for a focused outcome, fewer only when genuinely appropriate.',
-    '- Weekly time is a hard constraint: estimate focused learning plus hands-on work, debugging, and review.',
-    '- Never use a default 4–8 week timeline. Estimate the actual repetitions and feedback cycles required for this exact outcome, then derive calendar duration from the learner’s weekly availability. Many beginner performance outcomes take months, not days. With a deadline, explain when the outcome is not realistic within the time remaining.',
-    '- For a complete song/performance by an absolute beginner, include repeated practice across many sessions, slow-section work, chord/fingering transitions, timing, recovery from mistakes, and several full run-throughs. A beginner learning guitar from scratch to play a complete named song usually needs multiple weeks of practice; do not claim a few hundred minutes is enough. A 30-minute daily schedule must not be mistaken for a 30-minute total effort.',
+    'Never use a default 4–8 week timeline for the entire curriculum; generate only the next requested learning chunk.',
+    'Treat the total available chunk time as a hard limit. Every activity estimate must fit within the learner’s actual practice budget.',
+    'For practice-heavy skills, use deliberate short exercises and observable checkpoints. Do not promise mastery or completion of the entire long-term outcome inside this chunk.',
+    'Use previous-chunk evidence to adapt: repeat or simplify when the learner struggles, and progress when they demonstrate readiness.',
+    'Do not invent song-specific chords, tabs, lyrics, or exact strumming patterns. If a named arrangement has not been supplied or verified, clearly ask the learner to provide a tutorial, chord chart, or other trusted reference; use generic technique practice until then.',
     '- Avoid duplicate topics, filler, generic motivation, and unrealistic mastery claims.',
     '- Give every topic 1–5 assessable learning objectives and an actionable description.',
     '',
@@ -147,18 +151,23 @@ function buildPrompt(goal, outcomeBrief = '') {
     `Target date: ${target}`,
     outcomeBrief ? `ENHANCED LEARNING BRIEF TO HONOUR:\n${outcomeBrief}` : '',
     '',
-    'Before responding, verify that the final deliverable directly satisfies the desired outcome, every distinct capability is taught/practised, the order makes sense, and the total time is credible.',
+    'Planning horizon: ' + planningDays + ' calendar days, ' + practiceDays + ' practice days; maximum total effort ' + chunkBudgetMinutes + ' minutes.',
+    goal.priorLearningContext ? 'PRIOR CHUNKS AND VERIFIED PROGRESS:\n' + goal.priorLearningContext : 'This is the first chunk; begin with the most useful starting activities.',
+    'Before responding, verify that the chunk fits the available practice budget and ends with an observable checkpoint. Do not expand it to cover the entire long-term outcome.',
   ].filter(Boolean).join('\n');
 }
 
 function buildReviewPrompt(goal, roadmap, learningBrief = null) {
+  const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 7;
+  const chunkBudgetMinutes = goal.minutesPerDay * Math.min(goal.daysPerWeek, planningDays);
   return [
     'You are an independent, strict learning-roadmap auditor. Judge the plan against the learner’s actual goal, not against a generic course outline.',
     'Reject a roadmap if it is vague, generic, repetitive, disconnected from the desired outcome, missing a requested capability, poorly sequenced, or unrealistic for the available time.',
     'Check: (1) exact outcome alignment, (2) coverage of each distinct requested capability, (3) concrete actionable work per topic, (4) meaningful step-by-step progression, (5) relevant final deliverable, (6) appropriate prerequisites for experience level, (7) time-budget realism, and (8) no filler/repetition.',
-    'TIME AUDIT: Independently estimate the focused effort needed for this exact outcome at this experience level. Include repeated practice, feedback cycles, debugging, testing, integration, and final performance attempts where relevant. Do not simply accept the planner’s estimates or divide them by weekly availability. For music, sports, language, physical skills, and other practice-heavy outcomes, account for deliberate practice across multiple sessions; flag a complete polished beginner performance estimated at only a few hours unless the request provides evidence that this is realistic. Distinguish total focused minutes from elapsed calendar weeks. For a beginner learning guitar from scratch to perform a complete named song, treat 30 focused hours as a conservative minimum planning floor unless the learner already has relevant skills; at 150 minutes/week that is at least 12 weeks. A more demanding arrangement may need substantially longer. Do not approve a roadmap that appears short only because practice was undercounted; suggest a credible total effort and adjust the schedule instead of promising unrealistic mastery.',
+    'CHUNK TIME AUDIT: Independently estimate the focused effort needed for this chunk and judge whether these activities fit the chunk budget. Do not require the entire long-term outcome to fit inside this chunk or apply a whole-course minimum duration to a chunk. For practice-heavy outcomes, preserve deliberate practice cycles and observable checkpoints while staying within the available chunk budget.',
     'Approve only when there are no critical or major issues and score is at least 80. Be specific: each issue should explain the mismatch and give an actionable fix. Do not invent requirements not implied by the goal.',
     learningBrief ? `ENHANCED LEARNING BRIEF TO AUDIT AGAINST:\n${JSON.stringify(learningBrief)}` : '',
+    'CHUNK BUDGET: ' + planningDays + ' days, no more than ' + chunkBudgetMinutes + ' focused minutes total.',
     'Return JSON only matching this schema:',
     JSON.stringify(reviewSchema),
     '',
@@ -195,6 +204,44 @@ function normalizeRoadmapProposal(proposal) {
       };
     }),
   };
+}
+
+function guardUnverifiedSongDetails(proposal, goal) {
+  if (!proposal || !Array.isArray(proposal.topics)) return proposal;
+  const profile = String((goal.title || '') + ' ' + (goal.targetOutcome || '')).toLowerCase();
+  const isNamedSongGoal = /guitar/.test(profile) && /(song|play|perform|record|arrangement)/.test(profile);
+  const learnerMaterial = String((goal.originalDescription || '') + ' ' + (goal.learnerClarifications || ''));
+  const hasReference = /(https?:|youtube|tutorial|chord chart|tablature|\\btabs?\\b|provided reference|source link)/i.test(learnerMaterial);
+  if (!isNamedSongGoal || hasReference) return proposal;
+  let replacedReferenceTask = false;
+  const topics = proposal.topics.map((topic) => {
+    const text = String((topic.title || '') + ' ' + (topic.description || ''));
+    if (!/(song chords?|chord sequence|chord progression|strumming pattern associated with (the )?song|known chord progression|exact chords|song.?specific rhythm)/i.test(text)) return topic;
+    if (!replacedReferenceTask) {
+      replacedReferenceTask = true;
+      return { ...topic, title: 'Find and verify a trusted song reference', description: 'Choose a trusted tutorial or chord chart for the exact arrangement you want to play. Record the chord names and rhythm instructions from that source; do not assume song-specific details before checking the reference.', learningObjectives: ['Choose a trusted reference for the intended arrangement.', 'Record the chord and rhythm information from the reference without guessing.'] };
+    }
+    return { ...topic, title: 'Practise general chord and rhythm control', description: 'Practise the chord shapes already introduced and maintain a steady, comfortable strumming pulse. Use only chord names and song-specific rhythm instructions confirmed by your chosen reference.', learningObjectives: ['Form the currently assigned chords clearly.', 'Maintain a steady pulse without assuming an unverified song progression.'] };
+  });
+  return { ...proposal, topics };
+}
+
+function applyChunkBudget(roadmap, budgetMinutes) {
+  if (!roadmap || !Array.isArray(roadmap.topics) || roadmap.topics.length === 0) return roadmap;
+  const budget = Math.max(10, Math.floor(budgetMinutes));
+  const topics = roadmap.topics.map((topic) => ({ ...topic, estimatedMinutes: Math.max(5, Math.floor(topic.estimatedMinutes)) }));
+  while (topics.length > 2 && topics.length * 5 > budget) topics.pop();
+  const total = topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0);
+  if (total > budget) {
+    const extras = topics.map((topic) => Math.max(0, topic.estimatedMinutes - 5));
+    const extraTotal = extras.reduce((sum, value) => sum + value, 0) || topics.length;
+    const distributable = Math.max(0, budget - topics.length * 5);
+    topics.forEach((topic, index) => { topic.estimatedMinutes = 5 + Math.floor(distributable * (extras[index] || (extraTotal === topics.length ? 1 : 0)) / extraTotal); });
+    let remainder = budget - topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0);
+    for (let index = 0; remainder > 0; index = (index + 1) % topics.length) { topics[index].estimatedMinutes += 1; remainder -= 1; }
+    for (let index = topics.length - 1; remainder < 0 && index >= 0; index -= 1) { const reduction = Math.min(topics[index].estimatedMinutes - 5, -remainder); topics[index].estimatedMinutes -= reduction; remainder += reduction; }
+  }
+  return { ...roadmap, topics, estimatedTotalMinutes: topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0) };
 }
 
 function applyRealismFloor(roadmap, goal) {
@@ -347,6 +394,29 @@ function validateReview(review) {
       && Array.isArray(issue.relatedTopicKeys));
 }
 
+const clarificationQuestionsSchema = {
+  type: 'object', additionalProperties: false,
+  properties: { questions: { type: 'array', maxItems: 4, items: { type: 'object', additionalProperties: false, properties: { key: { type: 'string' }, question: { type: 'string' }, reason: { type: 'string' }, options: { type: 'array', minItems: 2, maxItems: 5, items: { type: 'string' } } }, required: ['key', 'question', 'reason', 'options'] } } },
+  required: ['questions'],
+};
+
+async function generateClarifyingQuestions(goal, { apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '', baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1', model = process.env.AI_MODEL || process.env.OPENAI_MODEL || 'gemma4:e4b', fetchImpl = globalThis.fetch } = {}) {
+  const endpoint = baseUrl.replace(/\/+$/, '') + '/chat/completions';
+  if (!apiKey && !isLocalOllama(baseUrl)) throw new RoadmapGenerationError(503, 'ROADMAP_GENERATOR_NOT_CONFIGURED', 'No AI API key is configured.');
+  const headers = { 'Content-Type': 'application/json' };
+  if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
+  const result = await requestStructured({ endpoint, headers, model, schemaName: 'learning_clarification_questions', schema: clarificationQuestionsSchema, fetchImpl, messages: [
+    { role: 'system', content: 'You are an adaptive learning coach. Ask at most four high-impact questions that materially change the first short learning chunk. Do not ask questions already answered by the goal. Return an empty list if the goal is sufficiently clear. Each question must have 2–5 concise answer options. Ask about skill-specific uncertainties such as starting ability, desired difficulty, preferred format, tools or arrangement only when relevant. For a named song or other source-dependent outcome, ask which trusted tutorial, chart, file, or reference the learner wants to follow if the exact material is not already provided. Return JSON only.' },
+    { role: 'user', content: 'Skill: ' + goal.title + '\\nOutcome: ' + goal.targetOutcome + '\\nExperience: ' + goal.experienceLevel + '\\nAvailability: ' + goal.minutesPerDay + ' minutes/day, ' + goal.daysPerWeek + ' days/week\\nOriginal description: ' + (goal.originalDescription || '') + '\\nAsk only questions whose answers would materially change the plan.' },
+  ] });
+  const seen = new Set();
+  const questions = (Array.isArray(result.questions) ? result.questions : []).filter((item) => {
+    if (!item || typeof item.key !== 'string' || !/^[a-zA-Z0-9._-]{1,60}$/.test(item.key) || seen.has(item.key) || typeof item.question !== 'string' || !item.question.trim() || !Array.isArray(item.options) || item.options.length < 2) return false;
+    seen.add(item.key); return true;
+  }).slice(0, 4);
+  return { questions };
+}
+
 async function generateRoadmap(goal, {
   apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '',
   baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1',
@@ -391,6 +461,9 @@ async function generateRoadmap(goal, {
     ],
   });
 
+  const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 7;
+  const chunkBudgetMinutes = goal.minutesPerDay * Math.min(goal.daysPerWeek, planningDays);
+  const boundedGoal = { ...goal, planningDays, chunkBudgetMinutes };
   const draft = await requestStructured({
     endpoint, headers, model, schemaName: 'personalised_learning_roadmap', schema: responseSchema, fetchImpl,
     messages: [
@@ -398,15 +471,15 @@ async function generateRoadmap(goal, {
         role: 'system',
         content: 'You are a learning-path architect. Translate the learner’s exact desired outcome into a small sequence of concrete steps and a directly relevant final deliverable. No generic filler. Return only the requested JSON.',
       },
-      { role: 'user', content: buildPrompt(goal, JSON.stringify(learningBrief)) },
+      { role: 'user', content: buildPrompt(boundedGoal, JSON.stringify(learningBrief)) },
     ],
   });
 
-  const firstValidation = validateRoadmap(normalizeRoadmapProposal(draft));
+  const firstValidation = validateRoadmap(guardUnverifiedSongDetails(normalizeRoadmapProposal(draft), boundedGoal));
   if (!firstValidation.success) {
     throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_ROADMAP', 'The generated roadmap failed structural validation. Please try again.');
   }
-  let roadmap = applyRealismFloor(firstValidation.data, goal);
+  let roadmap = applyChunkBudget(firstValidation.data, chunkBudgetMinutes);
 
   // The same E4B model audits its plan against the learner's exact outcome and enhanced brief.
   const review = await requestStructured({
@@ -416,7 +489,7 @@ async function generateRoadmap(goal, {
         role: 'system',
         content: 'Audit learning roadmaps rigorously. Be skeptical of vague, generic, repetitive, or outcome-mismatched plans. Approve only if the learner can see a credible step-by-step path to the exact requested result. Return only the review JSON.',
       },
-      { role: 'user', content: buildReviewPrompt(goal, roadmap, learningBrief) },
+      { role: 'user', content: buildReviewPrompt(boundedGoal, roadmap, learningBrief) },
     ],
   });
 
@@ -435,7 +508,7 @@ async function generateRoadmap(goal, {
         {
           role: 'user',
           content: [
-            buildPrompt(goal, JSON.stringify(learningBrief)),
+            buildPrompt(boundedGoal, JSON.stringify(learningBrief)),
             '',
             `INITIAL ROADMAP:\n${JSON.stringify(roadmap)}`,
             '',
@@ -446,11 +519,11 @@ async function generateRoadmap(goal, {
         },
       ],
     });
-    const revisedValidation = validateRoadmap(normalizeRoadmapProposal(revision));
+    const revisedValidation = validateRoadmap(guardUnverifiedSongDetails(normalizeRoadmapProposal(revision), boundedGoal));
     if (!revisedValidation.success) {
       throw new RoadmapGenerationError(502, 'ROADMAP_REVISION_INVALID', 'The revised roadmap failed structural validation. Please try again.');
     }
-    roadmap = applyRealismFloor(revisedValidation.data, goal);
+    roadmap = applyChunkBudget(revisedValidation.data, chunkBudgetMinutes);
   }
 
   return {
@@ -465,8 +538,11 @@ async function generateRoadmap(goal, {
 module.exports = {
   RoadmapGenerationError,
   buildPrompt,
+  generateClarifyingQuestions,
   buildReviewPrompt,
   applyRealismFloor,
+  applyChunkBudget,
+  guardUnverifiedSongDetails,
   generateRoadmap,
   isLocalOllama,
   normalizeRoadmapProposal,

@@ -9,6 +9,7 @@ const {
   RoadmapServiceError,
   createRoadmapDraft,
   generateRoadmapDraft,
+  getClarifyingQuestions,
   listRoadmaps,
   deleteRoadmapDraft,
   activateRoadmap,
@@ -40,9 +41,18 @@ function handleServiceError(error, res, next) {
 
 router.use(requireAuth);
 
+router.post('/questions', generationLimiter, async (req, res, next) => {
+  const parsedId = idSchema.safeParse(req.params.goalId);
+  if (!parsedId.success) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'A valid learning goal ID is required.' } });
+  try {
+    const data = await getClarifyingQuestions({ userId: req.user.id, goalId: parsedId.data });
+    return res.json({ data });
+  } catch (error) { return handleServiceError(error, res, next); }
+});
+
 router.post('/generate', generationLimiter, async (req, res, next) => {
   const parsedId = idSchema.safeParse(req.params.goalId);
-  const parsedBody = z.object({ clarifications: z.string().trim().max(1200).optional() }).safeParse(req.body ?? {});
+  const parsedBody = z.object({ clarifications: z.string().trim().max(1200).optional(), planningDays: z.number().int().min(1).max(28).optional(), answers: z.array(z.object({ question: z.string().trim().min(1).max(500), answer: z.string().trim().min(1).max(1000) })).max(4).optional() }).safeParse(req.body ?? {});
   if (!parsedBody.success) {
     return res.status(400).json({
       error: { code: 'VALIDATION_ERROR', message: 'Clarifications must be 1,200 characters or fewer.' },
@@ -59,6 +69,8 @@ router.post('/generate', generationLimiter, async (req, res, next) => {
       userId: req.user.id,
       goalId: parsedId.data,
       clarifications: parsedBody.data.clarifications || '',
+      planningDays: parsedBody.data.planningDays || 7,
+      answers: parsedBody.data.answers || [],
     });
     return res.status(201).json({ data: { roadmap } });
   } catch (error) {
