@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 # Gamified Learning V2 — Context
 
 ## Product and principles
@@ -85,3 +74,9 @@ Do not update master/reference docs frequently; update this context only for mat
 - Local Ollama requests now use the native `/api/chat` endpoint so `options.num_ctx` can be set per request. Defaults are `AI_CONTEXT_LENGTH=16384` and `AI_REASONING_EFFORT=medium`; these can be lowered/changed in the root `.env` if memory or model compatibility requires it. Hosted OpenAI-compatible providers retain the Chat Completions endpoint and receive the configured reasoning effort.
 - The local `.env` now selects `gemma4:e2b` because the previously configured `gemma4:e4b` failed CUDA startup in this environment. A live local Ollama smoke generated a five-session, 150-minute Java beginner chunk at 30 minutes per session using E2B with a 16k context and medium reasoning. The generated plan correctly classifies String as a reference type and separates loops, arrays, and strings. This validates the generation path, not a guarantee that every generated lesson is factually perfect.
 - Validation after these changes: `npm test` passed 50 tests (including PostgreSQL integration), `npm run check` passed, and `npm run build` passed. A live native-Ollama roadmap smoke also passed.
+
+## UI refresh (2026-10-19)
+- Refreshed the Pathwise landing/onboarding screen with a more expressive headline, warmer layered background, clearer form step labels, a more prominent primary action, improved field focus states, and responsive spacing.
+- Made the signed-in workspace easier to scan with clearer section hierarchy, saved-goal count, elevated goal cards, and visually distinct roadmap cards.
+- Updated page title, theme color, and meta description. No API or data model behavior changed.
+- Validation: `npm run check`, `npm run build`, and `git diff --check` passed. Visual appearance has not been browser-screenshot verified.

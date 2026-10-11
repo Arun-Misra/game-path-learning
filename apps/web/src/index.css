@@ -34,3 +34,226 @@ button { cursor: pointer; }
   background: white;
   box-shadow: 0 0 0 3px rgb(115 145 111 / 15%);
 }
+
+/* Pathwise visual refresh: stronger hierarchy, warmer contrast, and clearer actions. */
+:root {
+  color-scheme: light;
+  background: #f6f7f1;
+}
+
+body {
+  background:
+    radial-gradient(ellipse at 8% 4%, rgb(216 231 204 / 62%), transparent 28rem),
+    radial-gradient(ellipse at 96% 16%, rgb(255 228 189 / 38%), transparent 25rem),
+    #f6f7f1;
+}
+
+button, a, input, textarea, select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 3px solid rgb(121 157 93 / 45%);
+  outline-offset: 3px;
+}
+
+.app-shell {
+  overflow: hidden;
+  background: transparent;
+}
+
+.app-header {
+  position: relative;
+  z-index: 2;
+}
+
+.app-header > a > span:first-child {
+  box-shadow: 0 8px 20px rgb(38 63 50 / 18%);
+  transition: transform 180ms ease;
+}
+
+.app-header > a:hover > span:first-child {
+  transform: rotate(-7deg) scale(1.04);
+}
+
+.app-header > div {
+  box-shadow: 0 4px 18px rgb(36 55 38 / 5%);
+}
+
+.hero-layout {
+  position: relative;
+  isolation: isolate;
+}
+
+.hero-copy h1 {
+  max-width: 12ch;
+  text-wrap: balance;
+}
+
+.hero-copy > p {
+  color: #59675a;
+  max-width: 34rem;
+}
+
+.hero-copy > div:nth-of-type(2) > div {
+  min-height: 116px;
+  border-color: rgb(216 224 208 / 90%);
+  background: rgb(255 255 255 / 76%);
+  box-shadow: 0 8px 28px rgb(45 67 43 / 4%);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.hero-copy > div:nth-of-type(2) > div:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 30px rgb(45 67 43 / 8%);
+}
+
+.goal-panel {
+  border-color: rgb(255 255 255 / 90%);
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 32px 90px -42px rgb(30 57 35 / 32%), 0 8px 24px rgb(30 57 35 / 5%);
+  backdrop-filter: blur(16px);
+}
+
+.goal-panel-wrap::before {
+  position: absolute;
+  z-index: -1;
+  inset: 14% -7% -5% 9%;
+  border-radius: 2.5rem;
+  background: linear-gradient(135deg, #d8e7cc, #f5dfb9);
+  content: "";
+  opacity: .65;
+  filter: blur(1px);
+}
+
+.goal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.goal-form > label,
+.goal-form > div:not(.schedule-fields) > label {
+  color: #303c30;
+}
+
+.field {
+  min-height: 47px;
+  border-color: #dce4d5;
+  border-radius: 0.9rem;
+  background: #fafbf8;
+  padding: .82rem .95rem;
+  box-shadow: inset 0 1px 1px rgb(24 43 26 / 2%);
+}
+
+.field:hover {
+  border-color: #bdcdb2;
+}
+
+.field:focus {
+  border-color: #739b60;
+  box-shadow: 0 0 0 4px rgb(115 155 96 / 14%);
+}
+
+.goal-form button[type="submit"] {
+  min-height: 54px;
+  border: 1px solid #2e5238;
+  background: linear-gradient(110deg, #203e2c, #315c3b);
+  box-shadow: 0 10px 24px rgb(35 74 47 / 20%);
+  letter-spacing: .005em;
+}
+
+.goal-form button[type="submit"]:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px rgb(35 74 47 / 26%);
+}
+
+.goal-form button[type="submit"]:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.goal-form > p:last-child {
+  line-height: 1.65;
+}
+
+.dashboard-section {
+  animation: rise-in 420ms ease both;
+}
+
+.dashboard-section > div,
+.goals-board {
+  border-color: #e1e8da;
+  box-shadow: 0 14px 40px rgb(43 61 38 / 5%);
+}
+
+.goal-card {
+  background: linear-gradient(145deg, #fff 0%, #fbfcf8 100%);
+  border-color: #e2e9dc;
+  transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.goal-card:hover {
+  transform: translateY(-2px);
+  border-color: #c5d7ba;
+  box-shadow: 0 12px 28px rgb(43 61 38 / 7%);
+}
+
+.roadmap-card {
+  border: 1px solid #e8ede3;
+  background: linear-gradient(145deg, #f9faf6 0%, #f2f6ee 100%);
+}
+
+.app-footer {
+  margin-top: 1.5rem;
+  background: rgb(255 255 255 / 45%);
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    align-items: flex-start;
+    gap: .75rem;
+  }
+
+  .app-header > div {
+    max-width: 65%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    line-height: 1.35;
+  }
+
+  .hero-layout {
+    gap: 2.5rem;
+    padding-top: 1.25rem;
+  }
+
+  .hero-copy h1 {
+    font-size: clamp(2.75rem, 12vw, 4.25rem);
+  }
+
+  .goal-panel {
+    border-radius: 1.5rem;
+    padding: 1.15rem;
+  }
+
+  .goals-board {
+    padding: 1rem;
+  }
+}

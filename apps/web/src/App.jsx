@@ -1,8 +1,3 @@
-
-
-
-
-
 import { useEffect, useState } from 'react';
 import {
   ArrowRight, BookOpen, Check, Clock3, Compass, Flame,
@@ -407,8 +402,8 @@ function App() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f7f2] text-[#20241f]">
-      <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5 sm:px-8">
+    <main className="app-shell min-h-screen bg-[#f7f7f2] text-[#20241f]">
+      <header className="app-header mx-auto flex max-w-7xl items-center justify-between px-5 py-5 sm:px-8">
         <a href="/" className="flex items-center gap-3" aria-label="Pathwise home">
           <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#263f32] text-white"><Compass size={21} /></span>
           <span className="text-lg font-bold tracking-tight">pathwise<span className="text-[#73916f]">.</span></span>
@@ -420,10 +415,10 @@ function App() {
         </div>
       </header>
 
-      <section className="mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-8 sm:px-8 lg:grid-cols-[1.03fr_.97fr] lg:gap-20 lg:pt-16">
-        <div className="flex flex-col justify-center">
+      <section className="hero-layout mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-8 sm:px-8 lg:grid-cols-[1.03fr_.97fr] lg:gap-20 lg:pt-16">
+        <div className="hero-copy flex flex-col justify-center">
           <div className="mb-6 inline-flex w-fit items-center gap-2 rounded-full border border-[#dce5d7] bg-[#edf3e9] px-3 py-1.5 text-xs font-semibold text-[#476b49]"><Sparkles size={14} /> A learning path built around you</div>
-          <h1 className="max-w-2xl text-5xl font-semibold leading-[1.06] tracking-[-0.055em] sm:text-6xl xl:text-7xl">Make progress<br />that <span className="font-serif italic font-normal text-[#72916d]">actually sticks.</span></h1>
+          <h1 className="max-w-2xl text-5xl font-semibold leading-[1.06] tracking-[-0.055em] sm:text-6xl xl:text-7xl">Build a skill.<br />Become the person who <span className="font-serif italic font-normal text-[#72916d]">can do it.</span></h1>
           <p className="mt-6 max-w-lg text-base leading-7 text-[#6d756a] sm:text-lg">Tell us what you want to learn. Get a practical roadmap that fits your starting point, your goal, and your real life.</p>
           <div className="mt-10 grid max-w-lg grid-cols-3 gap-3">
             <Stat icon={<Target size={17} />} title="Your goal" text="Your destination" />
@@ -436,15 +431,15 @@ function App() {
           </div>
         </div>
 
-        <div className="relative">
+        <div className="goal-panel-wrap relative">
           <div className="absolute -right-4 -top-5 h-28 w-28 rounded-full bg-[#dfe9d5] blur-2xl" />
-          <div className="relative rounded-[2rem] border border-[#e6e8de] bg-white p-5 shadow-[0_24px_80px_-40px_rgba(38,63,50,0.28)] sm:p-8">
+          <div className="goal-panel relative rounded-[2rem] border border-[#e6e8de] bg-white p-5 shadow-[0_24px_80px_-40px_rgba(38,63,50,0.28)] sm:p-8">
             <div className="mb-7 flex items-start justify-between">
-              <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#82917b]">Start your journey</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">What would you like to learn?</h2><p className="mt-2 text-sm text-[#7c8378]">We’ll shape a plan around your life.</p></div>
+              <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#82917b]">YOUR NEXT CHAPTER STARTS HERE</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Let’s build your learning plan</h2><p className="mt-2 text-sm leading-6 text-[#7c8378]">A few details help us make the next step clear and realistic.</p></div>
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#edf3e9] text-[#4c704b]"><GraduationCap size={22} /></span>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="goal-form space-y-5">
               {!user && <div className="space-y-3 rounded-2xl bg-[#f7f8f4] p-4">
                 <div className="flex items-center justify-between"><p className="text-sm font-semibold text-[#424a40]">Your account</p><div className="flex rounded-lg bg-[#e9ece4] p-1 text-xs"><button type="button" onClick={() => { setAccountMode('register'); setNotice(null); }} className={`rounded-md px-3 py-1.5 ${accountMode === 'register' ? 'bg-white font-semibold shadow-sm' : 'text-[#737b70]'}`}>Sign up</button><button type="button" onClick={() => { setAccountMode('login'); setNotice(null); }} className={`rounded-md px-3 py-1.5 ${accountMode === 'login' ? 'bg-white font-semibold shadow-sm' : 'text-[#737b70]'}`}>Sign in</button></div></div>
                 {accountMode === 'register' && <Field label="Name (optional)"><input name="name" value={form.name} onChange={updateField} maxLength={80} placeholder="What should we call you?" className="field" /></Field>}
@@ -452,15 +447,15 @@ function App() {
                 <Field label="Password"><input type="password" name="password" value={form.password} onChange={updateField} required minLength={accountMode === 'register' ? 10 : 1} maxLength={128} autoComplete={accountMode === 'register' ? 'new-password' : 'current-password'} placeholder={accountMode === 'register' ? 'At least 10 characters' : 'Your password'} className="field" /></Field>
               </div>}
 
-              <Field label="The skill you want to learn"><input name="skill" value={form.skill} onChange={updateField} required maxLength={160} placeholder="e.g. Machine learning, guitar, public speaking..." className="field" /></Field>
-              <Field label="Where are you starting from?"><div className="grid grid-cols-3 gap-2">{[['beginner', 'New to it'], ['some', 'Know a little'], ['experienced', 'Experienced']].map(([value, label]) => <button key={value} type="button" onClick={() => setForm((current) => ({ ...current, experience: value }))} className={`rounded-xl border px-2 py-3 text-xs font-semibold transition sm:text-sm ${form.experience === value ? 'border-[#557b54] bg-[#edf3e9] text-[#355a39] ring-1 ring-[#557b54]' : 'border-[#e5e8df] text-[#737b70] hover:bg-[#fafbf8]'}`}>{form.experience === value && <Check size={13} className="mr-1 inline" />}{label}</button>)}</div></Field>
-              <Field label="What does success look like?"><textarea name="outcome" value={form.outcome} onChange={updateField} required maxLength={1000} rows={3} placeholder="e.g. Build and deploy my first ML model..." className="field resize-none" /></Field>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Minutes per day"><select name="minutesPerDay" value={form.minutesPerDay} onChange={updateField} className="field"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option><option value="90">1.5 hours</option><option value="120">2 hours</option></select></Field>
-                <Field label="Days per week"><select name="daysPerWeek" value={form.daysPerWeek} onChange={updateField} className="field">{[2, 3, 4, 5, 6, 7].map((days) => <option key={days} value={days}>{days} days</option>)}</select></Field>
+              <Field label="1. What do you want to learn?"><input name="skill" value={form.skill} onChange={updateField} required maxLength={160} placeholder="e.g. Machine learning, guitar, public speaking..." className="field" /></Field>
+              <Field label="2. What is your current level?"><div className="grid grid-cols-3 gap-2">{[['beginner', 'New to it'], ['some', 'Know a little'], ['experienced', 'Experienced']].map(([value, label]) => <button key={value} type="button" onClick={() => setForm((current) => ({ ...current, experience: value }))} className={`rounded-xl border px-2 py-3 text-xs font-semibold transition sm:text-sm ${form.experience === value ? 'border-[#557b54] bg-[#edf3e9] text-[#355a39] ring-1 ring-[#557b54]' : 'border-[#e5e8df] text-[#737b70] hover:bg-[#fafbf8]'}`}>{form.experience === value && <Check size={13} className="mr-1 inline" />}{label}</button>)}</div></Field>
+              <Field label="3. What would you like to be able to do?"><textarea name="outcome" value={form.outcome} onChange={updateField} required maxLength={1000} rows={3} placeholder="e.g. Build and deploy my first ML model..." className="field resize-none" /></Field>
+              <div className="schedule-fields grid grid-cols-2 gap-4">
+                <Field label="4. Your daily time"><select name="minutesPerDay" value={form.minutesPerDay} onChange={updateField} className="field"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option><option value="90">1.5 hours</option><option value="120">2 hours</option></select></Field>
+                <Field label="Your weekly rhythm"><select name="daysPerWeek" value={form.daysPerWeek} onChange={updateField} className="field">{[2, 3, 4, 5, 6, 7].map((days) => <option key={days} value={days}>{days} days</option>)}</select></Field>
               </div>
 
-              <button type="submit" disabled={busy || apiStatus !== 'online'} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#263f32] px-5 py-4 text-sm font-semibold text-white transition hover:bg-[#355640] focus:outline-none focus:ring-4 focus:ring-[#d8e5d3] disabled:cursor-not-allowed disabled:opacity-55">{busy ? 'Saving your goal…' : 'Save my learning goal'} <ArrowRight size={17} className="transition group-hover:translate-x-1" /></button>
+              <button type="submit" disabled={busy || apiStatus !== 'online'} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#263f32] px-5 py-4 text-sm font-semibold text-white transition hover:bg-[#355640] focus:outline-none focus:ring-4 focus:ring-[#d8e5d3] disabled:cursor-not-allowed disabled:opacity-55">{busy ? 'Saving your goal…' : 'Create my learning plan'} <ArrowRight size={17} className="transition group-hover:translate-x-1" /></button>
               {notice && <div role="status" className={`rounded-xl border px-4 py-3 text-sm leading-6 ${notice.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-rose-200 bg-rose-50 text-rose-900'}`}>{notice.message}</div>}
               <p className="text-center text-xs text-[#9aa095]">Your goal is saved to your account when the API and database are configured.</p>
             </form>
@@ -469,7 +464,7 @@ function App() {
         </div>
       </section>
 
-      {user && gamification && <section className="mx-auto max-w-7xl px-5 pb-6 sm:px-8">
+      {user && gamification && <section className="dashboard-section mx-auto max-w-7xl px-5 pb-6 sm:px-8">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border border-[#e3e6dc] bg-white p-4"><div className="flex items-center gap-2 text-[#688663]"><Zap size={17} /><span className="text-xs font-semibold uppercase tracking-wide">Level</span></div><p className="mt-2 text-2xl font-bold">{gamification.level.level}</p><p className="mt-1 text-xs text-[#737b70]">{gamification.level.currentLevelXp}/100 XP · {gamification.level.xpToNextLevel} to next level</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-[#edf0e8]"><div className="h-full rounded-full bg-[#688663]" style={{ width: `${gamification.level.currentLevelXp}%` }} /></div></div>
           <div className="rounded-2xl border border-[#e3e6dc] bg-white p-4"><div className="flex items-center gap-2 text-[#b66a35]"><Flame size={17} /><span className="text-xs font-semibold uppercase tracking-wide">Current streak</span></div><p className="mt-2 text-2xl font-bold">{gamification.currentStreak} day{gamification.currentStreak === 1 ? '' : 's'}</p><p className="mt-1 text-xs text-[#737b70]">Based on completed missions in your local timezone</p></div>
@@ -478,11 +473,11 @@ function App() {
         </div>
       </section>}
 
-      {user && goals.length > 0 && <section className="mx-auto max-w-7xl px-5 pb-12 sm:px-8">
-<div className="rounded-3xl border border-[#e3e6dc] bg-white p-6">
-<h2 className="text-xl font-semibold">Your saved learning goals</h2>
+      {user && goals.length > 0 && <section className="dashboard-section mx-auto max-w-7xl px-5 pb-12 sm:px-8">
+<div className="goals-board rounded-3xl border border-[#e3e6dc] bg-white p-6">
+<div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#688663]">YOUR WORKSPACE</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Your learning goals</h2><p className="mt-1 text-sm text-[#737b70]">Pick up where you left off, or plan your next step.</p></div><span className="rounded-full bg-[#edf3e9] px-3 py-1.5 text-xs font-semibold text-[#355a39]">{goals.length} goal{goals.length === 1 ? '' : 's'} saved</span></div>
 
-<div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.map((goal) => <article key={goal.id} className="rounded-2xl border border-[#e7e9e1] p-4">
+<div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.map((goal) => <article key={goal.id} className="goal-card rounded-2xl border border-[#e7e9e1] p-4">
 <div className="flex flex-wrap items-start justify-between gap-3">
 <div>
 <p className="font-semibold">{goal.skill}</p>
@@ -505,7 +500,7 @@ function App() {
 {(questionsByGoal[goal.id] || []).map((question) => <Field key={question.key} label={question.question}><p className="mt-1 text-xs text-[#737b70]">{question.reason}</p><select className="field mt-2" value={(answersByGoal[goal.id] || {})[question.key] || ""} onChange={(event) => setAnswersByGoal((current) => ({ ...current, [goal.id]: { ...(current[goal.id] || {}), [question.key]: event.target.value } }))}><option value="">Choose…</option>{question.options.map((option) => <option key={option} value={option}>{option}</option>)}</select></Field>)}
 <Field label="Anything else Pathwise should know?"><textarea className="field mt-2" rows={2} maxLength={1200} value={clarificationByGoal[goal.id] || ""} onChange={(event) => setClarificationByGoal((current) => ({ ...current, [goal.id]: event.target.value }))} placeholder="Optional: paste a trusted tutorial or chord chart link, mention tools you have, or explain a constraint." /></Field>
 <div className="mt-3 flex gap-2"><button type="button" onClick={() => handleGenerateChunk(goal)} disabled={roadmapBusyGoal !== null} className="rounded-xl bg-[#263f32] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{roadmapBusyGoal === goal.id ? "Generating chunk…" : "Generate this chunk"}</button><button type="button" onClick={() => setQuestionFormGoal(null)} className="rounded-xl border border-[#dfe7d9] px-4 py-2 text-xs font-semibold">Cancel</button></div></div>}
-{(roadmapsByGoal[goal.id] || []).map((roadmap) => <div key={roadmap.id} className="mt-4 rounded-xl bg-[#f7f8f4] p-4">
+{(roadmapsByGoal[goal.id] || []).map((roadmap) => <div key={roadmap.id} className="roadmap-card mt-4 rounded-xl bg-[#f7f8f4] p-4">
 <div className="flex flex-wrap items-start justify-between gap-2">
 <div>
 <p className="font-semibold">{roadmap.title}</p>
@@ -610,7 +605,7 @@ function App() {
 </div>
 </section>}
 
-      <footer className="border-t border-[#e6e8df] px-5 py-5 text-center text-xs text-[#969d91]"><span className="inline-flex items-center gap-2"><BookOpen size={13} /> Learn with intention. Grow at your pace.</span></footer>
+      <footer className="app-footer border-t border-[#e6e8df] px-5 py-5 text-center text-xs text-[#969d91]"><span className="inline-flex items-center gap-2"><BookOpen size={13} /> Learn with intention. Grow at your pace.</span></footer>
     </main>
   );
 }
