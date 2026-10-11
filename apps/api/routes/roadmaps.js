@@ -1,9 +1,5 @@
-
-
-
 const express = require('express');
 const { z } = require('zod');
-const { rateLimit } = require('express-rate-limit');
 const { requireAuth } = require('../middleware/require-auth');
 const {
   RoadmapServiceError,
@@ -17,13 +13,6 @@ const {
 
 const router = express.Router({ mergeParams: true });
 const idSchema = z.string().trim().min(1).max(100);
-const generationLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 5,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  message: { error: { code: 'GENERATION_RATE_LIMITED', message: 'Too many roadmap generation attempts. Try again later.' } },
-});
 
 function handleServiceError(error, res, next) {
   if (error instanceof RoadmapServiceError || (Number.isInteger(error.status) && error.code)) {
@@ -41,7 +30,7 @@ function handleServiceError(error, res, next) {
 
 router.use(requireAuth);
 
-router.post('/questions', generationLimiter, async (req, res, next) => {
+router.post('/questions', async (req, res, next) => {
   const parsedId = idSchema.safeParse(req.params.goalId);
   if (!parsedId.success) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'A valid learning goal ID is required.' } });
   try {
@@ -50,7 +39,7 @@ router.post('/questions', generationLimiter, async (req, res, next) => {
   } catch (error) { return handleServiceError(error, res, next); }
 });
 
-router.post('/generate', generationLimiter, async (req, res, next) => {
+router.post('/generate', async (req, res, next) => {
   const parsedId = idSchema.safeParse(req.params.goalId);
   const parsedBody = z.object({ clarifications: z.string().trim().max(1200).optional(), planningDays: z.number().int().min(1).max(28).optional(), answers: z.array(z.object({ question: z.string().trim().min(1).max(500), answer: z.string().trim().min(1).max(1000) })).max(4).optional() }).safeParse(req.body ?? {});
   if (!parsedBody.success) {
