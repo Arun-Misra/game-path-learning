@@ -12,6 +12,12 @@
 
 
 
+
+
+
+
+
+
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
@@ -33,7 +39,7 @@ function validProposal() {
     summary: 'Learn drawing fundamentals and produce a finished character illustration.',
     topics: [
       { key: 'shapes', title: 'Shape and form', description: 'Observe and construct simple forms, then use them to sketch a character silhouette.', learningObjectives: ['Construct a drawing from simple forms'], estimatedMinutes: 30, prerequisiteKeys: [] },
-      { key: 'character', title: 'Character drawing', description: 'Develop a character sketch from the silhouette, refine anatomy, and produce a polished final illustration.', learningObjectives: ['Create a character sketch', 'Finish and export a character illustration'], estimatedMinutes: 45, prerequisiteKeys: ['shapes'] },
+      { key: 'character', title: 'Character drawing', description: 'Develop a character sketch from the silhouette, refine anatomy, and produce a polished final illustration.', learningObjectives: ['Create a character sketch', 'Finish and export a character illustration'], estimatedMinutes: 25, prerequisiteKeys: ['shapes'] },
     ],
   };
 }
@@ -55,16 +61,25 @@ function validLearningBrief() {
 }
 
 function approvedReview() { return { approved: true, score: 92, issues: [] }; }
-function responseFor(value, status = 200) { return { ok: status >= 200 && status < 300, status, json: async () => ({ choices: [{ message: { content: JSON.stringify(value) } }] }) }; }
+function responseFor(value, status = 200) { const content = JSON.stringify(value); return { ok: status >= 200 && status < 300, status, json: async () => ({ message: { content }, choices: [{ message: { content } }] }) }; }
+function requestSchemaName(body) {
+  if (body.response_format?.json_schema?.name) return body.response_format.json_schema.name;
+  if (body.format?.properties?.questions) return 'learning_clarification_questions';
+  if (body.format?.properties?.outcomeRestatement) return 'enhanced_learning_brief';
+  if (body.format?.properties?.approved) return 'roadmap_review';
+  return 'personalised_learning_roadmap';
+}
 
 test('planner prompt prioritises the exact outcome, steps, deliverable, and weekly time budget', () => {
   const prompt = buildPrompt(goal);
   assert.match(prompt, /Learn digital illustration/);
   assert.match(prompt, /Create a polished character illustration/);
   assert.match(prompt, /30 minutes\/day, 4 days\/week/);
-  assert.match(prompt, /every distinct capability explicitly/i);
-  assert.match(prompt, /capstone or performance task that directly demonstrates/i);
-  assert.match(prompt, /Never use a default 4–8 week timeline/i);
+  assert.match(prompt, /teach the prerequisite first or remove the activity/i);
+  assert.match(prompt, /do not force a capstone for the long-term outcome into an introductory chunk/i);
+  assert.match(prompt, /“I do not know where to start” means assume no practical ability/i);
+  assert.match(prompt, /No topic may exceed 30 minutes/i);
+  assert.match(prompt, /worked example, to a partially completed example with guidance/i);
   assert.match(prompt, /"prerequisiteKeys"/);
   assert.match(prompt, /valid JSON only/i);
 });
@@ -74,16 +89,16 @@ test('planner prompt includes weekly time budget and discourages generic or repe
   assert.match(prompt, /225 minutes\/week/);
   assert.match(prompt, /Build a client-server app and implement Dijkstra routing/);
   assert.match(prompt, /Avoid duplicate topics, filler/i);
-  assert.match(prompt, /capstone or performance task that directly demonstrates/i);
+  assert.match(prompt, /do not force a capstone for the long-term outcome into an introductory chunk/i);
 });
 
 test('review prompt checks the roadmap against the learner outcome rather than a generic syllabus', () => {
   const prompt = buildReviewPrompt(goal, validProposal());
-  assert.match(prompt, /strict learning-roadmap auditor/i);
+  assert.match(prompt, /independent, skeptical instructional-design auditor/i);
   assert.match(prompt, /DESIRED OUTCOME: Create a polished character illustration/);
-  assert.match(prompt, /time-budget realism/i);
-  assert.match(prompt, /Independently estimate the focused effort/i);
-  assert.match(prompt, /practice-heavy outcomes/i);
+  assert.match(prompt, /TIME AUDIT/i);
+  assert.match(prompt, /independently estimate realistic beginner effort/i);
+  assert.match(prompt, /TEACHING AUDIT/i);
   assert.match(prompt, /Approve only when there are no critical or major issues/i);
 });
 
@@ -140,25 +155,27 @@ test('E4B handles the enhanced brief, planning, and independent review without l
     fetchImpl: async (url, options) => {
       const body = JSON.parse(options.body);
       requests.push({ url, body, headers: options.headers });
-      if (body.response_format.json_schema.name === 'enhanced_learning_brief') return responseFor(validLearningBrief());
-      return responseFor(body.response_format.json_schema.name === 'roadmap_review' ? approvedReview() : validProposal());
+      if (requestSchemaName(body) === 'enhanced_learning_brief') return responseFor(validLearningBrief());
+      return responseFor(requestSchemaName(body) === 'roadmap_review' ? approvedReview() : validProposal());
     },
   });
   assert.equal(requests.length, 3);
   assert.equal(requests[0].body.model, 'gemma4:e4b');
-  assert.equal(requests[0].body.response_format.json_schema.name, 'enhanced_learning_brief');
+  assert.equal(requestSchemaName(requests[0].body), 'enhanced_learning_brief');
   assert.equal(requests[1].body.model, 'gemma4:e4b');
-  assert.equal(requests[1].body.response_format.json_schema.name, 'personalised_learning_roadmap');
-  assert.equal(requests[1].body.max_tokens, 6144);
-  assert.equal(requests[1].body.temperature, 0.2);
-  assert.equal(requests[1].body.reasoning_effort, 'none');
+  assert.equal(requestSchemaName(requests[1].body), 'personalised_learning_roadmap');
+  assert.equal(requests[1].body.options.num_predict, 6144);
+  assert.equal(requests[1].body.options.num_ctx, 16384);
+  assert.equal(requests[1].body.options.temperature, 0.2);
+  assert.equal(requests[1].body.think, 'medium');
+  assert.equal(requests[1].url, 'http://127.0.0.1:11434/api/chat');
   assert.equal(requests[2].body.model, 'gemma4:e4b');
   assert.equal(requests[0].headers.Authorization, undefined);
-  assert.equal(requests[0].body.response_format.json_schema.strict, true);
+  assert.ok(requests[0].body.format && requests[0].body.format.type === 'object');
   assert.match(requests[2].body.messages[1].content, /Create a polished character illustration/);
   assert.equal(result.topics.length, 2);
   assert.equal(result.topics[1].position, 1);
-  assert.equal(result.estimatedTotalMinutes, 75);
+  assert.equal(result.estimatedTotalMinutes, 55);
   assert.equal(result.learningBrief.finalDeliverable, validLearningBrief().finalDeliverable);
 });
 
@@ -170,8 +187,8 @@ test('learner clarifications override inferred assumptions and reach both models
     fetchImpl: async (_url, options) => {
       const body = JSON.parse(options.body);
       requests.push(body);
-      if (body.response_format.json_schema.name === 'enhanced_learning_brief') return responseFor(validLearningBrief());
-      return responseFor(body.response_format.json_schema.name === 'roadmap_review' ? approvedReview() : validProposal());
+      if (requestSchemaName(body) === 'enhanced_learning_brief') return responseFor(validLearningBrief());
+      return responseFor(requestSchemaName(body) === 'roadmap_review' ? approvedReview() : validProposal());
     },
   });
 
@@ -188,8 +205,8 @@ test('E4B revises a draft when its review finds major outcome-alignment issues',
     fetchImpl: async (_url, options) => {
       const body = JSON.parse(options.body);
       requests.push(body);
-      if (body.response_format.json_schema.name === 'enhanced_learning_brief') return responseFor(validLearningBrief());
-      if (body.response_format.json_schema.name === 'roadmap_review') {
+      if (requestSchemaName(body) === 'enhanced_learning_brief') return responseFor(validLearningBrief());
+      if (requestSchemaName(body) === 'roadmap_review') {
         return responseFor({
           approved: false, score: 55,
           issues: [{ severity: 'major', code: 'MISSING_CAPSTONE', explanation: 'The roadmap does not explicitly deliver the requested polished character illustration.', suggestedFix: 'Add a final end-to-end illustration project with refinement and export.', relatedTopicKeys: ['character'] }],
@@ -200,7 +217,7 @@ test('E4B revises a draft when its review finds major outcome-alignment issues',
   });
   assert.equal(requests.length, 4);
   assert.equal(requests[0].model, 'gemma4:e4b');
-  assert.equal(requests[0].response_format.json_schema.name, 'enhanced_learning_brief');
+  assert.equal(requestSchemaName(requests[0]), 'enhanced_learning_brief');
   assert.equal(requests[1].model, 'gemma4:e4b');
   assert.equal(requests[2].model, 'gemma4:e4b');
   assert.equal(requests[3].model, 'gemma4:e4b');
@@ -218,8 +235,8 @@ test('invalid reviewer output is rejected instead of silently trusting an unaudi
       apiKey: '', baseUrl: 'http://localhost:11434/v1',
       fetchImpl: async (_url, options) => {
         const body = JSON.parse(options.body);
-        if (body.response_format.json_schema.name === 'enhanced_learning_brief') return responseFor(validLearningBrief());
-        return responseFor(body.response_format.json_schema.name === 'roadmap_review' ? { approved: true, score: 'high', issues: [] } : validProposal());
+        if (requestSchemaName(body) === 'enhanced_learning_brief') return responseFor(validLearningBrief());
+        return responseFor(requestSchemaName(body) === 'roadmap_review' ? { approved: true, score: 'high', issues: [] } : validProposal());
       },
     }),
     (error) => error instanceof RoadmapGenerationError && error.code === 'ROADMAP_REVIEW_INVALID',
@@ -232,8 +249,8 @@ test('generation normalizes invalid external prerequisite references before vali
     apiKey: '', baseUrl: 'http://localhost:11434/v1',
     fetchImpl: async (_url, options) => {
       const body = JSON.parse(options.body);
-      if (body.response_format.json_schema.name === 'enhanced_learning_brief') return responseFor(validLearningBrief());
-      return responseFor(body.response_format.json_schema.name === 'roadmap_review'
+      if (requestSchemaName(body) === 'enhanced_learning_brief') return responseFor(validLearningBrief());
+      return responseFor(requestSchemaName(body) === 'roadmap_review'
         ? approvedReview()
         : { ...validProposal(), topics: invalidEdges });
     },
@@ -249,7 +266,7 @@ test('retries one malformed structured response with an explicit JSON repair ins
     baseUrl: 'http://localhost:11434/v1',
     fetchImpl: async (_url, options) => {
       const body = JSON.parse(options.body);
-      if (body.response_format.json_schema.name === 'enhanced_learning_brief') {
+      if (requestSchemaName(body) === 'enhanced_learning_brief') {
         retryBodies.push(body);
         calls += 1;
         if (calls === 1) {
@@ -257,13 +274,33 @@ test('retries one malformed structured response with an explicit JSON repair ins
         }
         return responseFor(validLearningBrief());
       }
-      return responseFor(body.response_format.json_schema.name === 'roadmap_review' ? approvedReview() : validProposal());
+      return responseFor(requestSchemaName(body) === 'roadmap_review' ? approvedReview() : validProposal());
     },
   });
   assert.equal(calls, 2);
   assert.match(retryBodies[1].messages.at(-1).content, /not valid parseable JSON/i);
   assert.equal(result.topics.length, 2);
 });
+
+test('rejects a chunk that remains over budget after revision instead of silently compressing estimates', async () => {
+  const overBudgetProposal = validProposal();
+  overBudgetProposal.topics[0].estimatedMinutes = 100;
+  overBudgetProposal.topics[1].estimatedMinutes = 50;
+  await assert.rejects(
+    generateRoadmap(goal, {
+      apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const name = requestSchemaName(body);
+        if (name === 'enhanced_learning_brief') return responseFor(validLearningBrief());
+        if (name === 'roadmap_review') return responseFor(approvedReview());
+        return responseFor(overBudgetProposal);
+      },
+    }),
+    (error) => error instanceof RoadmapGenerationError && error.code === 'ROADMAP_CHUNK_OVER_BUDGET',
+  );
+});
+
 test('provider rate limits are reported as retryable service errors', async () => {
   await assert.rejects(
     generateRoadmap(goal, { apiKey: 'test-key', baseUrl: 'https://example-provider.invalid/v1', fetchImpl: async () => ({ ok: false, status: 429 }) }),

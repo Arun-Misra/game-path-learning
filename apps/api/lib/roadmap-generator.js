@@ -17,6 +17,19 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 const { validateRoadmap } = require('./roadmap-validation');
 
 class RoadmapGenerationError extends Error {
@@ -35,6 +48,8 @@ const responseSchema = {
     summary: { type: 'string' },
     topics: {
       type: 'array',
+      minItems: 2,
+      maxItems: 40,
       items: {
         type: 'object',
         additionalProperties: false,
@@ -109,30 +124,40 @@ function buildPrompt(goal, outcomeBrief = '') {
   const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 7;
   const practiceDays = Math.ceil(goal.daysPerWeek * planningDays / 7);
   const chunkBudgetMinutes = goal.minutesPerDay * practiceDays;
+  const sessionCount = Math.max(2, practiceDays);
+  const sessionMinutes = goal.minutesPerDay;
   const target = goal.targetDate
     ? new Date(goal.targetDate).toISOString().slice(0, 10)
     : 'No fixed deadline';
 
   return [
     'Design only the next small learning chunk. The desired outcome remains the long-term destination, but this chunk covers only the requested period.',
-    'Do not design the entire curriculum or estimate all work needed to reach the final outcome. Later chunks will use observed progress to decide what comes next.',
+    'Do not design the entire curriculum or estimate all work needed to reach the final outcome. Later chunks must use observed progress to decide what comes next.',
     '',
-    'ENHANCED LEARNING BRIEF:',
-    '- Translate the desired outcome into concrete capabilities, prerequisite knowledge, and a final observable deliverable.',
-    '- Cover every distinct capability explicitly. A capability mentioned only in the summary does not count as covered.',
-    '- For each topic, specify what the learner will do, produce, solve, test, or demonstrate. Avoid vague titles and descriptions such as “learn the basics”, “explore concepts”, or “practice more”.',
-    '- Sequence topics so each step produces something that is used by a later step. Explain concrete exercises, implementation, feedback, debugging, or testing when relevant.',
-    '- Keep prerequisites proportionate to experience. Do not reteach unrelated foundations or add generic curriculum just because it belongs to the skill.',
-    '- End with a capstone or performance task that directly demonstrates the stated outcome, not an unrelated portfolio project.',
+    'LEARNING FROM THE ACTUAL STARTING POINT (MANDATORY):',
+    '- Treat the stated experience level and learner clarifications as hard facts, not decorative profile text. “I do not know where to start” means assume no practical ability unless explicitly demonstrated.',
+    '- Before proposing an activity, identify the knowledge and actions it assumes. If the learner has not been taught them in this chunk or evidenced them in prior progress, teach the prerequisite first or remove the activity.',
+    '- For programming beginners, do not assume they know where code is written, how to create/run a program, program structure, syntax, compiler/runtime errors, variables, loops, or methods merely because the goal mentions DSA.',
+    '- For Java beginners, the first coding session must show a complete minimal Hello World program and explain the class declaration, main method, braces, semicolons, System.out.println, and how to run it. Teach variables after the learner can run and modify this program; teach conditionals and loops only after their required syntax is introduced.',
+    '- Java factual correctness is mandatory: int and boolean are primitive types; String is a reference type. Never describe String as a primitive type. Do not introduce syntax or APIs inaccurately.',
+    '- For a 5-session beginner Java chunk, prefer this progression: first runnable Hello World program; variables and types; operators plus introductory conditional/loop syntax; arrays declaration and indexing in a separate session; basic Strings in a separate session. Do not combine learning loops and arrays for the first time in one 30-minute session. If setup takes the full first session, defer later concepts rather than rush them.',
+    '- A topic is not teachable just because it says “execute a provided snippet”. Explain where the snippet goes, how to run it, what each unfamiliar syntax element means, what output to expect, and how to change it safely.',
+    '- Sequence from a worked example, to a partially completed example with guidance, to a small independent attempt. Independent work must use only concepts already introduced.',
+    '- Do not assign debugging before showing how to read the relevant error or what correct syntax looks like. Do not ask learners to write code from scratch before they have seen and modified a complete working example.',
+    '- Explicitly distinguish recognition, guided practice, and independent demonstration. Do not claim mastery from reading an explanation or copying code.',
     '',
-    'SCOPE AND REALISM:',
-    'Never use a default 4–8 week timeline for the entire curriculum; generate only the next requested learning chunk.',
-    'Treat the total available chunk time as a hard limit. Every activity estimate must fit within the learner’s actual practice budget.',
-    'For practice-heavy skills, use deliberate short exercises and observable checkpoints. Do not promise mastery or completion of the entire long-term outcome inside this chunk.',
-    'Use previous-chunk evidence to adapt: repeat or simplify when the learner struggles, and progress when they demonstrate readiness.',
-    'Do not invent song-specific chords, tabs, lyrics, or exact strumming patterns. If a named arrangement has not been supplied or verified, clearly ask the learner to provide a tutorial, chord chart, or other trusted reference; use generic technique practice until then.',
+    'INSTRUCTIONAL DESIGN AND SCOPE:',
+    '- Plan the chunk as a sequence of individual practice sessions. Each topic is one session, not a bundle of several days. Produce exactly ' + sessionCount + ' topics/sessions for this chunk; do not collapse a multi-day chunk into one topic. If a single day must contain two tiny sessions to satisfy the minimum plan structure, keep their combined time within that day’s total budget.',
+    '- No topic may exceed ' + sessionMinutes + ' minutes. Estimate explanation, demonstration, guided practice, independent attempt, and a quick understanding check together; leave room for a beginner to think and make mistakes.',
+    '- Never silently compress work to make it fit. If the useful work exceeds the available time, teach fewer concepts and defer the rest to a later chunk.',
+    '- The total effort must fit within ' + chunkBudgetMinutes + ' minutes across ' + practiceDays + ' practice sessions. Prefer one coherent objective per session over a list of disconnected topics.',
+    '- For each topic, describe a concrete teaching sequence: (1) explain the idea and unfamiliar syntax, (2) walk through a complete worked example, (3) guide the learner through a small variation, (4) ask for a tiny independent task, and (5) state how success will be checked. Adapt these steps to non-programming skills where appropriate.',
+    '- Introduce only the prerequisites needed for the next step. If the learner is new to a domain, start with setup and the smallest useful first action before progressing to concepts.',
+    '- Use previous-chunk evidence to adapt: repeat or simplify when the learner struggles, and progress only when they demonstrate readiness.',
+    '- Do not invent song-specific chords, tabs, lyrics, or exact strumming patterns. If a named arrangement has not been supplied or verified, clearly ask the learner to provide a tutorial, chord chart, or other trusted reference; use generic technique practice until then.',
     '- Avoid duplicate topics, filler, generic motivation, and unrealistic mastery claims.',
-    '- Give every topic 1–5 assessable learning objectives and an actionable description.',
+    '- Give every topic 1–5 assessable learning objectives and an actionable description. Each objective must be achievable within this session, not merely describe a long-term aspiration.',
+    '- End the chunk with a small checkpoint that tests only what this chunk actually taught; do not force a capstone for the long-term outcome into an introductory chunk.',
     '',
     'DEPENDENCIES:',
     '- prerequisiteKeys must contain only exact keys of other topics in this response. Use [] when no prerequisite is required.',
@@ -153,21 +178,25 @@ function buildPrompt(goal, outcomeBrief = '') {
     '',
     'Planning horizon: ' + planningDays + ' calendar days, ' + practiceDays + ' practice days; maximum total effort ' + chunkBudgetMinutes + ' minutes.',
     goal.priorLearningContext ? 'PRIOR CHUNKS AND VERIFIED PROGRESS:\n' + goal.priorLearningContext : 'This is the first chunk; begin with the most useful starting activities.',
-    'Before responding, verify that the chunk fits the available practice budget and ends with an observable checkpoint. Do not expand it to cover the entire long-term outcome.',
+    'QUALITY GATE BEFORE RETURNING JSON: mentally simulate the plan from the learner’s stated starting point. For every session, check what the learner knows at its start, which new syntax or technique is introduced, whether the worked example teaches it, whether guided practice precedes independent work, and whether the entire session fits its time limit. Remove or defer any activity that depends on untaught knowledge. Check every session duration and the sum independently. Do not expose private reasoning; return only the final corrected plan.',
   ].filter(Boolean).join('\n');
 }
 
 function buildReviewPrompt(goal, roadmap, learningBrief = null) {
   const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 7;
-  const chunkBudgetMinutes = goal.minutesPerDay * Math.min(goal.daysPerWeek, planningDays);
+  const practiceDays = Math.ceil(goal.daysPerWeek * planningDays / 7);
+  const chunkBudgetMinutes = goal.minutesPerDay * practiceDays;
   return [
-    'You are an independent, strict learning-roadmap auditor. Judge the plan against the learner’s actual goal, not against a generic course outline.',
+    'You are an independent, skeptical instructional-design auditor. Judge whether this is genuinely teachable to this exact learner, not whether the topic list sounds plausible.',
     'Reject a roadmap if it is vague, generic, repetitive, disconnected from the desired outcome, missing a requested capability, poorly sequenced, or unrealistic for the available time.',
-    'Check: (1) exact outcome alignment, (2) coverage of each distinct requested capability, (3) concrete actionable work per topic, (4) meaningful step-by-step progression, (5) relevant final deliverable, (6) appropriate prerequisites for experience level, (7) time-budget realism, and (8) no filler/repetition.',
-    'CHUNK TIME AUDIT: Independently estimate the focused effort needed for this chunk and judge whether these activities fit the chunk budget. Do not require the entire long-term outcome to fit inside this chunk or apply a whole-course minimum duration to a chunk. For practice-heavy outcomes, preserve deliberate practice cycles and observable checkpoints while staying within the available chunk budget.',
-    'Approve only when there are no critical or major issues and score is at least 80. Be specific: each issue should explain the mismatch and give an actionable fix. Do not invent requirements not implied by the goal.',
+    'BEGINNER DEPENDENCY AUDIT: for every session, list the knowledge and practical actions it assumes. Compare them against the stated experience, clarifications, and only the earlier sessions. If a beginner must already know how to write/run code, recognize syntax, use a tool, or debug an error that has not been taught, this is a major issue.',
+    'TEACHING AUDIT: check that unfamiliar ideas are explained; a complete worked example comes before guided modification; guided practice comes before independent work; expected output or success criteria are clear; and the learner is never asked to perform an untaught action. “Execute a snippet” alone is not sufficient instruction.',
+    'FACTUAL CORRECTNESS AUDIT: verify domain-specific statements and syntax rather than trusting fluent wording. For Java, String is a reference type, not a primitive; a first lesson for a true beginner must teach how to run a minimal program before expecting independent code writing.',
+    'TIME AUDIT: independently estimate realistic beginner effort, including reading, setup, mistakes, and checks. Every single session must fit within the daily limit and the whole chunk must fit its total budget. Never approve an overlong session just because the total sum fits.',
+    'PROGRESSION AUDIT: each session must prepare the learner for the next. Do not introduce arrays/DSA exercises before teaching enough program structure and syntax to use them. If the horizon is too short, narrow the scope instead of rushing.',
+    'Approve only when there are no critical or major issues and score is at least 85. Be specific: each issue should explain the mismatch and give an actionable fix. Do not invent requirements not implied by the goal.',
     learningBrief ? `ENHANCED LEARNING BRIEF TO AUDIT AGAINST:\n${JSON.stringify(learningBrief)}` : '',
-    'CHUNK BUDGET: ' + planningDays + ' days, no more than ' + chunkBudgetMinutes + ' focused minutes total.',
+    'CHUNK BUDGET: ' + planningDays + ' calendar days, ' + practiceDays + ' practice sessions, no more than ' + chunkBudgetMinutes + ' focused minutes total; daily session limit is ' + goal.minutesPerDay + ' minutes.',
     'Return JSON only matching this schema:',
     JSON.stringify(reviewSchema),
     '',
@@ -244,6 +273,52 @@ function applyChunkBudget(roadmap, budgetMinutes) {
   return { ...roadmap, topics, estimatedTotalMinutes: topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0) };
 }
 
+function normalizeJavaBeginnerContent(roadmap, goal) {
+  if (!roadmap || !Array.isArray(roadmap.topics)) return roadmap;
+  const profile = `${goal.title || ''} ${goal.targetOutcome || ''}`.toLowerCase();
+  if (!/java/.test(profile) || String(goal.experienceLevel || '').toUpperCase() !== 'BEGINNER') return roadmap;
+  const incorrectPrimitivePhrase = /primitive(?: data)? types?\s*\(\s*int\s*,\s*boolean\s*,\s*String\s*\)/gi;
+  const fix = (value) => typeof value === 'string'
+    ? value.replace(incorrectPrimitivePhrase, 'primitive types (int, boolean) and the reference type String')
+    : value;
+  return {
+    ...roadmap,
+    title: fix(roadmap.title),
+    summary: fix(roadmap.summary),
+    topics: roadmap.topics.map((topic) => ({
+      ...topic,
+      title: fix(topic.title),
+      description: fix(topic.description),
+      learningObjectives: Array.isArray(topic.learningObjectives) ? topic.learningObjectives.map(fix) : topic.learningObjectives,
+    })),
+  };
+}
+
+function getJavaBeginnerInstructionIssues(roadmap, goal) {
+  if (!roadmap || !Array.isArray(roadmap.topics)) return [];
+  const profile = `${goal.title || ''} ${goal.targetOutcome || ''}`.toLowerCase();
+  if (!/java/.test(profile) || String(goal.experienceLevel || '').toUpperCase() !== 'BEGINNER') return [];
+  const issues = [];
+  const first = roadmap.topics[0];
+  if (first && !/(hello.?world|first program|minimal.*program|run a simple java program)/i.test(`${first.title} ${first.description}`)) {
+    issues.push({ severity: 'major', code: 'MISSING_FIRST_RUNNABLE_PROGRAM', explanation: 'The first session does not clearly teach a complete first Java program and how to run it.', suggestedFix: 'Start with a minimal Hello World program and explain its structure and execution before variables or DSA concepts.', relatedTopicKeys: first.key ? [first.key] : [] });
+  }
+  for (const topic of roadmap.topics) {
+    if (/\barrays?\b/i.test(`${topic.title} ${topic.description}`) && /\bloops?\b/i.test(`${topic.title} ${topic.description}`)) {
+      issues.push({ severity: 'major', code: 'COMBINED_NEW_ARRAYS_AND_LOOPS', explanation: `“${topic.title}” combines arrays and loops in one beginner session.`, suggestedFix: 'Teach basic loop syntax in an earlier session, then use a separate session for array declaration and indexing; defer iteration if time is tight.', relatedTopicKeys: [topic.key] });
+    }
+    if (/primitive(?: data)? types?\s*\([^)]*\bString\b/i.test(`${topic.title} ${topic.description} ${(topic.learningObjectives || []).join(' ')}`)) {
+      issues.push({ severity: 'major', code: 'JAVA_STRING_MISCLASSIFIED', explanation: `“${topic.title}” incorrectly describes String as a primitive type.`, suggestedFix: 'State that int and boolean are primitive types while String is a reference type.', relatedTopicKeys: [topic.key] });
+    }
+  }
+  return issues;
+}
+
+function getOverlongSessions(roadmap, maxSessionMinutes) {
+  if (!roadmap || !Array.isArray(roadmap.topics)) return [];
+  return roadmap.topics.filter((topic) => topic.estimatedMinutes > maxSessionMinutes);
+}
+
 function applyRealismFloor(roadmap, goal) {
   if (!roadmap || !Array.isArray(roadmap.topics) || roadmap.topics.length === 0) return roadmap;
   const profile = `${goal.title || ''} ${goal.targetOutcome || ''}`.toLowerCase();
@@ -290,7 +365,7 @@ function isLocalOllama(baseUrl) {
 }
 
 function parseStructuredContent(payload, description) {
-  const content = payload.choices?.[0]?.message?.content;
+  const content = payload.choices?.[0]?.message?.content ?? payload.message?.content;
   if (typeof content !== 'string' || !content.trim()) {
     throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_RESPONSE', `The AI provider returned no ${description}.`);
   }
@@ -306,24 +381,34 @@ function parseStructuredContent(payload, description) {
 
 async function requestStructured({ endpoint, headers, model, schemaName, schema, messages, fetchImpl, retryInvalidJson = true }) {
   let response;
+  const localOllama = isLocalOllama(endpoint);
+  const contextLength = Number.parseInt(process.env.AI_CONTEXT_LENGTH || '16384', 10);
+  const reasoningEffort = process.env.AI_REASONING_EFFORT || 'medium';
+  const outputTokens = schemaName === 'personalised_learning_roadmap' ? 6144 : 4096;
+  const requestBody = localOllama
+    ? {
+      model,
+      messages,
+      format: schema,
+      think: reasoningEffort,
+      options: { num_ctx: Number.isFinite(contextLength) ? Math.max(4096, Math.min(32768, contextLength)) : 16384, num_predict: outputTokens, temperature: 0.2 },
+      stream: false,
+    }
+    : {
+      model,
+      messages,
+      max_tokens: outputTokens,
+      temperature: 0.2,
+      reasoning_effort: reasoningEffort,
+      response_format: { type: 'json_schema', json_schema: { name: schemaName, strict: true, schema } },
+      stream: false,
+    };
   try {
     response = await fetchImpl(endpoint, {
       method: 'POST',
       headers,
-      signal: AbortSignal.timeout(120000),
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens: schemaName === 'personalised_learning_roadmap' ? 6144 : 4096,
-        temperature: 0.2,
-        // E4B's hidden reasoning consumes the default 4k Ollama context; reserve tokens for complete structured output.
-        reasoning_effort: 'none',
-        response_format: {
-          type: 'json_schema',
-          json_schema: { name: schemaName, strict: true, schema },
-        },
-        stream: false,
-      }),
+      signal: AbortSignal.timeout(240000),
+      body: JSON.stringify(requestBody),
     });
   } catch {
     throw new RoadmapGenerationError(
@@ -400,8 +485,13 @@ const clarificationQuestionsSchema = {
   required: ['questions'],
 };
 
+function getProviderEndpoint(baseUrl) {
+  if (isLocalOllama(baseUrl)) return new URL(baseUrl).origin + '/api/chat';
+  return baseUrl.replace(/\/+$/, '') + '/chat/completions';
+}
+
 async function generateClarifyingQuestions(goal, { apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '', baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1', model = process.env.AI_MODEL || process.env.OPENAI_MODEL || 'gemma4:e4b', fetchImpl = globalThis.fetch } = {}) {
-  const endpoint = baseUrl.replace(/\/+$/, '') + '/chat/completions';
+  const endpoint = getProviderEndpoint(baseUrl);
   if (!apiKey && !isLocalOllama(baseUrl)) throw new RoadmapGenerationError(503, 'ROADMAP_GENERATOR_NOT_CONFIGURED', 'No AI API key is configured.');
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
@@ -423,7 +513,12 @@ async function generateRoadmap(goal, {
   model = process.env.AI_MODEL || process.env.OPENAI_MODEL || 'gemma4:e4b',
   fetchImpl = globalThis.fetch,
 } = {}) {
-  const endpoint = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  const endpoint = getProviderEndpoint(baseUrl);
+  const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 7;
+  const practiceDays = Math.ceil(goal.daysPerWeek * planningDays / 7);
+  const chunkBudgetMinutes = goal.minutesPerDay * practiceDays;
+  const sessionCount = Math.max(2, practiceDays);
+  const chunkRoadmapSchema = { ...responseSchema, properties: { ...responseSchema.properties, topics: { ...responseSchema.properties.topics, minItems: sessionCount, maxItems: sessionCount } } };
   if (!apiKey && !isLocalOllama(baseUrl)) {
     throw new RoadmapGenerationError(
       503,
@@ -435,7 +530,7 @@ async function generateRoadmap(goal, {
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
-  // Stage 1: Use the same E4B model throughout so Ollama does not have to load/swap separate planner and reviewer models.
+  // Stage 1: Use the same configured model throughout so Ollama does not have to load/swap separate planner and reviewer models.
   const learningBrief = await requestStructured({
     endpoint, headers, model, schemaName: 'enhanced_learning_brief', schema: learningBriefSchema, fetchImpl,
     messages: [
@@ -461,11 +556,9 @@ async function generateRoadmap(goal, {
     ],
   });
 
-  const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 7;
-  const chunkBudgetMinutes = goal.minutesPerDay * Math.min(goal.daysPerWeek, planningDays);
   const boundedGoal = { ...goal, planningDays, chunkBudgetMinutes };
   const draft = await requestStructured({
-    endpoint, headers, model, schemaName: 'personalised_learning_roadmap', schema: responseSchema, fetchImpl,
+    endpoint, headers, model, schemaName: 'personalised_learning_roadmap', schema: chunkRoadmapSchema, fetchImpl,
     messages: [
       {
         role: 'system',
@@ -475,13 +568,14 @@ async function generateRoadmap(goal, {
     ],
   });
 
-  const firstValidation = validateRoadmap(guardUnverifiedSongDetails(normalizeRoadmapProposal(draft), boundedGoal));
+  const firstValidation = validateRoadmap(normalizeJavaBeginnerContent(guardUnverifiedSongDetails(normalizeRoadmapProposal(draft), boundedGoal), boundedGoal));
   if (!firstValidation.success) {
+    if (process.env.AI_DEBUG === 'true') console.error('[roadmap-generator] Draft structural validation failed:', JSON.stringify(firstValidation.errors));
     throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_ROADMAP', 'The generated roadmap failed structural validation. Please try again.');
   }
-  let roadmap = applyChunkBudget(firstValidation.data, chunkBudgetMinutes);
+  let roadmap = firstValidation.data;
 
-  // The same E4B model audits its plan against the learner's exact outcome and enhanced brief.
+  // The same configured model audits its plan against the learner's exact outcome and enhanced brief.
   const review = await requestStructured({
     endpoint, headers, model, schemaName: 'roadmap_review', schema: reviewSchema, fetchImpl,
     messages: [
@@ -497,9 +591,21 @@ async function generateRoadmap(goal, {
     throw new RoadmapGenerationError(502, 'ROADMAP_REVIEW_INVALID', 'The roadmap reviewer returned an invalid review. Please try generating it again.');
   }
 
-  if (!review.approved || review.score < 80 || review.issues.some((issue) => issue.severity === 'critical' || issue.severity === 'major')) {
+  const overlongBeforeRevision = getOverlongSessions(roadmap, goal.minutesPerDay);
+  const sessionBudgetIssues = overlongBeforeRevision.map((topic) => ({ severity: 'major', code: 'SESSION_OVER_BUDGET', explanation: `“${topic.title}” is estimated at ${topic.estimatedMinutes} minutes, exceeding the learner’s ${goal.minutesPerDay}-minute daily limit.`, suggestedFix: 'Narrow this session to one teachable objective, defer remaining work to a later chunk, and keep its estimate within the daily limit.', relatedTopicKeys: [topic.key] }));
+  const instructionalIssues = getJavaBeginnerInstructionIssues(roadmap, goal);
+  const initialTotalMinutes = roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0);
+  const totalBudgetIssues = initialTotalMinutes > chunkBudgetMinutes
+    ? [{ severity: 'major', code: 'CHUNK_OVER_BUDGET', explanation: `The proposed chunk needs ${initialTotalMinutes} minutes, exceeding the available ${chunkBudgetMinutes}-minute chunk budget.`, suggestedFix: 'Reduce the scope or split work into later chunks; do not shrink estimates without reducing the activities.', relatedTopicKeys: roadmap.topics.map((topic) => topic.key) }]
+    : [];
+  const requiredFixes = [...sessionBudgetIssues, ...instructionalIssues, ...totalBudgetIssues];
+  const reviewForRevision = requiredFixes.length
+    ? { ...review, approved: false, score: Math.min(review.score, 79), issues: [...review.issues, ...requiredFixes] }
+    : review;
+
+  if (!reviewForRevision.approved || reviewForRevision.score < 85 || reviewForRevision.issues.some((issue) => issue.severity === 'critical' || issue.severity === 'major')) {
     const revision = await requestStructured({
-      endpoint, headers, model, schemaName: 'personalised_learning_roadmap', schema: responseSchema, fetchImpl,
+      endpoint, headers, model, schemaName: 'personalised_learning_roadmap', schema: chunkRoadmapSchema, fetchImpl,
       messages: [
         {
           role: 'system',
@@ -512,18 +618,31 @@ async function generateRoadmap(goal, {
             '',
             `INITIAL ROADMAP:\n${JSON.stringify(roadmap)}`,
             '',
-            `INDEPENDENT REVIEW AND REQUIRED FIXES:\n${JSON.stringify(review)}`,
+            `INDEPENDENT REVIEW AND REQUIRED FIXES:\n${JSON.stringify(reviewForRevision)}`,
             '',
             'Revise the roadmap itself, not just its wording. Return a complete replacement roadmap.',
           ].join('\n'),
         },
       ],
     });
-    const revisedValidation = validateRoadmap(guardUnverifiedSongDetails(normalizeRoadmapProposal(revision), boundedGoal));
+    const revisedValidation = validateRoadmap(normalizeJavaBeginnerContent(guardUnverifiedSongDetails(normalizeRoadmapProposal(revision), boundedGoal), boundedGoal));
     if (!revisedValidation.success) {
+      if (process.env.AI_DEBUG === 'true') console.error('[roadmap-generator] Revised structural validation failed:', JSON.stringify(revisedValidation.errors));
       throw new RoadmapGenerationError(502, 'ROADMAP_REVISION_INVALID', 'The revised roadmap failed structural validation. Please try again.');
     }
-    roadmap = applyChunkBudget(revisedValidation.data, chunkBudgetMinutes);
+    roadmap = revisedValidation.data;
+    const revisedTotalMinutes = roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0);
+    if (revisedTotalMinutes > chunkBudgetMinutes) {
+      throw new RoadmapGenerationError(502, 'ROADMAP_CHUNK_OVER_BUDGET', 'The AI could not fit the revised learning chunk into your available time without underestimating the work. Try a shorter planning horizon or generate the chunk again.');
+    }
+    const overlongAfterRevision = getOverlongSessions(roadmap, goal.minutesPerDay);
+    const instructionalIssuesAfterRevision = getJavaBeginnerInstructionIssues(roadmap, goal);
+    if (instructionalIssuesAfterRevision.length > 0) {
+      throw new RoadmapGenerationError(502, 'ROADMAP_INSTRUCTIONAL_QUALITY_FAILED', 'The AI could not produce a realistic beginner sequence after revision. Try a shorter planning horizon or generate the chunk again.');
+    }
+    if (overlongAfterRevision.length > 0) {
+      throw new RoadmapGenerationError(502, 'ROADMAP_SESSION_OVER_BUDGET', 'The AI could not fit every learning session into your daily time limit. Try a shorter planning horizon or generate the chunk again.');
+    }
   }
 
   return {
@@ -538,10 +657,14 @@ async function generateRoadmap(goal, {
 module.exports = {
   RoadmapGenerationError,
   buildPrompt,
+  getProviderEndpoint,
   generateClarifyingQuestions,
   buildReviewPrompt,
   applyRealismFloor,
   applyChunkBudget,
+  getOverlongSessions,
+  getJavaBeginnerInstructionIssues,
+  normalizeJavaBeginnerContent,
   guardUnverifiedSongDetails,
   generateRoadmap,
   isLocalOllama,
