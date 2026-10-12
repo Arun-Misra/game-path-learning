@@ -101,3 +101,10 @@ Do not update master/reference docs frequently; update this context only for mat
 - Added IntersectionObserver reveal transitions, hover depth on cards, responsive layouts, and reduced-motion fallbacks. Decorative art is hidden from assistive technology; the path showcase has a text label.
 - No animation or illustration library was added; visuals use CSS and existing Lucide icons.
 - Validation: `npm run check`, `npm run build`, `npm test` (50/50), and `git diff --check` passed. Actual browser screenshot/interaction verification remains outstanding; do not claim pixel-level visual QA.
+
+## Playful editorial design pass (2026-10-19)
+- Reworked the signed-out landing page away from generic bordered-card grids toward an editorial, more human-feeling layout: oversized expressive headline, more conversational copy, asymmetric organic forms, staggered feature storytelling, and pill-shaped quest/action elements.
+- New palette: warm paper and ink-plum foundations, jade-green progress/action color, coral for energy, marigold for reward moments, and soft lilac for depth. The account panel now sits over an offset organic shape instead of a standard bordered white box.
+- Reframed the landing language around quests, XP, levels, habits, and small wins without promising social features or adding fake user stats. Existing account and learning-goal workflows are unchanged.
+- The signed-in learning dashboard receives the same palette direction and softer, less boxy treatment.
+- Validation after this pass: `npm run check`, `npm run build`, `npm test` (50/50 including database integration), and `git diff --check` passed. Browser screenshot/interaction QA has not yet been performed.

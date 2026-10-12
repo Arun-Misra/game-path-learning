@@ -478,7 +478,7 @@ function App() {
   }
 
   return (
-    <main className="app-shell min-h-screen bg-[#f7f7f2] text-[#20241f]">
+    <main className="app-shell min-h-screen bg-[#fbf5eb] text-[#29263b]">
       {!user && <div className="landing-art-scene" aria-hidden="true">
         <div className="art-orbit art-orbit-one" />
         <div className="art-orbit art-orbit-two" />
@@ -517,25 +517,25 @@ function App() {
 
       {(!user || goals.length === 0 || showGoalForm) && <section className="hero-layout mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-8 sm:px-8 lg:grid-cols-[1.03fr_.97fr] lg:gap-20 lg:pt-16" data-reveal="hero">
         <div className="hero-copy flex flex-col justify-center" data-reveal="left">
-          <div className="mb-6 inline-flex w-fit items-center gap-2 rounded-full border border-[#dce5d7] bg-[#edf3e9] px-3 py-1.5 text-xs font-semibold text-[#476b49]"><Sparkles size={14} /> A learning path built around you</div>
-          <h1 className="max-w-2xl text-5xl font-semibold leading-[1.06] tracking-[-0.055em] sm:text-6xl xl:text-7xl">Build a skill.<br />Become the person who <span className="font-serif italic font-normal text-[#72916d]">can do it.</span></h1>
-          <p className="mt-6 max-w-lg text-base leading-7 text-[#6d756a] sm:text-lg">Tell us what you want to learn. Get a practical roadmap that fits your starting point, your goal, and your real life.</p>
-          <div className="mt-10 grid max-w-lg grid-cols-3 gap-3">
-            <Stat icon={<Target size={17} />} title="Your goal" text="Your destination" />
-            <Stat icon={<Clock3 size={17} />} title="Your pace" text="Your schedule" />
-            <Stat icon={<Flame size={17} />} title="Your growth" text="Visible progress" />
+          <div className="hero-kicker mb-6 inline-flex w-fit items-center gap-2 px-1 py-1.5 text-xs font-semibold"><Sparkles size={14} /> Your life. Your pace. Your next level.</div>
+          <h1 className="max-w-2xl text-5xl font-semibold leading-[1.06] tracking-[-0.055em] sm:text-6xl xl:text-7xl">You’re closer<br />than you <span className="font-serif italic font-normal text-[#347d70]">think.</span></h1>
+          <p className="mt-6 max-w-lg text-base leading-7 text-[#6d756a] sm:text-lg">Big ambitions don’t need big dramatic starts. Pick a skill, show up as you are, and turn a few focused minutes into a life-changing habit.</p>
+          <div className="hero-stats mt-10 grid max-w-lg grid-cols-3 gap-3">
+            <Stat icon={<Target size={17} />} title="Pick a quest" text="Make it yours" />
+            <Stat icon={<Clock3 size={17} />} title="Earn XP" text="Every session counts" />
+            <Stat icon={<Flame size={17} />} title="Level up" text="One win at a time" />
           </div>
-          <div className="mt-12 hidden items-center gap-4 border-t border-[#e3e5dc] pt-6 sm:flex">
+          <div className="hero-footnote mt-12 hidden items-center gap-4 pt-6 sm:flex">
             <div className="flex -space-x-2"><span className="grid h-9 w-9 place-items-center rounded-full border-2 border-[#f7f7f2] bg-[#d9e6d2] text-xs font-bold">ML</span><span className="grid h-9 w-9 place-items-center rounded-full border-2 border-[#f7f7f2] bg-[#f0dfc4] text-xs font-bold">♪</span><span className="grid h-9 w-9 place-items-center rounded-full border-2 border-[#f7f7f2] bg-[#d7dfed] text-xs font-bold">JS</span></div>
-            <p className="text-sm text-[#7b8277]">One place for <strong className="font-semibold text-[#424a40]">any skill</strong> you want to build.</p>
+            <p className="text-sm text-[#7b8277]">No streak shame. No perfect-student energy. Just your next small win.</p>
           </div>
         </div>
 
         <div className="goal-panel-wrap relative" data-reveal="right">
           <div className="absolute -right-4 -top-5 h-28 w-28 rounded-full bg-[#dfe9d5] blur-2xl" />
-          <div className="goal-panel relative rounded-[2rem] border border-[#e6e8de] bg-white p-5 shadow-[0_24px_80px_-40px_rgba(38,63,50,0.28)] sm:p-8">
-            <div className="mb-7 flex items-start justify-between">
-              <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#82917b]">{user ? 'YOUR NEXT CHAPTER STARTS HERE' : accountMode === 'login' ? 'WELCOME BACK' : 'START YOUR LEARNING JOURNEY'}</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">{user ? 'Let’s build your learning plan' : accountMode === 'login' ? 'Sign in to Pathwise' : 'Create your free account'}</h2><p className="mt-2 text-sm leading-6 text-[#7c8378]">{user ? 'A few details help us make the next step clear and realistic.' : accountMode === 'login' ? 'Your saved goals and progress are waiting for you.' : 'Save your goals and pick up where you left off on your next visit.'}</p></div>
+          <div className="goal-panel relative p-5 sm:p-8">
+            <div className="mb-7 flex items-start justify-between goal-panel-heading">
+              <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#82917b]">{user ? 'YOUR NEXT CHAPTER STARTS HERE' : accountMode === 'login' ? 'WELCOME BACK' : 'YOUR FIRST QUEST STARTS HERE'}</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">{user ? 'Let’s build your learning plan' : accountMode === 'login' ? 'Sign in to Pathwise' : 'Create your free account'}</h2><p className="mt-2 text-sm leading-6 text-[#7c8378]">{user ? 'A few details help us make the next step clear and realistic.' : accountMode === 'login' ? 'Your saved goals and progress are waiting for you.' : 'Your progress belongs to you. Save it, return to it, and keep growing.'}</p></div>
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#edf3e9] text-[#4c704b]"><GraduationCap size={22} /></span>
             </div>
 
