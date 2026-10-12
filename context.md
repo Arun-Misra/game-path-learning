@@ -80,3 +80,9 @@ Do not update master/reference docs frequently; update this context only for mat
 - Made the signed-in workspace easier to scan with clearer section hierarchy, saved-goal count, elevated goal cards, and visually distinct roadmap cards.
 - Updated page title, theme color, and meta description. No API or data model behavior changed.
 - Validation: `npm run check`, `npm run build`, and `git diff --check` passed. Visual appearance has not been browser-screenshot verified.
+
+## Duolingo-inspired UI pass (2026-10-19)
+- Signed-in learners with saved goals now get a learning-workspace layout: persistent desktop navigation, home/path/achievement links, streak panel, profile/level summary, and a one-click way to add a goal. On mobile the navigation becomes a compact horizontal bar.
+- Restyled the learning dashboard around bright progress-green actions, friendly rounded cards with tactile borders, color-coded XP/streak/mission/achievement stats, and a connected vertical learning-path treatment for roadmap topics.
+- The guest onboarding flow and existing API handlers remain in place. Creating another goal from the signed-in workspace reveals the existing form rather than introducing a separate flow.
+- Validation: `npm run check`, `npm run build`, and `git diff --check` passed. This is a Duolingo-inspired direction, not a pixel-for-pixel copy; browser screenshot verification remains outstanding.

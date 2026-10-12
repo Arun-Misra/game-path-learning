@@ -257,3 +257,433 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
     padding: 1rem;
   }
 }
+
+/* Duolingo-inspired learning workspace: friendly, tactile, progress-first. */
+:root {
+  --path-green: #58cc02;
+  --path-green-dark: #46a302;
+  --path-ink: #3c3c3c;
+  --path-muted: #777777;
+  --path-border: #e5e5e5;
+  --path-blue: #1cb0f6;
+  --path-gold: #ffc800;
+}
+
+.app-shell:has(.learning-sidebar) {
+  display: grid;
+  grid-template-columns: 238px minmax(0, 1fr);
+  align-items: start;
+  min-height: 100vh;
+  overflow: clip;
+  background: #fff;
+}
+
+.app-shell:has(.learning-sidebar) .app-header {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: none;
+  padding: 1rem 2rem;
+  border-bottom: 2px solid #f0f0f0;
+  background: #fff;
+}
+
+.app-shell:has(.learning-sidebar) .app-header > a > span:first-child {
+  background: var(--path-green);
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+.app-shell:has(.learning-sidebar) .app-header > a > span:last-child {
+  color: #58a700;
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+
+.app-shell:has(.learning-sidebar) .app-header > div {
+  box-shadow: none;
+  border: 0;
+  background: transparent;
+  font-weight: 700;
+}
+
+.learning-sidebar {
+  position: sticky;
+  top: 0;
+  grid-column: 1;
+  grid-row: 2 / span 4;
+  display: flex;
+  min-height: calc(100vh - 73px);
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.5rem 1rem 1rem 1.25rem;
+  border-right: 2px solid #f0f0f0;
+  background: #fff;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  padding: .2rem .5rem 1.25rem;
+  color: #58a700;
+  font-size: 1.45rem;
+  font-weight: 900;
+  letter-spacing: -.04em;
+}
+
+.sidebar-brand-mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--path-green);
+  color: #fff;
+}
+
+.brand-dot { color: #89df45; }
+
+.sidebar-label {
+  margin: 0 .7rem -.65rem;
+  color: #afafaf;
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.sidebar-nav {
+  display: grid;
+  gap: .4rem;
+}
+
+.sidebar-link {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: .8rem;
+  padding: .7rem .85rem;
+  border: 2px solid transparent;
+  border-radius: 13px;
+  color: #777;
+  font-size: .9rem;
+  font-weight: 800;
+  text-decoration: none;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.sidebar-link:hover { background: #f7f7f7; color: #555; }
+
+.sidebar-link.active {
+  border-color: #d7f5c0;
+  background: #efffe5;
+  color: #399400;
+}
+
+.sidebar-link.active svg { stroke-width: 2.7; }
+
+.sidebar-streak {
+  margin-top: .35rem;
+  padding: 1rem;
+  border: 2px solid #f0dfb1;
+  border-radius: 16px;
+  background: #fff9e9;
+}
+
+.sidebar-streak-top {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  color: #b87800;
+  font-size: .88rem;
+  font-weight: 900;
+}
+
+.sidebar-streak p {
+  margin: .5rem 0 0;
+  color: #987b40;
+  font-size: .75rem;
+  line-height: 1.5;
+}
+
+.sidebar-add-goal {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  border: 2px solid #c8eeb0;
+  border-radius: 13px;
+  background: #f2ffe9;
+  color: #399400;
+  font-size: .82rem;
+  font-weight: 900;
+}
+
+.sidebar-add-goal:hover { background: #e6ffd7; transform: translateY(-1px); }
+
+.sidebar-profile {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  margin-top: auto;
+  padding: 1rem .25rem .25rem;
+  border-top: 2px solid #f0f0f0;
+}
+
+.profile-avatar {
+  display: grid;
+  width: 39px;
+  height: 39px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 2px solid #bce99f;
+  border-radius: 50%;
+  background: #efffe5;
+  color: #399400;
+  font-weight: 900;
+}
+
+.profile-copy { display: grid; min-width: 0; gap: .15rem; }
+.profile-copy strong { overflow: hidden; color: #4b4b4b; font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
+.profile-copy small { color: #999; font-size: .7rem; }
+.sidebar-profile button { margin-left: auto; color: #999; font-size: 1.2rem; }
+
+.app-shell:has(.learning-sidebar) .hero-layout,
+.app-shell:has(.learning-sidebar) .dashboard-section {
+  grid-column: 2;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.app-shell:has(.learning-sidebar) .hero-layout {
+  padding: 2rem clamp(1.25rem, 4vw, 3.5rem);
+}
+
+.app-shell:has(.learning-sidebar) .hero-copy { display: none; }
+.app-shell:has(.learning-sidebar) .goal-panel-wrap { width: min(100%, 720px); margin: 0 auto; }
+.app-shell:has(.learning-sidebar) .goal-panel { border: 2px solid #e5e5e5; border-radius: 22px; box-shadow: none; }
+.app-shell:has(.learning-sidebar) .goal-panel-wrap::before { display: none; }
+
+.app-shell:has(.learning-sidebar) #learning-stats {
+  padding: 1.4rem clamp(1.25rem, 4vw, 3.5rem) .75rem;
+}
+
+.app-shell:has(.learning-sidebar) #learning-stats > div {
+  gap: .8rem;
+}
+
+.app-shell:has(.learning-sidebar) #learning-stats > div > div {
+  border: 2px solid var(--path-border);
+  border-radius: 18px;
+  box-shadow: none;
+  padding: 1.1rem;
+}
+
+.app-shell:has(.learning-sidebar) #learning-stats > div > div:nth-child(1) > div:first-child { color: #1cb0f6; }
+.app-shell:has(.learning-sidebar) #learning-stats > div > div:nth-child(2) > div:first-child { color: #ff9600; }
+.app-shell:has(.learning-sidebar) #learning-stats > div > div:nth-child(3) > div:first-child { color: #58a700; }
+.app-shell:has(.learning-sidebar) #learning-stats > div > div:nth-child(4) > div:first-child { color: #9069cd; }
+
+.app-shell:has(.learning-sidebar) #learning-stats > div > div p:nth-of-type(1) {
+  color: #3c3c3c;
+  font-size: 1.7rem;
+  font-weight: 900;
+}
+
+.app-shell:has(.learning-sidebar) #learning-stats > div > div > div:last-child:has(> div) {
+  border: 0;
+  padding: 0;
+  background: #e5e5e5;
+}
+
+.app-shell:has(.learning-sidebar) #learning-stats > div > div > div:last-child > div {
+  border: 0;
+  background: var(--path-green);
+}
+
+.app-shell:has(.learning-sidebar) #learning-goals { padding: .75rem clamp(1.25rem, 4vw, 3.5rem) 3rem; }
+
+.app-shell:has(.learning-sidebar) .goals-board {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}
+
+.app-shell:has(.learning-sidebar) .goals-board > div:first-child {
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.app-shell:has(.learning-sidebar) .goals-board > div:first-child h2 {
+  font-size: clamp(1.5rem, 2.2vw, 2rem);
+  font-weight: 900;
+  letter-spacing: -.04em;
+}
+
+.app-shell:has(.learning-sidebar) .goals-board > div:first-child > span {
+  border: 2px solid #c8eeb0;
+  background: #f2ffe9;
+  color: #399400;
+  font-weight: 900;
+}
+
+.app-shell:has(.learning-sidebar) .goal-card {
+  border: 2px solid #e5e5e5;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.app-shell:has(.learning-sidebar) .goal-card:hover { border-color: #c8eeb0; box-shadow: 0 4px 0 #e8f6df; }
+
+.app-shell:has(.learning-sidebar) .goal-card > div:first-child > div:first-child > p:first-child {
+  color: #3c3c3c;
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.app-shell:has(.learning-sidebar) .goal-card button:not(:disabled) { font-weight: 900; }
+
+.app-shell:has(.learning-sidebar) .goal-card button.bg-\[\#263f32\],
+.app-shell:has(.learning-sidebar) .goal-card button[class*="bg-[#263f32]"] {
+  border-bottom: 4px solid var(--path-green-dark);
+  border-radius: 12px;
+  background: var(--path-green);
+  color: #fff;
+}
+
+.app-shell:has(.learning-sidebar) .roadmap-card {
+  margin-top: 1rem;
+  border: 2px solid #e5e5e5;
+  border-radius: 18px;
+  background: #fff;
+  padding: 1.1rem;
+}
+
+.app-shell:has(.learning-sidebar) .roadmap-card > div:first-child > div:first-child > p:first-child {
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.app-shell:has(.learning-sidebar) .learning-path {
+  position: relative;
+  display: grid;
+  gap: 0;
+  padding: .5rem 0 .5rem 1.1rem;
+  list-style: none;
+}
+
+.app-shell:has(.learning-sidebar) .learning-path::before {
+  position: absolute;
+  top: 1.8rem;
+  bottom: 2rem;
+  left: 1.55rem;
+  width: 5px;
+  border-radius: 8px;
+  background: repeating-linear-gradient(to bottom, #d7d7d7 0 8px, transparent 8px 14px);
+  content: "";
+}
+
+.app-shell:has(.learning-sidebar) .path-step {
+  position: relative;
+  z-index: 1;
+  padding: .85rem 0 .85rem .15rem;
+  border: 0;
+}
+
+.app-shell:has(.learning-sidebar) .path-step > div {
+  align-items: flex-start;
+  gap: .85rem;
+}
+
+.app-shell:has(.learning-sidebar) .path-step > div > span:first-child {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border: 4px solid #e5e5e5;
+  border-bottom-width: 6px;
+  border-radius: 50%;
+  background: #fff;
+  color: #9a9a9a;
+  font-size: .9rem;
+  font-weight: 900;
+}
+
+.app-shell:has(.learning-sidebar) .path-step > div > div {
+  padding: .85rem 1rem;
+  border: 2px solid #e5e5e5;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.app-shell:has(.learning-sidebar) .path-step > div > div > p:first-child {
+  color: #3c3c3c;
+  font-size: .95rem;
+  font-weight: 900;
+}
+
+.app-shell:has(.learning-sidebar) .path-step > div > div > div > button {
+  min-height: 36px;
+  border: 2px solid #c8eeb0;
+  border-bottom-width: 4px;
+  border-radius: 10px;
+  background: #f2ffe9;
+  color: #399400;
+  font-weight: 900;
+}
+
+.app-shell:has(.learning-sidebar) .path-step > div > div > div > button:hover { background: #e5ffd4; }
+
+.app-shell:has(.learning-sidebar) .goal-card .roadmap-card ol + div {
+  border: 2px solid #e5e5e5;
+  border-radius: 16px;
+}
+
+.app-shell:has(.learning-sidebar) .goal-card [class*="bg-[#f7f8f4]"] {
+  border: 1px solid #ededed;
+  border-radius: 14px;
+}
+
+.app-shell:has(.learning-sidebar) .app-footer {
+  grid-column: 1 / -1;
+  margin-top: 0;
+  border-top: 2px solid #f0f0f0;
+}
+
+@media (max-width: 960px) {
+  .app-shell:has(.learning-sidebar) { grid-template-columns: 190px minmax(0, 1fr); }
+  .learning-sidebar { padding-inline: .8rem; }
+  .sidebar-link { gap: .55rem; padding-inline: .6rem; font-size: .8rem; }
+  .app-shell:has(.learning-sidebar) #learning-stats > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 700px) {
+  .app-shell:has(.learning-sidebar) { display: flex; flex-direction: column; overflow: visible; }
+  .app-shell:has(.learning-sidebar) .app-header { padding: .85rem 1rem; }
+  .app-shell:has(.learning-sidebar) .app-header > div { max-width: 62%; flex-wrap: wrap; justify-content: flex-end; }
+  .learning-sidebar {
+    position: static;
+    width: 100%;
+    min-height: 0;
+    gap: .5rem;
+    padding: .7rem 1rem;
+    border-right: 0;
+    border-bottom: 2px solid #f0f0f0;
+  }
+  .sidebar-brand { display: none; }
+  .sidebar-label, .sidebar-streak, .sidebar-profile, .sidebar-add-goal { display: none; }
+  .sidebar-nav { display: flex; gap: .35rem; overflow-x: auto; }
+  .sidebar-link { min-height: 43px; flex: 0 0 auto; gap: .45rem; padding: .55rem .7rem; white-space: nowrap; }
+  .app-shell:has(.learning-sidebar) .hero-layout { padding: 1.25rem 1rem; }
+  .app-shell:has(.learning-sidebar) #learning-stats { padding: 1rem; }
+  .app-shell:has(.learning-sidebar) #learning-goals { padding: .5rem 1rem 2rem; }
+  .app-shell:has(.learning-sidebar) #learning-stats > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-shell:has(.learning-sidebar) .goal-card { padding: .85rem; }
+  .app-shell:has(.learning-sidebar) .goal-card > div:first-child { align-items: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-link, .sidebar-add-goal, .goal-card { transition: none; }
+}

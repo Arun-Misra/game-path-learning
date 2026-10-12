@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ArrowRight, BookOpen, Check, Clock3, Compass, Flame,
-  GraduationCap, Sparkles, Target, Zap,
+  GraduationCap, Sparkles, Target, Zap, House, Map, Trophy, Plus,
 } from 'lucide-react';
 
 const initialForm = {
@@ -24,6 +24,7 @@ async function requestJson(url, options = {}) {
 
 function App() {
   const [form, setForm] = useState(initialForm);
+  const [showGoalForm, setShowGoalForm] = useState(false);
   const [apiStatus, setApiStatus] = useState('checking');
   const [accountMode, setAccountMode] = useState('register');
   const [busy, setBusy] = useState(false);
@@ -135,6 +136,7 @@ function App() {
       setGoals((current) => [result.data.goal, ...current]);
       setNotice({ type: 'success', message: 'Your learning goal is saved. Next, we’ll build its personalised roadmap.' });
       setForm((current) => ({ ...current, skill: '', outcome: '' }));
+      setShowGoalForm(false);
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
     } finally {
@@ -415,7 +417,23 @@ function App() {
         </div>
       </header>
 
-      <section className="hero-layout mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-8 sm:px-8 lg:grid-cols-[1.03fr_.97fr] lg:gap-20 lg:pt-16">
+      {user && goals.length > 0 && <aside className="learning-sidebar" aria-label="Learning navigation">
+        <a href="/" className="sidebar-brand" aria-label="Pathwise home"><span className="sidebar-brand-mark"><Compass size={23} /></span><span>pathwise<span className="brand-dot">.</span></span></a>
+        <p className="sidebar-label">YOUR SPACE</p>
+        <nav className="sidebar-nav">
+          <a href="#learning-stats" className="sidebar-link"><House size={19} /> <span>Home</span></a>
+          <a href="#learning-goals" className="sidebar-link active"><Map size={19} /> <span>My learning path</span></a>
+          <a href="#learning-stats" className="sidebar-link"><Trophy size={19} /> <span>Achievements</span></a>
+        </nav>
+        <div className="sidebar-streak">
+          <div className="sidebar-streak-top"><Flame size={20} /><span>{gamification?.currentStreak || 0} day streak</span></div>
+          <p>{gamification?.currentStreak ? 'You’re building a habit. Keep it alive!' : 'One small session starts your streak.'}</p>
+        </div>
+        <button type="button" className="sidebar-add-goal" onClick={() => { setShowGoalForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Plus size={18} /> New learning goal</button>
+        <div className="sidebar-profile"><span className="profile-avatar">{(user.name || user.email || 'L').slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{user.name || 'Learner'}</strong><small>Level {gamification?.level?.level || 1} explorer</small></span><button type="button" onClick={handleLogout} aria-label="Sign out" title="Sign out">↗</button></div>
+      </aside>}
+
+      {(!user || goals.length === 0 || showGoalForm) && <section className="hero-layout mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-8 sm:px-8 lg:grid-cols-[1.03fr_.97fr] lg:gap-20 lg:pt-16">
         <div className="hero-copy flex flex-col justify-center">
           <div className="mb-6 inline-flex w-fit items-center gap-2 rounded-full border border-[#dce5d7] bg-[#edf3e9] px-3 py-1.5 text-xs font-semibold text-[#476b49]"><Sparkles size={14} /> A learning path built around you</div>
           <h1 className="max-w-2xl text-5xl font-semibold leading-[1.06] tracking-[-0.055em] sm:text-6xl xl:text-7xl">Build a skill.<br />Become the person who <span className="font-serif italic font-normal text-[#72916d]">can do it.</span></h1>
@@ -462,9 +480,9 @@ function App() {
           </div>
           <div className="absolute -bottom-5 -left-5 hidden items-center gap-3 rounded-2xl border border-[#e5e8df] bg-white px-4 py-3 shadow-lg sm:flex"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#fff2d9] text-[#9d7333]"><Zap size={19} /></span><div><p className="text-sm font-semibold">Small steps, real momentum</p><p className="mt-0.5 text-xs text-[#8a9186]">Your next step, always clear</p></div></div>
         </div>
-      </section>
+      </section>}
 
-      {user && gamification && <section className="dashboard-section mx-auto max-w-7xl px-5 pb-6 sm:px-8">
+      {user && gamification && <section id="learning-stats" className="dashboard-section mx-auto max-w-7xl px-5 pb-6 sm:px-8">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border border-[#e3e6dc] bg-white p-4"><div className="flex items-center gap-2 text-[#688663]"><Zap size={17} /><span className="text-xs font-semibold uppercase tracking-wide">Level</span></div><p className="mt-2 text-2xl font-bold">{gamification.level.level}</p><p className="mt-1 text-xs text-[#737b70]">{gamification.level.currentLevelXp}/100 XP · {gamification.level.xpToNextLevel} to next level</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-[#edf0e8]"><div className="h-full rounded-full bg-[#688663]" style={{ width: `${gamification.level.currentLevelXp}%` }} /></div></div>
           <div className="rounded-2xl border border-[#e3e6dc] bg-white p-4"><div className="flex items-center gap-2 text-[#b66a35]"><Flame size={17} /><span className="text-xs font-semibold uppercase tracking-wide">Current streak</span></div><p className="mt-2 text-2xl font-bold">{gamification.currentStreak} day{gamification.currentStreak === 1 ? '' : 's'}</p><p className="mt-1 text-xs text-[#737b70]">Based on completed missions in your local timezone</p></div>
@@ -473,9 +491,9 @@ function App() {
         </div>
       </section>}
 
-      {user && goals.length > 0 && <section className="dashboard-section mx-auto max-w-7xl px-5 pb-12 sm:px-8">
+      {user && goals.length > 0 && <section id="learning-goals" className="dashboard-section mx-auto max-w-7xl px-5 pb-12 sm:px-8">
 <div className="goals-board rounded-3xl border border-[#e3e6dc] bg-white p-6">
-<div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#688663]">YOUR WORKSPACE</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Your learning goals</h2><p className="mt-1 text-sm text-[#737b70]">Pick up where you left off, or plan your next step.</p></div><span className="rounded-full bg-[#edf3e9] px-3 py-1.5 text-xs font-semibold text-[#355a39]">{goals.length} goal{goals.length === 1 ? '' : 's'} saved</span></div>
+<div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#688663]">YOUR WORKSPACE</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Your learning path</h2><p className="mt-1 text-sm text-[#737b70]">Pick up where you left off, or plan your next step.</p></div><span className="rounded-full bg-[#edf3e9] px-3 py-1.5 text-xs font-semibold text-[#355a39]">{goals.length} goal{goals.length === 1 ? '' : 's'} saved</span></div>
 
 <div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.map((goal) => <article key={goal.id} className="goal-card rounded-2xl border border-[#e7e9e1] p-4">
 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -540,7 +558,7 @@ function App() {
 {roadmap.learningBriefConfirmedAt && <p className="mt-3 text-xs text-[#688663]">Learning brief confirmed before activation.</p>}
 </section>}
 
-<ol className="mt-3 space-y-2">{roadmap.topics.map((topic) => <li key={topic.id} className="border-t border-[#e4e8df] pt-3">
+<ol className="learning-path mt-3 space-y-2">{roadmap.topics.map((topic) => <li key={topic.id} className="path-step border-t border-[#e4e8df] pt-3">
 <div className="flex gap-3">
 <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-xs font-semibold text-[#557b54]">{topic.position + 1}</span>
 
