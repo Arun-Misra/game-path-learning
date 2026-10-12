@@ -777,7 +777,7 @@ function Field({ label, children }) {
 }
 
 function Stat({ icon, title, text }) {
-  return <div className="rounded-2xl border border-[#e3e6dc] bg-white/70 p-3 sm:p-4"><span className="mb-3 inline-flex text-[#688663]">{icon}</span><p className="text-sm font-semibold">{title}</p><p className="mt-1 text-[11px] leading-4 text-[#8b9287] sm:text-xs">{text}</p></div>;
+  return <div className="hero-stat"><span className="hero-stat-icon">{icon}</span><div><p>{title}</p><p>{text}</p></div></div>;
 }
 
 export default App;

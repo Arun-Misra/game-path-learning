@@ -108,3 +108,10 @@ Do not update master/reference docs frequently; update this context only for mat
 - Reframed the landing language around quests, XP, levels, habits, and small wins without promising social features or adding fake user stats. Existing account and learning-goal workflows are unchanged.
 - The signed-in learning dashboard receives the same palette direction and softer, less boxy treatment.
 - Validation after this pass: `npm run check`, `npm run build`, `npm test` (50/50 including database integration), and `git diff --check` passed. Browser screenshot/interaction QA has not yet been performed.
+
+## Landing page visual direction v2 (2026-10-19)
+- Revisited the signed-out landing page after researching education landing-page references. The visual direction now borrows principles, not branded assets: airy editorial spacing and illustrated subject-led composition from the Keet landing-page study, plus the continuous, legible progress-path concept described in Duolingo's official home-screen redesign article.
+- Replaced the prior warm paper/jade/coral/lilac identity with a clearer chalk/ink/ultramarine palette, using butter yellow, soft mint, and coral as controlled reward accents.
+- Removed card-like containers from the hero feature stats, account panel, auth-mode switch, feature storytelling, and roadmap showcase. Form inputs use underline-led styling; the feature story uses staggered editorial columns and open space rather than a three-card grid.
+- Kept account, sign-in, goal creation, and backend behavior unchanged. This pass changes visual styling and the presentation of the existing stat component only.
+- Validation: `npm run check`, `npm run build`, `npm test` (50/50, including PostgreSQL integration), and `git diff --check` passed. Playwright/Puppeteer are not installed in the workspace, so browser screenshot/interaction QA is still outstanding.
