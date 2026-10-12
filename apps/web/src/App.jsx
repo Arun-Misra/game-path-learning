@@ -49,7 +49,7 @@ function App() {
   const [gamification, setGamification] = useState(null);
 
   useEffect(() => {
-    requestJson('/api/v1/health')
+    requestJson('/api/v1/ready')
       .then(() => {
         setApiStatus('online');
         return requestJson('/api/v1/auth/me');
@@ -105,30 +105,38 @@ function App() {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!form.skill.trim() || !form.outcome.trim()) return;
     setBusy(true);
     setNotice(null);
     try {
-      let activeUser = user;
-      if (!activeUser) {
+      if (!user) {
         const auth = await requestJson(`/api/v1/auth/${accountMode}`, {
           method: 'POST',
           body: JSON.stringify({
-            email: form.email,
+            email: form.email.trim(),
             password: form.password,
             ...(accountMode === 'register' && form.name.trim() ? { name: form.name.trim() } : {}),
           }),
         });
-        activeUser = auth.data.user;
-        setUser(activeUser);
-        void refreshGamification();
+        setUser(auth.data.user);
+        setForm((current) => ({ ...current, password: '', skill: '', outcome: '' }));
+        setNotice({ type: 'success', message: accountMode === 'register'
+          ? 'Your account is saved. Now create your first learning goal.'
+          : 'Welcome back. Your saved learning goals are loading.' });
+        const savedGoals = await loadLearningWorkspace();
+        setShowGoalForm(savedGoals.length === 0);
+        return;
+      }
+
+      if (!form.skill.trim() || !form.outcome.trim()) {
+        setNotice({ type: 'error', message: 'Add a skill and the outcome you want to achieve.' });
+        return;
       }
       const result = await requestJson('/api/v1/learning-goals', {
         method: 'POST',
         body: JSON.stringify({
-          skill: form.skill,
+          skill: form.skill.trim(),
           experience: form.experience,
-          outcome: form.outcome,
+          outcome: form.outcome.trim(),
           minutesPerDay: Number(form.minutesPerDay),
           daysPerWeek: Number(form.daysPerWeek),
         }),
@@ -142,6 +150,29 @@ function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function loadLearningWorkspace() {
+    const result = await requestJson('/api/v1/learning-goals');
+    const savedGoals = result.data.goals || [];
+    setGoals(savedGoals);
+    const entries = await Promise.all(savedGoals.map(async (goal) => {
+      const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps`);
+      return [goal.id, saved.data.roadmaps || []];
+    }));
+    setRoadmapsByGoal(Object.fromEntries(entries));
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const missionEntries = await Promise.all(savedGoals.map(async (goal) => {
+      try {
+        const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/missions?timeZone=${encodeURIComponent(timeZone)}`);
+        return [goal.id, saved.data];
+      } catch {
+        return [goal.id, { missions: [], totalXp: 0 }];
+      }
+    }));
+    setMissionsByGoal(Object.fromEntries(missionEntries));
+    await refreshGamification();
+    return savedGoals;
   }
 
   async function handleDeleteGoal(goal) {
@@ -397,6 +428,9 @@ function App() {
       setAssessmentAnswers({});
       setAssessmentResultByTopic({});
       setGamification(null);
+      setShowGoalForm(false);
+      setAccountMode('login');
+      setForm((current) => ({ ...initialForm, email: current.email, password: '' }));
       setNotice({ type: 'success', message: 'You have signed out.' });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
@@ -413,7 +447,7 @@ function App() {
         <div className="flex items-center gap-2 rounded-full border border-[#e3e6dc] bg-white px-3 py-2 text-xs font-medium text-[#5b6658]">
           <span className={`h-2 w-2 rounded-full ${apiStatus === 'online' ? 'bg-emerald-500' : apiStatus === 'offline' ? 'bg-rose-500' : 'bg-amber-400'}`} />
           {apiStatus === 'online' ? 'Learning engine connected' : apiStatus === 'offline' ? 'API disconnected' : 'Connecting to learning engine'}
-          {user && <><span className="mx-1 text-[#c5cabe]">·</span><span>{user.name || user.email}</span><button type="button" onClick={handleLogout} className="ml-1 underline">Sign out</button></>}
+          {user && <><span className="mx-1 text-[#c5cabe]">·</span><span>{user.name || user.email}</span>{goals.length === 0 && <button type="button" onClick={handleLogout} className="ml-1 underline">Sign out</button>}</>}
         </div>
       </header>
 
@@ -453,29 +487,34 @@ function App() {
           <div className="absolute -right-4 -top-5 h-28 w-28 rounded-full bg-[#dfe9d5] blur-2xl" />
           <div className="goal-panel relative rounded-[2rem] border border-[#e6e8de] bg-white p-5 shadow-[0_24px_80px_-40px_rgba(38,63,50,0.28)] sm:p-8">
             <div className="mb-7 flex items-start justify-between">
-              <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#82917b]">YOUR NEXT CHAPTER STARTS HERE</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Let’s build your learning plan</h2><p className="mt-2 text-sm leading-6 text-[#7c8378]">A few details help us make the next step clear and realistic.</p></div>
+              <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#82917b]">{user ? 'YOUR NEXT CHAPTER STARTS HERE' : accountMode === 'login' ? 'WELCOME BACK' : 'START YOUR LEARNING JOURNEY'}</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">{user ? 'Let’s build your learning plan' : accountMode === 'login' ? 'Sign in to Pathwise' : 'Create your free account'}</h2><p className="mt-2 text-sm leading-6 text-[#7c8378]">{user ? 'A few details help us make the next step clear and realistic.' : accountMode === 'login' ? 'Your saved goals and progress are waiting for you.' : 'Save your goals and pick up where you left off on your next visit.'}</p></div>
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#edf3e9] text-[#4c704b]"><GraduationCap size={22} /></span>
             </div>
 
             <form onSubmit={handleSubmit} className="goal-form space-y-5">
-              {!user && <div className="space-y-3 rounded-2xl bg-[#f7f8f4] p-4">
-                <div className="flex items-center justify-between"><p className="text-sm font-semibold text-[#424a40]">Your account</p><div className="flex rounded-lg bg-[#e9ece4] p-1 text-xs"><button type="button" onClick={() => { setAccountMode('register'); setNotice(null); }} className={`rounded-md px-3 py-1.5 ${accountMode === 'register' ? 'bg-white font-semibold shadow-sm' : 'text-[#737b70]'}`}>Sign up</button><button type="button" onClick={() => { setAccountMode('login'); setNotice(null); }} className={`rounded-md px-3 py-1.5 ${accountMode === 'login' ? 'bg-white font-semibold shadow-sm' : 'text-[#737b70]'}`}>Sign in</button></div></div>
-                {accountMode === 'register' && <Field label="Name (optional)"><input name="name" value={form.name} onChange={updateField} maxLength={80} placeholder="What should we call you?" className="field" /></Field>}
-                <Field label="Email"><input type="email" name="email" value={form.email} onChange={updateField} required autoComplete="email" maxLength={254} placeholder="you@example.com" className="field" /></Field>
-                <Field label="Password"><input type="password" name="password" value={form.password} onChange={updateField} required minLength={accountMode === 'register' ? 10 : 1} maxLength={128} autoComplete={accountMode === 'register' ? 'new-password' : 'current-password'} placeholder={accountMode === 'register' ? 'At least 10 characters' : 'Your password'} className="field" /></Field>
-              </div>}
-
-              <Field label="1. What do you want to learn?"><input name="skill" value={form.skill} onChange={updateField} required maxLength={160} placeholder="e.g. Machine learning, guitar, public speaking..." className="field" /></Field>
-              <Field label="2. What is your current level?"><div className="grid grid-cols-3 gap-2">{[['beginner', 'New to it'], ['some', 'Know a little'], ['experienced', 'Experienced']].map(([value, label]) => <button key={value} type="button" onClick={() => setForm((current) => ({ ...current, experience: value }))} className={`rounded-xl border px-2 py-3 text-xs font-semibold transition sm:text-sm ${form.experience === value ? 'border-[#557b54] bg-[#edf3e9] text-[#355a39] ring-1 ring-[#557b54]' : 'border-[#e5e8df] text-[#737b70] hover:bg-[#fafbf8]'}`}>{form.experience === value && <Check size={13} className="mr-1 inline" />}{label}</button>)}</div></Field>
-              <Field label="3. What would you like to be able to do?"><textarea name="outcome" value={form.outcome} onChange={updateField} required maxLength={1000} rows={3} placeholder="e.g. Build and deploy my first ML model..." className="field resize-none" /></Field>
-              <div className="schedule-fields grid grid-cols-2 gap-4">
-                <Field label="4. Your daily time"><select name="minutesPerDay" value={form.minutesPerDay} onChange={updateField} className="field"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option><option value="90">1.5 hours</option><option value="120">2 hours</option></select></Field>
-                <Field label="Your weekly rhythm"><select name="daysPerWeek" value={form.daysPerWeek} onChange={updateField} className="field">{[2, 3, 4, 5, 6, 7].map((days) => <option key={days} value={days}>{days} days</option>)}</select></Field>
-              </div>
-
-              <button type="submit" disabled={busy || apiStatus !== 'online'} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#263f32] px-5 py-4 text-sm font-semibold text-white transition hover:bg-[#355640] focus:outline-none focus:ring-4 focus:ring-[#d8e5d3] disabled:cursor-not-allowed disabled:opacity-55">{busy ? 'Saving your goal…' : 'Create my learning plan'} <ArrowRight size={17} className="transition group-hover:translate-x-1" /></button>
+              {!user ? <>
+                <div className="space-y-3 rounded-2xl bg-[#f7f8f4] p-4">
+                  <div><p className="text-sm font-semibold text-[#424a40]">Your account</p><p className="mt-1 text-xs text-[#737b70]">{accountMode === 'register' ? 'Create an account to save your learning progress.' : 'Sign in to continue where you left off.'}</p></div>
+                  <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#e9ece4] p-1 text-sm">
+                    <button type="button" onClick={() => { setAccountMode('register'); setNotice(null); }} className={`rounded-lg px-3 py-2.5 ${accountMode === 'register' ? 'bg-white font-semibold shadow-sm' : 'text-[#737b70]'}`}>Create account</button>
+                    <button type="button" onClick={() => { setAccountMode('login'); setNotice(null); }} className={`rounded-lg px-3 py-2.5 ${accountMode === 'login' ? 'bg-white font-semibold shadow-sm' : 'text-[#737b70]'}`}>Sign in</button>
+                  </div>
+                  {accountMode === 'register' && <Field label="Name (optional)"><input name="name" value={form.name} onChange={updateField} maxLength={80} autoComplete="name" placeholder="What should we call you?" className="field" /></Field>}
+                  <Field label="Email"><input type="email" name="email" value={form.email} onChange={updateField} required autoComplete="email" maxLength={254} placeholder="you@example.com" className="field" /></Field>
+                  <Field label="Password"><input type="password" name="password" value={form.password} onChange={updateField} required minLength={accountMode === 'register' ? 10 : 1} maxLength={128} autoComplete={accountMode === 'register' ? 'new-password' : 'current-password'} placeholder={accountMode === 'register' ? 'At least 10 characters' : 'Your password'} className="field" /></Field>
+                </div>
+              </> : <>
+                <Field label="1. What do you want to learn?"><input name="skill" value={form.skill} onChange={updateField} required maxLength={160} placeholder="e.g. Machine learning, guitar, public speaking..." className="field" /></Field>
+                <Field label="2. What is your current level?"><div className="grid grid-cols-3 gap-2">{[['beginner', 'New to it'], ['some', 'Know a little'], ['experienced', 'Experienced']].map(([value, label]) => <button key={value} type="button" onClick={() => setForm((current) => ({ ...current, experience: value }))} className={`rounded-xl border px-2 py-3 text-xs font-semibold transition sm:text-sm ${form.experience === value ? 'border-[#557b54] bg-[#edf3e9] text-[#355a39] ring-1 ring-[#557b54]' : 'border-[#e5e8df] text-[#737b70] hover:bg-[#fafbf8]'}`}>{form.experience === value && <Check size={13} className="mr-1 inline" />}{label}</button>)}</div></Field>
+                <Field label="3. What would you like to be able to do?"><textarea name="outcome" value={form.outcome} onChange={updateField} required maxLength={1000} rows={3} placeholder="e.g. Build and deploy my first ML model..." className="field resize-none" /></Field>
+                <div className="schedule-fields grid grid-cols-2 gap-4">
+                  <Field label="4. Your daily time"><select name="minutesPerDay" value={form.minutesPerDay} onChange={updateField} className="field"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option><option value="90">1.5 hours</option><option value="120">2 hours</option></select></Field>
+                  <Field label="Your weekly rhythm"><select name="daysPerWeek" value={form.daysPerWeek} onChange={updateField} className="field">{[2, 3, 4, 5, 6, 7].map((days) => <option key={days} value={days}>{days} days</option>)}</select></Field>
+                </div>
+              </>}
+              <button type="submit" disabled={busy || apiStatus !== 'online'} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#263f32] px-5 py-4 text-sm font-semibold text-white transition hover:bg-[#355640] focus:outline-none focus:ring-4 focus:ring-[#d8e5d3] disabled:cursor-not-allowed disabled:opacity-55">{busy ? (user ? 'Saving your goal…' : accountMode === 'login' ? 'Signing in…' : 'Creating account…') : user ? 'Save my learning goal' : accountMode === 'login' ? 'Sign in to Pathwise' : 'Create my account'} <ArrowRight size={17} className="transition group-hover:translate-x-1" /></button>
               {notice && <div role="status" className={`rounded-xl border px-4 py-3 text-sm leading-6 ${notice.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-rose-200 bg-rose-50 text-rose-900'}`}>{notice.message}</div>}
-              <p className="text-center text-xs text-[#9aa095]">Your goal is saved to your account when the API and database are configured.</p>
+              <p className="text-center text-xs text-[#9aa095]">{user ? 'Your learning goals are saved to your account.' : 'Your account and learning progress are saved securely. Sign in on this device to continue later.'}</p>
             </form>
           </div>
           <div className="absolute -bottom-5 -left-5 hidden items-center gap-3 rounded-2xl border border-[#e5e8df] bg-white px-4 py-3 shadow-lg sm:flex"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#fff2d9] text-[#9d7333]"><Zap size={19} /></span><div><p className="text-sm font-semibold">Small steps, real momentum</p><p className="mt-0.5 text-xs text-[#8a9186]">Your next step, always clear</p></div></div>

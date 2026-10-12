@@ -86,3 +86,11 @@ Do not update master/reference docs frequently; update this context only for mat
 - Restyled the learning dashboard around bright progress-green actions, friendly rounded cards with tactile borders, color-coded XP/streak/mission/achievement stats, and a connected vertical learning-path treatment for roadmap topics.
 - The guest onboarding flow and existing API handlers remain in place. Creating another goal from the signed-in workspace reveals the existing form rather than introducing a separate flow.
 - Validation: `npm run check`, `npm run build`, and `git diff --check` passed. This is a Duolingo-inspired direction, not a pixel-for-pixel copy; browser screenshot verification remains outstanding.
+
+## Authentication and landing-flow repair (2026-10-19)
+- Separated account authentication from learning-goal creation in the React landing form. Guests now see a dedicated Create account / Sign in choice with only the relevant account fields; they no longer need to fill out a skill and outcome just to sign in.
+- Registration and login now finish as their own action. After authentication, the app loads saved goals, roadmaps, missions, and gamification data; learners with existing goals return to the workspace, while new accounts are prompted to create their first goal.
+- Sign-out clears the client-side learner state and returns the form to sign-in mode. The header only provides a sign-out action when the workspace sidebar is absent, avoiding duplicate sign-out controls.
+- The initial service check now uses `/api/v1/ready`, which verifies database connectivity, rather than `/api/v1/health`, which only proves the API process is alive.
+- Backend auth and persistence already use PostgreSQL users, bcrypt password hashes, and persisted hashed session tokens; the database integration test verified registration, login, session lookup, logout, and invalidation. This UI defect was caused by coupling sign-in to the required learning-goal fields, not by evidence that accounts were in-memory.
+- Validation after the repair: `npm test` passed 50/50 tests including PostgreSQL integration; `npm run check`, `npm run build`, and `git diff --check` passed. Browser interaction/screenshot testing remains outstanding.
