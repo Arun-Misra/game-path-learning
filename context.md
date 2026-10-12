@@ -94,3 +94,10 @@ Do not update master/reference docs frequently; update this context only for mat
 - The initial service check now uses `/api/v1/ready`, which verifies database connectivity, rather than `/api/v1/health`, which only proves the API process is alive.
 - Backend auth and persistence already use PostgreSQL users, bcrypt password hashes, and persisted hashed session tokens; the database integration test verified registration, login, session lookup, logout, and invalidation. This UI defect was caused by coupling sign-in to the required learning-goal fields, not by evidence that accounts were in-memory.
 - Validation after the repair: `npm test` passed 50/50 tests including PostgreSQL integration; `npm run check`, `npm run build`, and `git diff --check` passed. Browser interaction/screenshot testing remains outstanding.
+
+## Signed-out landing page redesign (2026-10-19)
+- Reworked the signed-out landing experience into a full responsive story: animated brand hero with account actions, learning-plan/practice/progress cards, a connected-path visual showcase, and a final account CTA. Existing authentication and goal form behavior remains in place.
+- Added CSS-built 3D glass sphere, floating cube, orbital rings, XP token, and miniature path decoration with subtle pointer-responsive depth; added a larger path illustration with connected learning nodes, floating chips, and scroll-revealed sections.
+- Added IntersectionObserver reveal transitions, hover depth on cards, responsive layouts, and reduced-motion fallbacks. Decorative art is hidden from assistive technology; the path showcase has a text label.
+- No animation or illustration library was added; visuals use CSS and existing Lucide icons.
+- Validation: `npm run check`, `npm run build`, `npm test` (50/50), and `git diff --check` passed. Actual browser screenshot/interaction verification remains outstanding; do not claim pixel-level visual QA.

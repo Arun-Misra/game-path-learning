@@ -49,6 +49,46 @@ function App() {
   const [gamification, setGamification] = useState(null);
 
   useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
+    const scene = document.querySelector('.landing-art-scene');
+    if (!scene) return undefined;
+    let frame = 0;
+    const onPointerMove = (event) => {
+      if (window.innerWidth < 800) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const x = (event.clientX / window.innerWidth - 0.5) * 2;
+        const y = (event.clientY / window.innerHeight - 0.5) * 2;
+        scene.style.setProperty('--pointer-x', x.toFixed(3));
+        scene.style.setProperty('--pointer-y', y.toFixed(3));
+      });
+    };
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  useEffect(() => {
+    const nodes = document.querySelectorAll('[data-reveal]');
+    if (!('IntersectionObserver' in window)) {
+      nodes.forEach((node) => node.classList.add('is-visible'));
+      return undefined;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -36px 0px' });
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     requestJson('/api/v1/ready')
       .then(() => {
         setApiStatus('online');
@@ -439,7 +479,15 @@ function App() {
 
   return (
     <main className="app-shell min-h-screen bg-[#f7f7f2] text-[#20241f]">
-      <header className="app-header mx-auto flex max-w-7xl items-center justify-between px-5 py-5 sm:px-8">
+      {!user && <div className="landing-art-scene" aria-hidden="true">
+        <div className="art-orbit art-orbit-one" />
+        <div className="art-orbit art-orbit-two" />
+        <div className="art-glass-sphere" />
+        <div className="art-floating-cube"><span /><span /><span /><span /><span /><span /></div>
+        <div className="art-learning-token"><Sparkles size={22} /><span>+XP</span></div>
+        <div className="art-mini-path"><i /><i /><i /><b><Check size={12} /></b></div>
+      </div>}
+      <header className="app-header mx-auto flex max-w-7xl items-center justify-between px-5 py-5 sm:px-8" data-reveal="down">
         <a href="/" className="flex items-center gap-3" aria-label="Pathwise home">
           <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#263f32] text-white"><Compass size={21} /></span>
           <span className="text-lg font-bold tracking-tight">pathwise<span className="text-[#73916f]">.</span></span>
@@ -467,8 +515,8 @@ function App() {
         <div className="sidebar-profile"><span className="profile-avatar">{(user.name || user.email || 'L').slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{user.name || 'Learner'}</strong><small>Level {gamification?.level?.level || 1} explorer</small></span><button type="button" onClick={handleLogout} aria-label="Sign out" title="Sign out">↗</button></div>
       </aside>}
 
-      {(!user || goals.length === 0 || showGoalForm) && <section className="hero-layout mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-8 sm:px-8 lg:grid-cols-[1.03fr_.97fr] lg:gap-20 lg:pt-16">
-        <div className="hero-copy flex flex-col justify-center">
+      {(!user || goals.length === 0 || showGoalForm) && <section className="hero-layout mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-8 sm:px-8 lg:grid-cols-[1.03fr_.97fr] lg:gap-20 lg:pt-16" data-reveal="hero">
+        <div className="hero-copy flex flex-col justify-center" data-reveal="left">
           <div className="mb-6 inline-flex w-fit items-center gap-2 rounded-full border border-[#dce5d7] bg-[#edf3e9] px-3 py-1.5 text-xs font-semibold text-[#476b49]"><Sparkles size={14} /> A learning path built around you</div>
           <h1 className="max-w-2xl text-5xl font-semibold leading-[1.06] tracking-[-0.055em] sm:text-6xl xl:text-7xl">Build a skill.<br />Become the person who <span className="font-serif italic font-normal text-[#72916d]">can do it.</span></h1>
           <p className="mt-6 max-w-lg text-base leading-7 text-[#6d756a] sm:text-lg">Tell us what you want to learn. Get a practical roadmap that fits your starting point, your goal, and your real life.</p>
@@ -483,7 +531,7 @@ function App() {
           </div>
         </div>
 
-        <div className="goal-panel-wrap relative">
+        <div className="goal-panel-wrap relative" data-reveal="right">
           <div className="absolute -right-4 -top-5 h-28 w-28 rounded-full bg-[#dfe9d5] blur-2xl" />
           <div className="goal-panel relative rounded-[2rem] border border-[#e6e8de] bg-white p-5 shadow-[0_24px_80px_-40px_rgba(38,63,50,0.28)] sm:p-8">
             <div className="mb-7 flex items-start justify-between">
@@ -521,7 +569,64 @@ function App() {
         </div>
       </section>}
 
-      {user && gamification && <section id="learning-stats" className="dashboard-section mx-auto max-w-7xl px-5 pb-6 sm:px-8">
+      {!user && <section className="landing-story" id="how-it-works">
+        <div className="landing-story-inner">
+          <div className="story-heading" data-reveal="up">
+            <span className="story-eyebrow"><Sparkles size={14} /> A better way to make progress</span>
+            <h2>Big goals feel lighter<br /><span>when the next step is clear.</span></h2>
+            <p>Less staring at a blank page. More small wins that add up to real skills.</p>
+          </div>
+          <div className="story-grid">
+            <article className="story-card story-card-plan" data-reveal="left">
+              <span className="story-number">01 / YOUR PLAN</span>
+              <div className="story-icon story-icon-green"><Compass size={22} /></div>
+              <h3>A path made for you</h3>
+              <p>Start with your goal, experience, and schedule. Get a roadmap designed around what you want to be able to do.</p>
+              <div className="plan-preview" aria-hidden="true"><span /><span /><span /><span /></div>
+            </article>
+            <article className="story-card story-card-practice" data-reveal="up">
+              <span className="story-number">02 / YOUR PRACTICE</span>
+              <div className="story-icon story-icon-blue"><Zap size={22} /></div>
+              <h3>Small sessions. Real momentum.</h3>
+              <p>Turn a big ambition into focused sessions that fit your week, with prerequisites keeping the order sensible.</p>
+              <div className="practice-preview" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /></div>
+            </article>
+            <article className="story-card story-card-progress" data-reveal="right">
+              <span className="story-number">03 / YOUR PROGRESS</span>
+              <div className="story-icon story-icon-gold"><Trophy size={22} /></div>
+              <h3>See your effort add up</h3>
+              <p>Complete missions, check your understanding, and build a record of progress you can actually see.</p>
+              <div className="progress-preview" aria-hidden="true"><span><b /></span><span><b /></span><span><b /></span></div>
+            </article>
+          </div>
+          <div className="path-showcase" data-reveal="up">
+            <div className="showcase-copy">
+              <span className="story-eyebrow"><Map size={14} /> Your progress, made visible</span>
+              <h2>One step at a time.<br /><em>One skill at a time.</em></h2>
+              <p>Your learning path gives every session a purpose, from the first fundamentals to the outcome you came here for.</p>
+              <button type="button" className="showcase-cta" onClick={() => { document.querySelector('.goal-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); setAccountMode('register'); setNotice(null); }}>Build my learning path <ArrowRight size={17} /></button>
+            </div>
+            <div className="showcase-visual" aria-label="Illustration of a learning path with connected steps">
+              <div className="showcase-glow" />
+              <div className="showcase-orbit showcase-orbit-a" />
+              <div className="showcase-orbit showcase-orbit-b" />
+              <div className="showcase-path-line" />
+              <div className="showcase-node node-one"><BookOpen size={19} /><span>Start here</span></div>
+              <div className="showcase-node node-two"><Zap size={19} /><span>Practice</span></div>
+              <div className="showcase-node node-three"><Target size={19} /><span>Build</span></div>
+              <div className="showcase-node node-four"><Trophy size={19} /><span>Mastery</span></div>
+              <div className="showcase-float-chip"><Flame size={15} /> Keep your streak</div>
+              <div className="showcase-xp-chip"><Sparkles size={15} /> Progress, not perfection</div>
+            </div>
+          </div>
+          <div className="landing-bottom-cta" data-reveal="up">
+            <div><span>YOUR NEXT CHAPTER STARTS HERE</span><h2>Ready to make a little progress?</h2><p>Create an account and give your next learning session a direction.</p></div>
+            <button type="button" onClick={() => { document.querySelector('.goal-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); setAccountMode('register'); setNotice(null); }}>Get started <ArrowRight size={17} /></button>
+          </div>
+        </div>
+      </section>}
+
+      {user && gamification && <section id="learning-stats" data-reveal="up" className="dashboard-section mx-auto max-w-7xl px-5 pb-6 sm:px-8">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border border-[#e3e6dc] bg-white p-4"><div className="flex items-center gap-2 text-[#688663]"><Zap size={17} /><span className="text-xs font-semibold uppercase tracking-wide">Level</span></div><p className="mt-2 text-2xl font-bold">{gamification.level.level}</p><p className="mt-1 text-xs text-[#737b70]">{gamification.level.currentLevelXp}/100 XP · {gamification.level.xpToNextLevel} to next level</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-[#edf0e8]"><div className="h-full rounded-full bg-[#688663]" style={{ width: `${gamification.level.currentLevelXp}%` }} /></div></div>
           <div className="rounded-2xl border border-[#e3e6dc] bg-white p-4"><div className="flex items-center gap-2 text-[#b66a35]"><Flame size={17} /><span className="text-xs font-semibold uppercase tracking-wide">Current streak</span></div><p className="mt-2 text-2xl font-bold">{gamification.currentStreak} day{gamification.currentStreak === 1 ? '' : 's'}</p><p className="mt-1 text-xs text-[#737b70]">Based on completed missions in your local timezone</p></div>
@@ -530,7 +635,7 @@ function App() {
         </div>
       </section>}
 
-      {user && goals.length > 0 && <section id="learning-goals" className="dashboard-section mx-auto max-w-7xl px-5 pb-12 sm:px-8">
+      {user && goals.length > 0 && <section id="learning-goals" data-reveal="up" className="dashboard-section mx-auto max-w-7xl px-5 pb-12 sm:px-8">
 <div className="goals-board rounded-3xl border border-[#e3e6dc] bg-white p-6">
 <div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#688663]">YOUR WORKSPACE</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Your learning path</h2><p className="mt-1 text-sm text-[#737b70]">Pick up where you left off, or plan your next step.</p></div><span className="rounded-full bg-[#edf3e9] px-3 py-1.5 text-xs font-semibold text-[#355a39]">{goals.length} goal{goals.length === 1 ? '' : 's'} saved</span></div>
 
@@ -662,7 +767,7 @@ function App() {
 </div>
 </section>}
 
-      <footer className="app-footer border-t border-[#e6e8df] px-5 py-5 text-center text-xs text-[#969d91]"><span className="inline-flex items-center gap-2"><BookOpen size={13} /> Learn with intention. Grow at your pace.</span></footer>
+      <footer className="app-footer border-t border-[#e6e8df] px-5 py-5 text-center text-xs text-[#969d91]" data-reveal="up"><span className="inline-flex items-center gap-2"><BookOpen size={13} /> Learn with intention. Grow at your pace.</span></footer>
     </main>
   );
 }
