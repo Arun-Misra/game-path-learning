@@ -5,13 +5,13 @@ export default defineConfig({
   fullyParallel: true,
   reporter: 'list',
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: 'http://127.0.0.1:5176',
     browserName: 'chromium',
     headless: true,
   },
   webServer: {
-    command: 'node node_modules/vite/bin/vite.js apps/web --host 127.0.0.1',
-    url: 'http://127.0.0.1:5173',
+    command: 'node node_modules/vite/bin/vite.js apps/web --host 127.0.0.1 --port 5176',
+    url: 'http://127.0.0.1:5176',
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
   },

@@ -477,6 +477,11 @@ function App() {
     }
   }
 
+  const dashboardGoal = goals[0] || null;
+  const dashboardRoadmap = dashboardGoal
+    ? (roadmapsByGoal[dashboardGoal.id] || []).find((roadmap) => roadmap.generationState === 'ACTIVE')
+    : null;
+
   return (
     <main className="app-shell min-h-screen bg-[#fbf5eb] text-[#29263b]">
       {!user && <div className="landing-art-scene" aria-hidden="true">
@@ -623,6 +628,24 @@ function App() {
             <button type="button" onClick={() => { document.querySelector('.goal-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); setAccountMode('register'); setNotice(null); }}>Get started <ArrowRight size={17} /></button>
           </div>
         </div>
+      </section>}
+
+      {user && goals.length > 0 && <section className="dashboard-welcome" aria-labelledby="dashboard-welcome-title">
+        <div className="dashboard-welcome-copy">
+          <p className="dashboard-eyebrow"><Sparkles size={14} /> YOUR LEARNING SPACE</p>
+          <h1 id="dashboard-welcome-title">Small steps.<br /><em>Serious progress.</em></h1>
+          <p>Welcome back{user.name ? `, ${user.name.split(/\s+/)[0]}` : ''}. Keep your momentum going with one focused session.</p>
+        </div>
+        <div className="dashboard-next">
+          <span className="dashboard-next-label"><span className="dashboard-live-dot" /> YOUR NEXT MOVE</span>
+          <strong>{dashboardRoadmap?.title || `Build your ${dashboardGoal.skill} path`}</strong>
+          <p>{dashboardRoadmap ? 'Your active roadmap is ready when you are.' : 'Turn your goal into a clear, achievable roadmap.'}</p>
+          <button type="button" onClick={() => document.getElementById('learning-goals')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+            {dashboardRoadmap ? 'Continue your path' : 'Set up your path'} <ArrowRight size={16} />
+          </button>
+        </div>
+        <div className="dashboard-spark dashboard-spark-one" aria-hidden="true">✳</div>
+        <div className="dashboard-spark dashboard-spark-two" aria-hidden="true">✦</div>
       </section>}
 
       {user && gamification && <section id="learning-stats" data-reveal="up" className="dashboard-section mx-auto max-w-7xl px-5 pb-6 sm:px-8">
