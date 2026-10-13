@@ -2,6 +2,8 @@ const express = require('express');
 const { z } = require('zod');
 const { prisma } = require('../lib/prisma');
 const { requireAuth } = require('../middleware/require-auth');
+const { recommendNextAction } = require('../lib/adaptive-learning');
+const { dateInTimeZone } = require('../lib/mission-scheduler');
 
 const router = express.Router();
 
@@ -19,6 +21,15 @@ const experienceMap = {
   some: 'SOME_EXPERIENCE',
   experienced: 'EXPERIENCED',
 };
+
+const timeZoneSchema = z.string().min(1).max(100).refine((value) => {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}, 'Use a valid IANA time zone.');
 
 function validationError(res, error) {
   return res.status(400).json({
@@ -106,6 +117,64 @@ router.delete('/:goalId', async (req, res, next) => {
       });
     }
     return res.json({ data: { id: parsedId.data, deleted: true } });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get('/:goalId/next-step', async (req, res, next) => {
+  const parsedId = z.string().trim().min(1).max(100).safeParse(req.params.goalId);
+  const parsedQuery = z.object({ timeZone: timeZoneSchema.default('UTC') }).safeParse(req.query);
+  if (!parsedId.success || !parsedQuery.success) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION_ERROR', message: 'Provide a valid learning goal ID and time zone.' },
+    });
+  }
+
+  try {
+    const today = dateInTimeZone(new Date(), parsedQuery.data.timeZone);
+    const goal = await prisma.learningGoal.findFirst({
+      where: { id: parsedId.data, userId: req.user.id },
+      select: { id: true },
+    });
+    if (!goal) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'Learning goal not found.' },
+      });
+    }
+
+    const roadmap = await prisma.roadmap.findFirst({
+      where: { learningGoalId: goal.id, generationState: 'ACTIVE' },
+      orderBy: { version: 'desc' },
+      include: {
+        topics: {
+          orderBy: { position: 'asc' },
+          include: {
+            userProgress: {
+              where: { userId: req.user.id },
+              select: { status: true, masteryScore: true, attempts: true, lastActivityAt: true },
+            },
+            assessment: {
+              select: {
+                attempts: {
+                  where: { userId: req.user.id },
+                  orderBy: { createdAt: 'desc' },
+                  take: 1,
+                  select: { score: true, passed: true, createdAt: true },
+                },
+              },
+            },
+          },
+        },
+        missions: {
+          where: { userId: req.user.id, scheduledDate: { gte: new Date(`${today}T00:00:00.000Z`) } },
+          orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
+          select: { id: true, topicId: true, title: true, status: true, scheduledDate: true },
+        },
+      },
+    });
+
+    return res.json({ data: { recommendation: recommendNextAction({ roadmap, missions: roadmap?.missions || [] }) } });
   } catch (error) {
     return next(error);
   }

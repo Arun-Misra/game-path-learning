@@ -18,6 +18,9 @@
 
 
 
+
+
+
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
@@ -26,6 +29,7 @@ const {
   buildReviewPrompt,
   applyRealismFloor,
   generateRoadmap,
+  getJavaBeginnerInstructionIssues,
   isLocalOllama,
   normalizeRoadmapProposal,
   validateReview,
@@ -92,12 +96,85 @@ test('planner prompt includes weekly time budget and discourages generic or repe
   assert.match(prompt, /do not force a capstone for the long-term outcome into an introductory chunk/i);
 });
 
+test('later chunks explicitly continue from prior evidence instead of restarting', () => {
+  const priorLearningContext = JSON.stringify({
+    previousChunk: { title: 'Variables and basic expressions', chunkNumber: 1 },
+    completedActivities: [{ title: 'Use variables in a small program', topic: 'Variables', minutes: 30 }],
+    incompleteActivities: [{ title: 'Practice expressions', topic: 'Expressions', status: 'IN_PROGRESS' }],
+    topics: [{ title: 'Variables and types', progress: [{ status: 'COMPLETED', masteryScore: 90 }], assessments: [{ score: 90, passed: true }] }],
+  });
+  const prompt = buildPrompt({
+    ...goal,
+    title: 'Java',
+    targetOutcome: 'Build a client-server app and implement Dijkstra routing',
+    chunkNumber: 2,
+    priorLearningContext,
+  });
+  assert.match(prompt, /CONTINUATION MODE/);
+  assert.match(prompt, /Do not restart with introductions, setup, or beginner concepts already taught/i);
+  assert.match(prompt, /Variables and types/);
+  assert.doesNotMatch(prompt, /This is the first chunk; begin with the most useful starting activities/i);
+
+  const review = buildReviewPrompt({ ...goal, priorLearningContext }, validProposal());
+  assert.match(review, /CONTINUITY AUDIT/);
+  assert.match(review, /repeated completed material without a clear diagnostic\/revision purpose/i);
+  assert.match(review, /Variables and types/);
+});
+
+test('planner adapts to experience and revision intent without forcing a difficulty level', () => {
+  const experiencedRevision = buildPrompt({
+    ...goal,
+    title: 'Java',
+    experienceLevel: 'ADVANCED',
+    targetOutcome: 'Revise Java collections and graph algorithms for interviews',
+    learnerClarifications: 'I already know Java syntax; focus on retrieval practice and gaps.',
+  });
+  assert.match(experiencedRevision, /requested mode \(learning, revision, practice, or mastery\)/i);
+  assert.match(experiencedRevision, /Do not impose a preset beginner\/intermediate\/advanced sequence/i);
+  assert.match(experiencedRevision, /If the goal is revision, prioritize retrieval practice/i);
+  assert.doesNotMatch(experiencedRevision, /first coding session must show a complete minimal Hello World program/i);
+});
+
+test('first chunk uses the learner\'s stated starting point rather than assuming beginner level', () => {
+  const prompt = buildPrompt({ ...goal, title: 'Java', experienceLevel: 'INTERMEDIATE' });
+  assert.match(prompt, /FIRST-CHUNK MODE/);
+  assert.match(prompt, /from their stated experience level/i);
+  assert.doesNotMatch(prompt, /5-session beginner Java first chunk/i);
+});
+
+test('Java onboarding guard respects revision intent and prior learning', () => {
+  const roadmap = {
+    topics: [{
+      key: 'conditionals',
+      title: 'Make decisions with if/else',
+      description: 'Use conditionals to choose an outcome based on input.',
+      learningObjectives: ['Write a simple conditional'],
+    }],
+  };
+  const firstLearnIssues = getJavaBeginnerInstructionIssues(roadmap, {
+    title: 'Java', experienceLevel: 'BEGINNER',
+  });
+  assert.ok(firstLearnIssues.some((issue) => issue.code === 'MISSING_FIRST_RUNNABLE_PROGRAM'));
+
+  const revisionIssues = getJavaBeginnerInstructionIssues(roadmap, {
+    title: 'Java', experienceLevel: 'BEGINNER',
+    targetOutcome: 'Revise Java conditionals and practice coding interview problems',
+  });
+  assert.equal(revisionIssues.some((issue) => issue.code === 'MISSING_FIRST_RUNNABLE_PROGRAM'), false);
+
+  const laterChunkIssues = getJavaBeginnerInstructionIssues(roadmap, {
+    title: 'Java', experienceLevel: 'BEGINNER',
+    priorLearningContext: JSON.stringify({ previousChunk: { chunkNumber: 1 }, topics: [{ title: 'Hello World', progress: [{ status: 'COMPLETED' }] }] }),
+  });
+  assert.equal(laterChunkIssues.some((issue) => issue.code === 'MISSING_FIRST_RUNNABLE_PROGRAM'), false);
+});
+
 test('review prompt checks the roadmap against the learner outcome rather than a generic syllabus', () => {
   const prompt = buildReviewPrompt(goal, validProposal());
   assert.match(prompt, /independent, skeptical instructional-design auditor/i);
   assert.match(prompt, /DESIRED OUTCOME: Create a polished character illustration/);
   assert.match(prompt, /TIME AUDIT/i);
-  assert.match(prompt, /independently estimate realistic beginner effort/i);
+  assert.match(prompt, /estimate realistic effort for this learner and the requested activity/i);
   assert.match(prompt, /TEACHING AUDIT/i);
   assert.match(prompt, /Approve only when there are no critical or major issues/i);
 });

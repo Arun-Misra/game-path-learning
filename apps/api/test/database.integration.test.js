@@ -220,6 +220,21 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       assert.equal(attemptData.attempt.passed, true);
       assert.equal(attemptData.topicProgress.status, 'MASTERED');
 
+      const nextStepResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/next-step`,
+        { headers: { Cookie: first.cookie } },
+      );
+      assert.equal(nextStepResponse.status, 200);
+      const nextStep = (await nextStepResponse.json()).data.recommendation;
+      assert.equal(nextStep.action, 'LEARN_TOPIC');
+      assert.equal(nextStep.topicId, secondDraft.topics[1].id);
+
+      const otherUserCannotReadNextStep = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/next-step`,
+        { headers: { Cookie: second.cookie } },
+      );
+      assert.equal(otherUserCannotReadNextStep.status, 404);
+
       const roadmapsResponse = await fetch(`${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps`, {
         headers: { Cookie: first.cookie },
       });
@@ -228,12 +243,33 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       assert.deepEqual(roadmaps.map((item) => item.version), [2, 1]);
       assert.equal(roadmaps[0].generationState, 'ACTIVE');
       assert.equal(roadmaps[1].generationState, 'DRAFT');
+      assert.equal(roadmaps[0].topics[0].assessment.attempts[0].score, 100);
+      assert.equal('questions' in roadmaps[0].topics[0].assessment, false);
 
       const secondCannotListRoadmaps = await fetch(
         `${baseUrl}/api/v1/learning-goals/${goal.id}/roadmaps`,
         { headers: { Cookie: second.cookie } },
       );
       assert.equal(secondCannotListRoadmaps.status, 404);
+
+      const staleDate = new Date();
+      staleDate.setUTCDate(staleDate.getUTCDate() - 10);
+      staleDate.setUTCHours(0, 0, 0, 0);
+      const staleMission = await prisma.dailyMission.create({
+        data: {
+          userId: first.body.data.user.id,
+          learningGoalId: goal.id,
+          roadmapId: secondDraft.id,
+          topicId: secondDraft.topics[0].id,
+          scheduledDate: staleDate,
+          segmentIndex: 99,
+          missionType: 'LEARN',
+          title: 'Missed session to recover',
+          description: 'This overdue session should be re-planned.',
+          estimatedMinutes: 5,
+          completionCriteria: { instruction: 'Complete the missed session.' },
+        },
+      });
 
       const generatedMissionsResponse = await fetch(
         `${baseUrl}/api/v1/learning-goals/${goal.id}/missions/generate?timeZone=UTC`,
@@ -243,6 +279,8 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       const generatedMissions = (await generatedMissionsResponse.json()).data;
       assert.equal(generatedMissions.missions.length, 2);
       assert.ok(generatedMissions.missions.every((mission) => mission.estimatedMinutes <= 30));
+      const expiredStaleMission = await prisma.dailyMission.findUnique({ where: { id: staleMission.id } });
+      assert.equal(expiredStaleMission.status, 'EXPIRED');
 
       const firstMission = generatedMissions.missions[0];
       const completeFirstMission = async (mission) => fetch(

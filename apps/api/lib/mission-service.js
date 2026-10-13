@@ -83,6 +83,20 @@ async function generateWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = 
     throw new MissionServiceError(409, 'ACTIVE_ROADMAP_REQUIRED', 'Review and activate a roadmap before generating missions.');
   }
 
+  // Missed sessions should not remain the learner's permanent next action.
+  // Expire overdue unfinished sessions, then schedule the still-unfinished topic work
+  // into the current week using the existing progress and completed-minute evidence.
+  await db.dailyMission.updateMany({
+    where: {
+      userId,
+      learningGoalId: goalId,
+      roadmapId: roadmap.id,
+      scheduledDate: { lt: start },
+      status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+    },
+    data: { status: 'EXPIRED' },
+  });
+
   const existing = await db.dailyMission.findMany({
     where: {
       userId,

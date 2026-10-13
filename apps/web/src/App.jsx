@@ -3,6 +3,7 @@ import {
   ArrowRight, BookOpen, Check, Clock3, Compass, Flame,
   GraduationCap, Sparkles, Target, Zap, House, Map, Trophy, Plus,
 } from 'lucide-react';
+import AssessmentTestPage from './AssessmentTestPage.jsx';
 
 const initialForm = {
   skill: '', experience: 'beginner', outcome: '',
@@ -42,11 +43,14 @@ function App() {
   const [roadmapBusyGoal, setRoadmapBusyGoal] = useState(null);
   const [missionsByGoal, setMissionsByGoal] = useState({});
   const [missionBusyId, setMissionBusyId] = useState(null);
+  const [expandedMissionId, setExpandedMissionId] = useState(null);
+  const [missionEvidenceById, setMissionEvidenceById] = useState({});
   const [assessmentByTopic, setAssessmentByTopic] = useState({});
   const [assessmentBusyId, setAssessmentBusyId] = useState(null);
   const [assessmentAnswers, setAssessmentAnswers] = useState({});
   const [assessmentResultByTopic, setAssessmentResultByTopic] = useState({});
   const [gamification, setGamification] = useState(null);
+  const [nextStepByGoal, setNextStepByGoal] = useState({});
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
@@ -71,7 +75,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const nodes = document.querySelectorAll('[data-reveal]');
+    const nodes = document.querySelectorAll('[data-reveal]:not(.is-visible)');
     if (!('IntersectionObserver' in window)) {
       nodes.forEach((node) => node.classList.add('is-visible'));
       return undefined;
@@ -86,7 +90,7 @@ function App() {
     }, { threshold: 0.12, rootMargin: '0px 0px -36px 0px' });
     nodes.forEach((node) => observer.observe(node));
     return () => observer.disconnect();
-  }, []);
+  }, [user, showGoalForm, goals.length]);
 
   useEffect(() => {
     requestJson('/api/v1/ready')
@@ -119,6 +123,7 @@ function App() {
             }
           }));
           setMissionsByGoal(Object.fromEntries(missionEntries));
+          await Promise.all(result.data.goals.map((goal) => refreshNextStep(goal.id)));
         }
       })
       .catch((error) => {
@@ -127,6 +132,16 @@ function App() {
         }
       });
   }, []);
+
+  async function refreshNextStep(goalId) {
+    try {
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const result = await requestJson(`/api/v1/learning-goals/${goalId}/next-step?timeZone=${encodeURIComponent(timeZone)}`);
+      setNextStepByGoal((current) => ({ ...current, [goalId]: result.data.recommendation }));
+    } catch {
+      // Recommendations are helpful, but should not make the rest of the workspace unavailable.
+    }
+  }
 
   async function refreshGamification() {
     try {
@@ -182,6 +197,7 @@ function App() {
         }),
       });
       setGoals((current) => [result.data.goal, ...current]);
+      void refreshNextStep(result.data.goal.id);
       setNotice({ type: 'success', message: 'Your learning goal is saved. Next, we’ll build its personalised roadmap.' });
       setForm((current) => ({ ...current, skill: '', outcome: '' }));
       setShowGoalForm(false);
@@ -211,6 +227,7 @@ function App() {
       }
     }));
     setMissionsByGoal(Object.fromEntries(missionEntries));
+    await Promise.all(savedGoals.map((goal) => refreshNextStep(goal.id)));
     await refreshGamification();
     return savedGoals;
   }
@@ -226,6 +243,7 @@ function App() {
     try {
       await requestJson(`/api/v1/learning-goals/${goal.id}`, { method: 'DELETE' });
       setGoals((current) => current.filter((item) => item.id !== goal.id));
+      setNextStepByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
       setRoadmapsByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
       setLearningBriefConfirmedByRoadmap((current) => { const next = { ...current }; for (const roadmap of roadmapsByGoal[goal.id] || []) delete next[roadmap.id]; return next; });
       setClarificationByRoadmap((current) => { const next = { ...current }; for (const roadmap of roadmapsByGoal[goal.id] || []) delete next[roadmap.id]; return next; });
@@ -342,6 +360,7 @@ function App() {
         }),
       }));
       setGoals((current) => current.map((item) => item.id === goal.id ? { ...item, status: 'active' } : item));
+      await refreshNextStep(goal.id);
       setNotice({ type: 'success', message: `Roadmap activated for ${goal.skill}.` });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
@@ -360,6 +379,7 @@ function App() {
         { method: 'POST', body: JSON.stringify({}) },
       );
       setMissionsByGoal((current) => ({ ...current, [goal.id]: result.data }));
+      await refreshNextStep(goal.id);
       setNotice({ type: 'success', message: result.data.missions.length
         ? `Your missions for this week are ready for ${goal.skill}.`
         : 'No new missions are needed for this week.' });
@@ -371,12 +391,26 @@ function App() {
   }
 
   async function handleCompleteMission(goal, mission) {
+    const reflection = String(missionEvidenceById[mission.id] || '').trim();
+    if (reflection.length < 10) {
+      setNotice({ type: 'error', message: 'Add a short reflection (at least 10 characters) before completing this session.' });
+      return;
+    }
     setMissionBusyId(mission.id);
     setNotice(null);
     try {
       const result = await requestJson(
         `/api/v1/learning-goals/${goal.id}/missions/${mission.id}/complete`,
-        { method: 'POST', body: JSON.stringify({}) },
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            evidence: {
+              reflection,
+              completionCriteria: mission.completionCriteria || {},
+              missionType: mission.missionType || 'LEARN',
+            },
+          }),
+        },
       );
       setMissionsByGoal((current) => {
         const state = current[goal.id] || { missions: [], totalXp: 0 };
@@ -391,7 +425,7 @@ function App() {
           },
         };
       });
-      await refreshGamification();
+      await Promise.all([refreshGamification(), refreshNextStep(goal.id)]);
       setNotice({ type: 'success', message: result.data.alreadyCompleted
         ? 'This mission was already completed.'
         : `Mission complete! You earned ${result.data.xpAwarded} XP.` });
@@ -447,7 +481,7 @@ function App() {
         type: result.data.attempt.passed ? 'success' : 'error',
         message: `Assessment score: ${result.data.attempt.score}%. ${result.data.attempt.passed ? 'You passed!' : 'Review the explanations and try again.'}`,
       });
-      setMissionsByGoal((current) => ({ ...current }));
+      await refreshNextStep(goal.id);
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
     } finally {
@@ -481,6 +515,10 @@ function App() {
   const dashboardRoadmap = dashboardGoal
     ? (roadmapsByGoal[dashboardGoal.id] || []).find((roadmap) => roadmap.generationState === 'ACTIVE')
     : null;
+
+  if (window.location.pathname === '/assessment-test') {
+    return <AssessmentTestPage user={user} goals={goals} roadmapsByGoal={roadmapsByGoal} apiStatus={apiStatus} />;
+  }
 
   return (
     <main className="app-shell min-h-screen bg-[#fbf5eb] text-[#29263b]">
@@ -520,7 +558,7 @@ function App() {
         <div className="sidebar-profile"><span className="profile-avatar">{(user.name || user.email || 'L').slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{user.name || 'Learner'}</strong><small>Level {gamification?.level?.level || 1} explorer</small></span><button type="button" onClick={handleLogout} aria-label="Sign out" title="Sign out">↗</button></div>
       </aside>}
 
-      {(!user || goals.length === 0 || showGoalForm) && <section className="hero-layout mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-8 sm:px-8 lg:grid-cols-[1.03fr_.97fr] lg:gap-20 lg:pt-16" data-reveal="hero">
+      {(!user || goals.length === 0 || showGoalForm) && <section className={`hero-layout mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-8 sm:px-8 lg:grid-cols-[1.03fr_.97fr] lg:gap-20 lg:pt-16 ${user ? "dashboard-goal-create" : ""}`} data-reveal="hero">
         <div className="hero-copy flex flex-col justify-center" data-reveal="left">
           <div className="hero-kicker mb-6 inline-flex w-fit items-center gap-2 px-1 py-1.5 text-xs font-semibold"><Sparkles size={14} /> YOUR NEXT LEVEL STARTS HERE.</div>
           <h1 className="max-w-2xl text-5xl font-semibold leading-[1.06] tracking-[-0.055em] sm:text-6xl xl:text-7xl">NEVER STOP<br /><span className="font-serif italic font-normal text-[#ff3300]">learning.</span></h1>
@@ -638,10 +676,10 @@ function App() {
         </div>
         <div className="dashboard-next">
           <span className="dashboard-next-label"><span className="dashboard-live-dot" /> YOUR NEXT MOVE</span>
-          <strong>{dashboardRoadmap?.title || `Build your ${dashboardGoal.skill} path`}</strong>
-          <p>{dashboardRoadmap ? 'Your active roadmap is ready when you are.' : 'Turn your goal into a clear, achievable roadmap.'}</p>
+          <strong>{nextStepByGoal[dashboardGoal.id]?.title || dashboardRoadmap?.title || `Build your ${dashboardGoal.skill} path`}</strong>
+          <p>{nextStepByGoal[dashboardGoal.id]?.reason || (dashboardRoadmap ? 'Your active roadmap is ready when you are.' : 'Turn your goal into a clear, achievable roadmap.')}</p>
           <button type="button" onClick={() => document.getElementById('learning-goals')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
-            {dashboardRoadmap ? 'Continue your path' : 'Set up your path'} <ArrowRight size={16} />
+            {nextStepByGoal[dashboardGoal.id]?.action === 'CREATE_ROADMAP' || !dashboardRoadmap ? 'Set up your path' : 'Continue your path'} <ArrowRight size={16} />
           </button>
         </div>
         <div className="dashboard-spark dashboard-spark-one" aria-hidden="true">✳</div>
@@ -734,8 +772,10 @@ function App() {
 <p className="mt-0.5 text-xs leading-5 text-[#737b70]">{topic.description}</p>
 
 <div className="mt-2 flex flex-wrap items-center gap-2">
+<span className="border border-[#41413d] px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-[#a3a39f]">{topic.userProgress?.[0]?.status === 'MASTERED' ? 'Demonstrated understanding' : topic.userProgress?.[0]?.status === 'COMPLETED' ? 'Work completed' : topic.userProgress?.[0]?.status === 'IN_PROGRESS' ? 'In progress' : 'Not started'}</span>
+{topic.assessment?.attempts?.[0] && <span className="text-[11px] text-[#a3a39f]">Latest check: {Math.round(topic.assessment.attempts[0].score)}%</span>}
 <span className="text-[11px] text-[#82917b]">{topic.estimatedMinutes} min</span>
-{roadmap.generationState === 'ACTIVE' && <button type="button" onClick={() => handleGenerateAssessment(goal, topic)} disabled={assessmentBusyId !== null} className="rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">{assessmentBusyId === topic.id ? 'Preparing…' : assessmentByTopic[topic.id] ? 'Reload assessment' : 'Take assessment'}</button>
+{roadmap.generationState === 'ACTIVE' && <button type="button" onClick={() => handleGenerateAssessment(goal, topic)} disabled={assessmentBusyId !== null} className="rounded-lg border border-[#41413d] px-3 py-1.5 text-xs font-semibold text-[#ff5933] disabled:opacity-50">{assessmentBusyId === topic.id ? 'Preparing…' : assessmentByTopic[topic.id] ? 'Reload assessment' : 'Take assessment'}</button>
 }</div>
 {assessmentByTopic[topic.id] && <div className="mt-3 rounded-xl border border-[#dfe7d9] bg-white p-3">
 <p className="font-semibold text-sm">{assessmentByTopic[topic.id].title}</p>
@@ -764,25 +804,65 @@ function App() {
 </li>)}</ol>
 
 </div>)}
-{(missionsByGoal[goal.id]?.missions || []).length > 0 && <div className="mt-4 rounded-xl border border-[#e4e8df] p-4">
-<div className="flex items-center justify-between gap-3">
-<p className="font-semibold">This week’s missions</p>
-
-<span className="text-xs text-[#82917b]">{missionsByGoal[goal.id].missions.filter((item) => item.status === 'COMPLETED').length}/{missionsByGoal[goal.id].missions.length} complete</span>
-
-</div>
-<div className="mt-3 space-y-2">{missionsByGoal[goal.id].missions.map((mission) => <div key={mission.id} className="flex items-start justify-between gap-3 rounded-xl bg-[#f7f8f4] p-3">
+{(missionsByGoal[goal.id]?.missions || []).length > 0 && <div className="mt-4 rounded-xl border border-[#343432] p-4">
+<div className="flex flex-wrap items-center justify-between gap-3">
 <div>
-<p className="text-sm font-semibold">{mission.title}</p>
-
-<p className="mt-1 text-xs text-[#737b70]">{mission.topic?.title} · {mission.estimatedMinutes} min · {mission.scheduledDate.slice(0, 10)}</p>
-
-<p className="mt-1 text-xs leading-5 text-[#737b70]">{mission.description}</p>
-
-</div>{mission.status !== 'COMPLETED' && <button type="button" onClick={() => handleCompleteMission(goal, mission)} disabled={missionBusyId !== null} className="shrink-0 rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">{missionBusyId === mission.id ? 'Saving…' : 'Complete'}</button>
-} </div>
-)}</div>
-
+<p className="font-semibold text-sm">This week’s missions</p>
+<p className="mt-1 text-xs text-[#a3a39f]">Open a session, work through its objective, then record what you learned.</p>
+</div>
+<span className="text-xs text-[#a3a39f]">{missionsByGoal[goal.id].missions.filter((item) => item.status === 'COMPLETED').length}/{missionsByGoal[goal.id].missions.length} complete</span>
+</div>
+<div className="mt-3 space-y-2">{missionsByGoal[goal.id].missions.map((mission) => {
+  const expanded = expandedMissionId === mission.id;
+  const completed = mission.status === 'COMPLETED';
+  const objectives = Array.isArray(mission.completionCriteria?.objectives) ? mission.completionCriteria.objectives : [];
+  return <article key={mission.id} className="rounded border border-[#343432] bg-[#191918] p-3">
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-[#f2f2f0]">{mission.title}</p>
+        <p className="mt-1 text-xs text-[#a3a39f]">{mission.topic?.title} · {mission.estimatedMinutes} min · {mission.scheduledDate.slice(0, 10)}</p>
+        <p className="mt-1 text-xs leading-5 text-[#a3a39f]">{mission.description}</p>
+      </div>
+      <button type="button" onClick={() => setExpandedMissionId(expanded ? null : mission.id)} aria-expanded={expanded} className="shrink-0 border border-[#41413d] px-3 py-2 text-xs font-semibold text-[#ff5933] hover:border-[#ff3300]">
+        {completed ? 'Review session' : expanded ? 'Close session' : 'Open session'}
+      </button>
+    </div>
+    {expanded && <div className="mt-4 border-t border-[#343432] pt-4">
+      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#ff5933]">Session guide · {mission.missionType || 'LEARN'}</p>
+      <h4 className="mt-2 text-sm font-semibold text-[#f2f2f0]">What you should accomplish</h4>
+      <p className="mt-1 text-sm leading-6 text-[#a3a39f]">{mission.completionCriteria?.instruction || 'Work through the session, practise the topic, and check your result.'}</p>
+      {objectives.length > 0 && <>
+        <h4 className="mt-4 text-xs font-bold uppercase tracking-[0.12em] text-[#a3a39f]">Success checklist</h4>
+        <ul className="mt-2 space-y-2">
+          {objectives.map((objective, index) => <li key={index} className="flex items-start gap-2 text-sm leading-5 text-[#d1d1cd]">
+            <span className="mt-1 inline-block h-3 w-3 shrink-0 border border-[#ff5933]" aria-hidden="true" />
+            <span>{objective}</span>
+          </li>)}
+        </ul>
+      </>}
+      {!completed && <label className="mt-4 block">
+        <span className="text-xs font-semibold text-[#d1d1cd]">Learning reflection (saved with your completion)</span>
+        <textarea
+          value={missionEvidenceById[mission.id] || ''}
+          onChange={(event) => setMissionEvidenceById((current) => ({ ...current, [mission.id]: event.target.value }))}
+          rows={3}
+          maxLength={1000}
+          placeholder="What did you practise, what result did you get, or what can you now explain?"
+          className="mt-2 w-full resize-y border border-[#41413d] bg-[#111110] p-3 text-sm leading-5 text-[#f2f2f0] placeholder:text-[#777773] focus:border-[#ff3300] focus:outline-none"
+        />
+        <span className="mt-1 block text-[11px] text-[#777773]">Write at least 10 characters. This records your reflection; it is not an automatic mastery score.</span>
+      </label>}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        {completed
+          ? <p className="text-xs font-semibold text-emerald-300">Session completed · XP already recorded</p>
+          : <p className="text-xs text-[#777773]">Completion and mastery are tracked separately.</p>}
+        {!completed && <button type="button" onClick={() => handleCompleteMission(goal, mission)} disabled={missionBusyId !== null || String(missionEvidenceById[mission.id] || '').trim().length < 10} className="min-h-10 border border-[#ff3300] bg-[#ff3300] px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">
+          {missionBusyId === mission.id ? 'Saving reflection…' : 'Complete session'}
+        </button>}
+      </div>
+    </div>}
+  </article>;
+})}</div>
 </div>}</article>
 )}</div>
 

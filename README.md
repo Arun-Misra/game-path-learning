@@ -29,6 +29,7 @@ The web app uses Vite's default local development port. The API defaults to port
 - `npm run build` — production-build the web app
 - `npm test` — API tests; database integration tests are skipped unless `TEST_DATABASE_URL` is configured
 - `npm run check` — API JavaScript syntax checks and web lint
+- `npm run smoke:continuity` — generate consecutive chunks with local Ollama and inspect progression from verified prior work
 - `npm run db:validate` — validate the Prisma schema
 - `npm run db:generate` — generate the Prisma Client
 - `npm run db:migrate` — create/apply a development migration (requires PostgreSQL)
@@ -59,6 +60,7 @@ The integration test exercises registration, login, logout, goal persistence, ro
 - `POST /api/v1/learning-goals`
 - `GET /api/v1/learning-goals`
 - `GET /api/v1/learning-goals/:goalId`
+- `GET /api/v1/learning-goals/:goalId/next-step?timeZone=Asia%2FKolkata` — recommend the next action from topic progress, recent assessments, current missions, and due spaced reviews
 - `POST /api/v1/learning-goals/:goalId/roadmaps/generate` — generate and persist a personalised draft
 - `POST /api/v1/learning-goals/:goalId/roadmaps` — validate and persist a supplied draft
 - `GET /api/v1/learning-goals/:goalId/roadmaps` — list versions
@@ -69,10 +71,10 @@ The integration test exercises registration, login, logout, goal persistence, ro
 
 Roadmap generation requests structured JSON from the configured model and validates the result, including prerequisite references and cycles, before saving. Generation is rate-limited and does not silently substitute a canned roadmap.
 
-Mission scheduling uses the active roadmap, daily minute budget, days-per-week availability, and the user's IANA timezone. It splits long topics into manageable sessions, spaces sessions across the week, avoids creating arbitrary tasks solely for rewards, and persists mission instances idempotently. Completion checks ownership and prerequisite progress, writes completion and XP ledger records in one transaction, and returns authoritative XP totals. Duplicate completion requests do not award XP twice.
+Mission scheduling uses the active roadmap, daily minute budget, days-per-week availability, and the user's IANA timezone. It splits long topics into manageable sessions, spaces sessions across the week, avoids creating arbitrary tasks solely for rewards, and persists mission instances idempotently. When a learner generates a new week, overdue unfinished sessions on the active roadmap are marked expired and the remaining topic work is rescheduled from verified completion/progress evidence. The Mission Player records a short learner reflection as completion evidence. Completion checks ownership and prerequisite progress, writes completion and XP ledger records in one transaction, and returns authoritative XP totals. Duplicate completion requests do not award XP twice.
 
 ## Current limitations
 
-The PostgreSQL service is running, but the configured connection is currently rejected by PostgreSQL with Prisma error P1010. The initial migration has not been applied, and the database integration suite has not yet passed against a real test database. Valid PostgreSQL credentials and a separate test database are still required. The live OpenAI provider also requires a configured `OPENAI_API_KEY`.
+The API integration suite passes against the isolated PostgreSQL test database when `TEST_DATABASE_URL` points to a migrated test database. If the default `DATABASE_URL` still returns Prisma P1010 in your environment, correct its credentials and apply migrations before using that database. Local AI generation requires Ollama running with the configured model; hosted providers require a valid provider key.
 
 See `context.md` for current implementation status and the master implementation plan for product requirements and implementation order.

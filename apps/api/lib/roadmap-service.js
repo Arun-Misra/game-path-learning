@@ -133,16 +133,36 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
     throw new RoadmapServiceError(404, 'GOAL_NOT_FOUND', 'Learning goal not found.');
   }
   const normalizedPlanningDays = Number.isInteger(planningDays) ? Math.max(1, Math.min(28, planningDays)) : 7;
-  const activeRoadmap = await db.roadmap.findFirst({ where: { learningGoalId: goalId, generationState: 'ACTIVE' }, orderBy: { version: 'desc' }, include: { topics: { orderBy: { position: 'asc' }, select: { title: true, userProgress: { where: { userId }, select: { status: true, masteryScore: true, attempts: true } }, assessment: { include: { attempts: { where: { userId }, orderBy: { createdAt: 'desc' }, take: 2, select: { score: true, passed: true } } } } } }, missions: { where: { userId }, select: { title: true, estimatedMinutes: true, status: true, topic: { select: { title: true } } }, orderBy: { scheduledDate: 'desc' }, take: 50 } } });
+  const activeRoadmap = await db.roadmap.findFirst({ where: { learningGoalId: goalId, generationState: 'ACTIVE' }, orderBy: { version: 'desc' }, include: { topics: { orderBy: { position: 'asc' }, select: { id: true, title: true, description: true, learningObjectives: true, estimatedMinutes: true, position: true, userProgress: { where: { userId }, select: { status: true, masteryScore: true, attempts: true } }, assessment: { include: { attempts: { where: { userId }, orderBy: { createdAt: 'desc' }, take: 2, select: { score: true, passed: true } } } } } }, missions: { where: { userId }, select: { title: true, estimatedMinutes: true, status: true, topic: { select: { title: true } } }, orderBy: { scheduledDate: 'desc' }, take: 50 } } });
   const chunkNumber = activeRoadmap ? Number(activeRoadmap.learningBrief?.chunkNumber || 1) + 1 : 1;
-  const priorLearningContext = activeRoadmap ? JSON.stringify({ previousChunk: activeRoadmap.title, completedActivities: activeRoadmap.missions.filter((item) => item.status === 'COMPLETED').map((item) => ({ title: item.title, topic: item.topic.title, minutes: item.estimatedMinutes })), incompleteActivities: activeRoadmap.missions.filter((item) => item.status !== 'COMPLETED').map((item) => ({ title: item.title, topic: item.topic.title, status: item.status })), topics: activeRoadmap.topics.map((topic) => ({ title: topic.title, progress: topic.userProgress, assessments: topic.assessment?.attempts || [] })) }) : '';
+  const priorLearningContext = activeRoadmap ? JSON.stringify({
+    nextChunkNumber: chunkNumber,
+    previousChunk: { id: activeRoadmap.id, title: activeRoadmap.title, summary: activeRoadmap.summary, chunkNumber: activeRoadmap.learningBrief?.chunkNumber || 1 },
+    continuationRules: [
+      'Continue from the latest chunk; do not restart from the beginning.',
+      'Treat completed topics as taught; use mastery/assessment evidence to decide whether to advance or review.',
+      'Continue incomplete activities where appropriate instead of repeating the whole chunk.',
+      'Repeat prior material only for a demonstrated gap or purposeful spaced practice.',
+    ],
+    completedActivities: activeRoadmap.missions.filter((item) => item.status === 'COMPLETED').map((item) => ({ title: item.title, topic: item.topic.title, minutes: item.estimatedMinutes })),
+    incompleteActivities: activeRoadmap.missions.filter((item) => item.status !== 'COMPLETED').map((item) => ({ title: item.title, topic: item.topic.title, status: item.status })),
+    topics: activeRoadmap.topics.map((topic) => ({
+      title: topic.title,
+      description: topic.description,
+      learningObjectives: topic.learningObjectives,
+      estimatedMinutes: topic.estimatedMinutes,
+      position: topic.position,
+      progress: topic.userProgress,
+      assessments: topic.assessment?.attempts || [],
+    })),
+  }) : '';
   const safeAnswers = Array.isArray(answers) ? answers.filter((item) => item && typeof item.question === 'string' && typeof item.answer === 'string').slice(0, 4) : [];
   const answerText = safeAnswers.map((item) => item.question + ': ' + item.answer).join('\n');
   const combinedClarifications = [typeof clarifications === 'string' ? clarifications.trim() : '', answerText].filter(Boolean).join('\n');
 
   let proposed;
   try {
-    proposed = await generator({ ...goal, learnerClarifications: combinedClarifications, planningDays: normalizedPlanningDays, priorLearningContext });
+    proposed = await generator({ ...goal, learnerClarifications: combinedClarifications, planningDays: normalizedPlanningDays, chunkNumber, priorLearningContext });
   } catch (error) {
     if (error && Number.isInteger(error.status) && error.code) throw error;
     throw new RoadmapServiceError(502, 'ROADMAP_GENERATION_FAILED', 'The roadmap could not be generated. Please try again.');
@@ -171,6 +191,20 @@ async function listRoadmaps({ userId, goalId, db = prisma }) {
         include: {
           prerequisites: {
             include: { prerequisite: { select: { id: true, title: true, position: true } } },
+          },
+          userProgress: {
+            where: { userId },
+            select: { status: true, masteryScore: true, attempts: true, lastActivityAt: true },
+          },
+          assessment: {
+            select: {
+              attempts: {
+                where: { userId },
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+                select: { score: true, passed: true, createdAt: true },
+              },
+            },
           },
         },
       },

@@ -22,7 +22,8 @@
     "db:studio": "prisma studio",
     "smoke:assessment": "npm run smoke:assessment -w @gamified-learning/api",
     "db:migrate:test": "node --env-file=.env scripts/migrate-test-db.js",
-    "smoke:roadmap-quality": "npm run smoke:roadmap-quality -w @gamified-learning/api"
+    "smoke:roadmap-quality": "npm run smoke:roadmap-quality -w @gamified-learning/api",
+    "smoke:continuity": "npm run smoke:continuity -w @gamified-learning/api"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",

@@ -30,6 +30,8 @@
 
 
 
+
+
 const { validateRoadmap } = require('./roadmap-validation');
 
 class RoadmapGenerationError extends Error {
@@ -129,18 +131,22 @@ function buildPrompt(goal, outcomeBrief = '') {
   const target = goal.targetDate
     ? new Date(goal.targetDate).toISOString().slice(0, 10)
     : 'No fixed deadline';
+  const hasPriorChunk = Boolean(goal.priorLearningContext && goal.priorLearningContext.trim());
 
   return [
     'Design only the next small learning chunk. The desired outcome remains the long-term destination, but this chunk covers only the requested period.',
     'Do not design the entire curriculum or estimate all work needed to reach the final outcome. Later chunks must use observed progress to decide what comes next.',
+    hasPriorChunk
+      ? 'CONTINUATION MODE (MANDATORY): This is a later chunk, not a fresh start. Continue from the previous chunk and the verified learner evidence below. Do not restart with introductions, setup, or beginner concepts already taught. Do not repeat a previous topic or activity unless the evidence shows it was incomplete, misunderstood, or needs deliberate spaced practice. Begin at the next sensible step after the learner\'s demonstrated progress, and explicitly build on prior work.'
+      : 'FIRST-CHUNK MODE: This is the learner\'s first chunk. Start from their stated experience level, teach genuinely missing prerequisites, and establish a useful first win.',
     '',
     'LEARNING FROM THE ACTUAL STARTING POINT (MANDATORY):',
     '- Treat the stated experience level and learner clarifications as hard facts, not decorative profile text. “I do not know where to start” means assume no practical ability unless explicitly demonstrated.',
     '- Before proposing an activity, identify the knowledge and actions it assumes. If the learner has not been taught them in this chunk or evidenced them in prior progress, teach the prerequisite first or remove the activity.',
-    '- For programming beginners, do not assume they know where code is written, how to create/run a program, program structure, syntax, compiler/runtime errors, variables, loops, or methods merely because the goal mentions DSA.',
-    '- For Java beginners, the first coding session must show a complete minimal Hello World program and explain the class declaration, main method, braces, semicolons, System.out.println, and how to run it. Teach variables after the learner can run and modify this program; teach conditionals and loops only after their required syntax is introduced.',
+    '- For programming topics, infer the right starting point from the learner\'s stated experience, explicit revision/practice intent, clarifications, and verified prior evidence. Do not assign a fixed difficulty level or assume that a new roadmap means a new learner. If the learner wants revision, build a focused review and diagnostic practice plan around their existing knowledge rather than restarting from fundamentals.',
+    '- For Java, teach or review only the syntax and concepts needed for the stated goal and not already demonstrated. A first-run program and explanations of class/main-method structure are appropriate when the learner is new to Java or evidence shows this foundation is missing; they are not mandatory for experienced learners or revision plans.',
     '- Java factual correctness is mandatory: int and boolean are primitive types; String is a reference type. Never describe String as a primitive type. Do not introduce syntax or APIs inaccurately.',
-    '- For a 5-session beginner Java chunk, prefer this progression: first runnable Hello World program; variables and types; operators plus introductory conditional/loop syntax; arrays declaration and indexing in a separate session; basic Strings in a separate session. Do not combine learning loops and arrays for the first time in one 30-minute session. If setup takes the full first session, defer later concepts rather than rush them.',
+    '- For Java arrays, loops, and other related concepts, choose the sequence and depth from the learner\'s current capability and desired outcome. Avoid combining concepts only when the learner has not yet learned the prerequisites or the available session time makes it unrealistic.',
     '- A topic is not teachable just because it says “execute a provided snippet”. Explain where the snippet goes, how to run it, what each unfamiliar syntax element means, what output to expect, and how to change it safely.',
     '- Sequence from a worked example, to a partially completed example with guidance, to a small independent attempt. Independent work must use only concepts already introduced.',
     '- Do not assign debugging before showing how to read the relevant error or what correct syntax looks like. Do not ask learners to write code from scratch before they have seen and modified a complete working example.',
@@ -152,8 +158,11 @@ function buildPrompt(goal, outcomeBrief = '') {
     '- Never silently compress work to make it fit. If the useful work exceeds the available time, teach fewer concepts and defer the rest to a later chunk.',
     '- The total effort must fit within ' + chunkBudgetMinutes + ' minutes across ' + practiceDays + ' practice sessions. Prefer one coherent objective per session over a list of disconnected topics.',
     '- For each topic, describe a concrete teaching sequence: (1) explain the idea and unfamiliar syntax, (2) walk through a complete worked example, (3) guide the learner through a small variation, (4) ask for a tiny independent task, and (5) state how success will be checked. Adapt these steps to non-programming skills where appropriate.',
-    '- Introduce only the prerequisites needed for the next step. If the learner is new to a domain, start with setup and the smallest useful first action before progressing to concepts.',
-    '- Use previous-chunk evidence to adapt: repeat or simplify when the learner struggles, and progress only when they demonstrate readiness.',
+    '- Adapt depth and difficulty to the learner\'s stated experience, requested mode (learning, revision, practice, or mastery), clarifications, and demonstrated capability. Do not impose a preset beginner/intermediate/advanced sequence.',
+    hasPriorChunk
+      ? '- Continue from the learner\'s latest evidenced capability. Use completion, progress, and assessment evidence to decide whether to advance, review briefly, or reteach a specific gap. A new chunk is not a reset of the learner\'s skill level.'
+      : '- For a first chunk, identify the learner\'s actual starting point from their stated experience and clarifications. Include setup or foundational instruction only when it is needed for this learner and outcome.',
+    '- Use previous-chunk evidence to adapt: repeat or simplify only where evidence shows a need; otherwise progress to the next capability. If the goal is revision, prioritize retrieval practice, diagnosis of gaps, and targeted reinforcement rather than automatically teaching topics from scratch.',
     '- Do not invent song-specific chords, tabs, lyrics, or exact strumming patterns. If a named arrangement has not been supplied or verified, clearly ask the learner to provide a tutorial, chord chart, or other trusted reference; use generic technique practice until then.',
     '- Avoid duplicate topics, filler, generic motivation, and unrealistic mastery claims.',
     '- Give every topic 1–5 assessable learning objectives and an actionable description. Each objective must be achievable within this session, not merely describe a long-term aspiration.',
@@ -187,15 +196,19 @@ function buildReviewPrompt(goal, roadmap, learningBrief = null) {
   const practiceDays = Math.ceil(goal.daysPerWeek * planningDays / 7);
   const chunkBudgetMinutes = goal.minutesPerDay * practiceDays;
   return [
-    'You are an independent, skeptical instructional-design auditor. Judge whether this is genuinely teachable to this exact learner, not whether the topic list sounds plausible.',
+    'You are an independent, skeptical instructional-design auditor. Judge whether this is genuinely teachable and appropriately challenging for this exact learner, not whether the topic list sounds plausible.',
     'Reject a roadmap if it is vague, generic, repetitive, disconnected from the desired outcome, missing a requested capability, poorly sequenced, or unrealistic for the available time.',
-    'BEGINNER DEPENDENCY AUDIT: for every session, list the knowledge and practical actions it assumes. Compare them against the stated experience, clarifications, and only the earlier sessions. If a beginner must already know how to write/run code, recognize syntax, use a tool, or debug an error that has not been taught, this is a major issue.',
-    'TEACHING AUDIT: check that unfamiliar ideas are explained; a complete worked example comes before guided modification; guided practice comes before independent work; expected output or success criteria are clear; and the learner is never asked to perform an untaught action. “Execute a snippet” alone is not sufficient instruction.',
-    'FACTUAL CORRECTNESS AUDIT: verify domain-specific statements and syntax rather than trusting fluent wording. For Java, String is a reference type, not a primitive; a first lesson for a true beginner must teach how to run a minimal program before expecting independent code writing.',
-    'TIME AUDIT: independently estimate realistic beginner effort, including reading, setup, mistakes, and checks. Every single session must fit within the daily limit and the whole chunk must fit its total budget. Never approve an overlong session just because the total sum fits.',
-    'PROGRESSION AUDIT: each session must prepare the learner for the next. Do not introduce arrays/DSA exercises before teaching enough program structure and syntax to use them. If the horizon is too short, narrow the scope instead of rushing.',
+    goal.priorLearningContext
+      ? 'CONTINUITY AUDIT (MANDATORY): Continue from the prior chunk and verified learner evidence. Reject an unjustified restart, repeated completed material without a clear diagnostic/revision purpose, ignored unfinished work, or a failure to move toward the next capability. Revisit material when requested for revision or when evidence identifies a gap.'
+      : 'STARTING-POINT AUDIT: Check that this is a sensible starting point for the learner\'s stated experience, desired mode (learning, revision, practice, or mastery), and goal.',
+    'PREREQUISITE AUDIT: for every session, compare assumed knowledge and actions against the learner\'s stated experience, revision intent, clarifications, earlier sessions, and verified prior-chunk evidence. Flag only prerequisites that are genuinely missing; do not assume all learners are beginners or that every new plan starts at the beginning.',
+    'TEACHING AUDIT: explain unfamiliar ideas at the depth the learner needs; use worked examples, guided modification, independent practice, and clear success criteria where appropriate. Do not force introductory explanations for concepts the learner already demonstrates. “Execute a snippet” alone is not sufficient instruction when the learner has not yet shown they can do so independently.',
+    'FACTUAL CORRECTNESS AUDIT: verify domain-specific statements and syntax rather than trusting fluent wording. For Java, String is a reference type, not a primitive. Teach how to run a minimal program only when that capability is not already established or the goal requires a refresher.',
+    'TIME AUDIT: estimate realistic effort for this learner and the requested activity, including setup, practice, mistakes, and checks where relevant. Every session must fit the daily limit and the whole chunk must fit its total budget. Never approve an overlong session just because the total sum fits.',
+    'PROGRESSION AUDIT: each session must prepare the learner for the next or deliberately reinforce a target skill for revision. Do not introduce a task before its actual prerequisites are taught or evidenced. If the horizon is too short, narrow the scope instead of rushing.',
     'Approve only when there are no critical or major issues and score is at least 85. Be specific: each issue should explain the mismatch and give an actionable fix. Do not invent requirements not implied by the goal.',
     learningBrief ? `ENHANCED LEARNING BRIEF TO AUDIT AGAINST:\n${JSON.stringify(learningBrief)}` : '',
+    goal.priorLearningContext ? `PRIOR CHUNKS AND VERIFIED PROGRESS:\n${goal.priorLearningContext}` : '',
     'CHUNK BUDGET: ' + planningDays + ' calendar days, ' + practiceDays + ' practice sessions, no more than ' + chunkBudgetMinutes + ' focused minutes total; daily session limit is ' + goal.minutesPerDay + ' minutes.',
     'Return JSON only matching this schema:',
     JSON.stringify(reviewSchema),
@@ -300,7 +313,9 @@ function getJavaBeginnerInstructionIssues(roadmap, goal) {
   if (!/java/.test(profile) || String(goal.experienceLevel || '').toUpperCase() !== 'BEGINNER') return [];
   const issues = [];
   const first = roadmap.topics[0];
-  if (first && !/(hello.?world|first program|minimal.*program|run a simple java program)/i.test(`${first.title} ${first.description}`)) {
+  const statedIntent = `${goal.title || ''} ${goal.targetOutcome || ''} ${goal.originalDescription || ''} ${goal.learnerClarifications || ''}`;
+  const isRevisionOrPractice = /\b(revis(e|ion)|refresh|brush up|review|practice|interview prep|problem solving)\b/i.test(statedIntent);
+  if (!isRevisionOrPractice && !(goal.priorLearningContext && goal.priorLearningContext.trim()) && first && !/(hello.?world|first program|minimal.*program|run a simple java program)/i.test(`${first.title} ${first.description}`)) {
     issues.push({ severity: 'major', code: 'MISSING_FIRST_RUNNABLE_PROGRAM', explanation: 'The first session does not clearly teach a complete first Java program and how to run it.', suggestedFix: 'Start with a minimal Hello World program and explain its structure and execution before variables or DSA concepts.', relatedTopicKeys: first.key ? [first.key] : [] });
   }
   for (const topic of roadmap.topics) {
@@ -536,7 +551,7 @@ async function generateRoadmap(goal, {
     messages: [
       {
         role: 'system',
-        content: 'You are a learning-request enhancement specialist. Preserve the learner’s original intent and scope while making the request precise enough for a roadmap architect. Convert it into a structured brief with measurable success evidence, genuinely required capabilities, prerequisites, assumptions, and a final deliverable. Do not invent preferences, technologies, or commitments. State unresolved choices as assumptions and keep choices open where possible. Explicit learner clarifications override any inference or prior assumption; remove or update assumptions that the learner has clarified. Return only the structured brief JSON.',
+        content: 'You are a learning-request enhancement specialist. Preserve the learner’s original intent and scope while making the request precise enough for a roadmap architect. Convert it into a structured brief with measurable success evidence, genuinely required capabilities, prerequisites, assumptions, and a final deliverable. Do not invent preferences, technologies, or commitments. State unresolved choices as assumptions and keep choices open where possible. Explicit learner clarifications override any inference or prior assumption; remove or update assumptions that the learner has clarified. When prior chunk evidence is supplied, preserve the same long-term destination and do not reframe the learner as starting from zero; use the evidence only to inform current readiness and next steps. Return only the structured brief JSON.',
       },
       {
         role: 'user',
@@ -548,6 +563,7 @@ async function generateRoadmap(goal, {
           goal.learnerClarifications ? `Learner clarification (takes precedence over inferred assumptions): ${goal.learnerClarifications}` : '',
           `Availability: ${goal.minutesPerDay} minutes/day, ${goal.daysPerWeek} days/week`,
           `Target date: ${goal.targetDate || 'None'}`,
+          goal.priorLearningContext ? `PREVIOUS CHUNK AND VERIFIED LEARNER PROGRESS (preserve continuity; do not restart):\n${goal.priorLearningContext}` : 'This is the first chunk; no prior learning evidence exists yet.',
           'Break a multi-part outcome into distinct required capabilities. Describe observable evidence of success for each. List only prerequisites genuinely needed. If a tool/framework is unspecified, keep it open or state it as an assumption rather than treating it as a user requirement.',
           'Return JSON only matching this schema:',
           JSON.stringify(learningBriefSchema),
