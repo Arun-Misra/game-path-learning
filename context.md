@@ -115,3 +115,11 @@ Do not update master/reference docs frequently; update this context only for mat
 - Removed card-like containers from the hero feature stats, account panel, auth-mode switch, feature storytelling, and roadmap showcase. Form inputs use underline-led styling; the feature story uses staggered editorial columns and open space rather than a three-card grid.
 - Kept account, sign-in, goal creation, and backend behavior unchanged. This pass changes visual styling and the presentation of the existing stat component only.
 - Validation: `npm run check`, `npm run build`, `npm test` (50/50, including PostgreSQL integration), and `git diff --check` passed. Playwright/Puppeteer are not installed in the workspace, so browser screenshot/interaction QA is still outstanding.
+
+## Landing page visual pass v3 and browser QA (2026-10-19)
+- Revisited real learning-product references, focusing on Khan Academy's clear light canvas and restrained mint/energy-point/streak accents, plus Brilliant's expressive, geometric learning illustrations. References: https://www.khanacademy.org/ and https://brilliant.org/.
+- Replaced the ultramarine-heavy palette with a cleaner white/ink/mint system, using yellow only for XP/reward moments and orange for streak/energy accents. Removed decorative gradients from the page canvas and reduced oversized blank spacing in the hero and story sections.
+- Aligned the hero copy toward the top instead of vertically centering it beside the account form, reduced the headline and section gaps, and kept the landing features open rather than boxed. The form and auth flows remain functional.
+- Installed `@playwright/test` and Chromium; added `npm run test:e2e`, `playwright.config.js`, and `tests/e2e/landing.spec.js`. Browser tests check desktop and mobile content, horizontal overflow, and account/sign-in mode switching.
+- Browser QA ran against Chromium at 1440x1000 and 390x844. Both passed, with no horizontal overflow; sign-in mode hides the optional name field and uses the correct password placeholder. Expected unauthenticated `/auth/me` requests return 401 during signed-out page initialization; there were no page JavaScript errors.
+- Validation: `npm run check`, `npm run build`, `npm test` (50/50), `npm run test:e2e` (2/2), and `git diff --check` passed.

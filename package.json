@@ -13,6 +13,7 @@
     "dev:api": "npm run dev -w @gamified-learning/api",
     "build": "npm run build -w @gamified-learning/web",
     "test": "npm test -w @gamified-learning/api",
+    "test:e2e": "playwright test",
     "check": "npm run check -w @gamified-learning/api && npm run lint -w @gamified-learning/web && node --check apps/api/routes/gamification.js && node --check apps/api/lib/gamification-service.js",
     "smoke:ollama": "npm run smoke:ollama -w @gamified-learning/api",
     "db:generate": "prisma generate",
@@ -24,6 +25,7 @@
     "smoke:roadmap-quality": "npm run smoke:roadmap-quality -w @gamified-learning/api"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "concurrently": "^10.0.6",
     "prisma": "^6.19.0"
   }

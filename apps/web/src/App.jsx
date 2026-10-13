@@ -565,7 +565,6 @@ function App() {
               <p className="text-center text-xs text-[#9aa095]">{user ? 'Your learning goals are saved to your account.' : 'Your account and learning progress are saved securely. Sign in on this device to continue later.'}</p>
             </form>
           </div>
-          <div className="absolute -bottom-5 -left-5 hidden items-center gap-3 rounded-2xl border border-[#e5e8df] bg-white px-4 py-3 shadow-lg sm:flex"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#fff2d9] text-[#9d7333]"><Zap size={19} /></span><div><p className="text-sm font-semibold">Small steps, real momentum</p><p className="mt-0.5 text-xs text-[#8a9186]">Your next step, always clear</p></div></div>
         </div>
       </section>}
 
