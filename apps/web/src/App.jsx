@@ -517,9 +517,9 @@ function App() {
 
       {(!user || goals.length === 0 || showGoalForm) && <section className="hero-layout mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-8 sm:px-8 lg:grid-cols-[1.03fr_.97fr] lg:gap-20 lg:pt-16" data-reveal="hero">
         <div className="hero-copy flex flex-col justify-center" data-reveal="left">
-          <div className="hero-kicker mb-6 inline-flex w-fit items-center gap-2 px-1 py-1.5 text-xs font-semibold"><Sparkles size={14} /> Your life. Your pace. Your next level.</div>
-          <h1 className="max-w-2xl text-5xl font-semibold leading-[1.06] tracking-[-0.055em] sm:text-6xl xl:text-7xl">You’re closer<br />than you <span className="font-serif italic font-normal text-[#347d70]">think.</span></h1>
-          <p className="mt-6 max-w-lg text-base leading-7 text-[#6d756a] sm:text-lg">Big ambitions don’t need big dramatic starts. Pick a skill, show up as you are, and turn a few focused minutes into a life-changing habit.</p>
+          <div className="hero-kicker mb-6 inline-flex w-fit items-center gap-2 px-1 py-1.5 text-xs font-semibold"><Sparkles size={14} /> YOUR NEXT LEVEL STARTS HERE.</div>
+          <h1 className="max-w-2xl text-5xl font-semibold leading-[1.06] tracking-[-0.055em] sm:text-6xl xl:text-7xl">NEVER STOP<br /><span className="font-serif italic font-normal text-[#ff3300]">learning.</span></h1>
+          <p className="mt-6 max-w-lg text-base leading-7 text-[#6d756a] sm:text-lg">Every skill starts somewhere. Choose your next challenge, train in focused sessions, and turn the work you put in into progress you can actually see.</p>
           <div className="hero-stats mt-10 grid max-w-lg grid-cols-3 gap-3">
             <Stat icon={<Target size={17} />} title="Pick a quest" text="Make it yours" />
             <Stat icon={<Clock3 size={17} />} title="Earn XP" text="Every session counts" />
@@ -572,28 +572,28 @@ function App() {
         <div className="landing-story-inner">
           <div className="story-heading" data-reveal="up">
             <span className="story-eyebrow"><Sparkles size={14} /> A better way to make progress</span>
-            <h2>Big goals feel lighter<br /><span>when the next step is clear.</span></h2>
-            <p>Less staring at a blank page. More small wins that add up to real skills.</p>
+            <h2>MAKE EVERY<br /><span>SESSION COUNT.</span></h2>
+            <p>A personal path. Real practice. Progress that keeps moving.</p>
           </div>
           <div className="story-grid">
             <article className="story-card story-card-plan" data-reveal="left">
               <span className="story-number">01 / YOUR PLAN</span>
               <div className="story-icon story-icon-green"><Compass size={22} /></div>
-              <h3>A path made for you</h3>
+              <h3>A plan built around you</h3>
               <p>Start with your goal, experience, and schedule. Get a roadmap designed around what you want to be able to do.</p>
               <div className="plan-preview" aria-hidden="true"><span /><span /><span /><span /></div>
             </article>
             <article className="story-card story-card-practice" data-reveal="up">
               <span className="story-number">02 / YOUR PRACTICE</span>
               <div className="story-icon story-icon-blue"><Zap size={22} /></div>
-              <h3>Small sessions. Real momentum.</h3>
+              <h3>Train a little. Grow a lot.</h3>
               <p>Turn a big ambition into focused sessions that fit your week, with prerequisites keeping the order sensible.</p>
               <div className="practice-preview" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /></div>
             </article>
             <article className="story-card story-card-progress" data-reveal="right">
               <span className="story-number">03 / YOUR PROGRESS</span>
               <div className="story-icon story-icon-gold"><Trophy size={22} /></div>
-              <h3>See your effort add up</h3>
+              <h3>Every win moves you forward</h3>
               <p>Complete missions, check your understanding, and build a record of progress you can actually see.</p>
               <div className="progress-preview" aria-hidden="true"><span><b /></span><span><b /></span><span><b /></span></div>
             </article>
