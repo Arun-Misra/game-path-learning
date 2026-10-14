@@ -13,6 +13,7 @@ const learningGoalsRouter = require('./routes/learning-goals');
 const roadmapsRouter = require('./routes/roadmaps');
 const missionsRouter = require('./routes/missions');
 const assessmentsRouter = require('./routes/assessments');
+const projectMilestonesRouter = require('./routes/project-milestones');
 const gamificationRouter = require('./routes/gamification');
 
 const app = express();
@@ -52,6 +53,7 @@ app.use('/api/v1/gamification', gamificationRouter);
 app.use('/api/v1/learning-goals/:goalId/roadmaps', roadmapsRouter);
 app.use('/api/v1/learning-goals/:goalId/missions', missionsRouter);
 app.use('/api/v1/learning-goals/:goalId/assessments', assessmentsRouter);
+app.use('/api/v1/learning-goals/:goalId/project-milestones', projectMilestonesRouter);
 app.use('/api/v1/learning-goals', learningGoalsRouter);
 app.use('/api/v1', indexRouter);
 

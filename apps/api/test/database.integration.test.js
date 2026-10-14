@@ -387,6 +387,102 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       assert.equal(confirmedBriefRoadmap.generationState, 'ACTIVE');
       assert.ok(confirmedBriefRoadmap.learningBriefConfirmedAt);
 
+      const generatedMilestonesResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/project-milestones/generate`,
+        { method: 'POST', headers: { Cookie: first.cookie } },
+      );
+      assert.equal(generatedMilestonesResponse.status, 201);
+      const generatedMilestones = (await generatedMilestonesResponse.json()).data.milestones;
+      assert.equal(generatedMilestones.length, 2);
+      assert.equal(generatedMilestones[0].title, 'Build the result');
+      assert.equal(generatedMilestones[1].title, 'Deliver and verify the final result');
+      assert.deepEqual(generatedMilestones[0].successCriteria, [
+        'The result works in a repeatable test.',
+        'Record what you built, tested, or demonstrated.',
+      ]);
+
+      const milestonesAgainResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/project-milestones/generate`,
+        { method: 'POST', headers: { Cookie: first.cookie } },
+      );
+      assert.equal(milestonesAgainResponse.status, 200);
+      assert.equal((await milestonesAgainResponse.json()).data.milestones.length, 2);
+
+      const milestonesListResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/project-milestones`,
+        { headers: { Cookie: first.cookie } },
+      );
+      assert.equal(milestonesListResponse.status, 200);
+      assert.equal((await milestonesListResponse.json()).data.milestones.length, 2);
+
+      const otherUserCannotGenerateMilestones = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/project-milestones/generate`,
+        { method: 'POST', headers: { Cookie: second.cookie } },
+      );
+      assert.equal(otherUserCannotGenerateMilestones.status, 404);
+
+      const prematureMilestoneCompletion = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/project-milestones/${generatedMilestones[1].id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
+          body: JSON.stringify({
+            status: 'COMPLETED',
+            evidence: 'The final deliverable was demonstrated and all tests passed.',
+          }),
+        },
+      );
+      assert.equal(prematureMilestoneCompletion.status, 409);
+      assert.equal((await prematureMilestoneCompletion.json()).error.code, 'MILESTONE_PREREQUISITES_INCOMPLETE');
+
+      const missingMilestoneEvidence = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/project-milestones/${generatedMilestones[0].id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
+          body: JSON.stringify({ status: 'COMPLETED', evidence: 'Done.' }),
+        },
+      );
+      assert.equal(missingMilestoneEvidence.status, 400);
+      assert.equal((await missingMilestoneEvidence.json()).error.code, 'MILESTONE_EVIDENCE_REQUIRED');
+
+      const completeFirstMilestone = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/project-milestones/${generatedMilestones[0].id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
+          body: JSON.stringify({
+            status: 'COMPLETED',
+            evidence: 'Implemented the required behavior and verified it with a repeatable automated test.',
+          }),
+        },
+      );
+      assert.equal(completeFirstMilestone.status, 200);
+      const completedFirstMilestone = (await completeFirstMilestone.json()).data.milestone;
+      assert.equal(completedFirstMilestone.status, 'COMPLETED');
+      assert.ok(completedFirstMilestone.completedAt);
+      assert.match(completedFirstMilestone.evidence, /automated test/);
+
+      const completeFinalMilestone = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/project-milestones/${generatedMilestones[1].id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
+          body: JSON.stringify({
+            status: 'COMPLETED',
+            evidence: 'Demonstrated the final deliverable and saved the passing test output for review.',
+          }),
+        },
+      );
+      assert.equal(completeFinalMilestone.status, 200);
+      assert.equal((await completeFinalMilestone.json()).data.milestone.status, 'COMPLETED');
+
+      const otherUserCannotReadMilestones = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/project-milestones`,
+        { headers: { Cookie: second.cookie } },
+      );
+      assert.equal(otherUserCannotReadMilestones.status, 404);
+
       const otherUserCannotDeleteGoal = await fetch(`${baseUrl}/api/v1/learning-goals/${disposableGoal.id}`, {
         method: 'DELETE', headers: { Cookie: second.cookie },
       });

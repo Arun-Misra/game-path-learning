@@ -51,6 +51,9 @@ function App() {
   const [assessmentResultByTopic, setAssessmentResultByTopic] = useState({});
   const [gamification, setGamification] = useState(null);
   const [nextStepByGoal, setNextStepByGoal] = useState({});
+  const [projectMilestonesByGoal, setProjectMilestonesByGoal] = useState({});
+  const [milestoneBusyGoal, setMilestoneBusyGoal] = useState(null);
+  const [milestoneEvidenceById, setMilestoneEvidenceById] = useState({});
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
@@ -123,7 +126,9 @@ function App() {
             }
           }));
           setMissionsByGoal(Object.fromEntries(missionEntries));
-          await Promise.all(result.data.goals.map((goal) => refreshNextStep(goal.id)));
+          await Promise.all(result.data.goals.map(async (goal) => {
+            await Promise.all([refreshNextStep(goal.id), refreshProjectMilestones(goal.id)]);
+          }));
         }
       })
       .catch((error) => {
@@ -132,6 +137,15 @@ function App() {
         }
       });
   }, []);
+
+  async function refreshProjectMilestones(goalId) {
+    try {
+      const result = await requestJson(`/api/v1/learning-goals/${goalId}/project-milestones`);
+      setProjectMilestonesByGoal((current) => ({ ...current, [goalId]: result.data }));
+    } catch {
+      // Milestone planning is optional until an active roadmap is available.
+    }
+  }
 
   async function refreshNextStep(goalId) {
     try {
@@ -227,7 +241,9 @@ function App() {
       }
     }));
     setMissionsByGoal(Object.fromEntries(missionEntries));
-    await Promise.all(savedGoals.map((goal) => refreshNextStep(goal.id)));
+    await Promise.all(savedGoals.map(async (goal) => {
+      await Promise.all([refreshNextStep(goal.id), refreshProjectMilestones(goal.id)]);
+    }));
     await refreshGamification();
     return savedGoals;
   }
@@ -248,6 +264,7 @@ function App() {
       setLearningBriefConfirmedByRoadmap((current) => { const next = { ...current }; for (const roadmap of roadmapsByGoal[goal.id] || []) delete next[roadmap.id]; return next; });
       setClarificationByRoadmap((current) => { const next = { ...current }; for (const roadmap of roadmapsByGoal[goal.id] || []) delete next[roadmap.id]; return next; });
       setMissionsByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
+      setProjectMilestonesByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
       setAssessmentByTopic({});
       setAssessmentAnswers({});
       setAssessmentResultByTopic({});
@@ -360,12 +377,62 @@ function App() {
         }),
       }));
       setGoals((current) => current.map((item) => item.id === goal.id ? { ...item, status: 'active' } : item));
-      await refreshNextStep(goal.id);
+      await Promise.all([refreshNextStep(goal.id), refreshProjectMilestones(goal.id)]);
       setNotice({ type: 'success', message: `Roadmap activated for ${goal.skill}.` });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
     } finally {
       setRoadmapBusyGoal(null);
+    }
+  }
+
+  async function handleGenerateProjectMilestones(goal) {
+    setMilestoneBusyGoal(goal.id);
+    setNotice(null);
+    try {
+      const result = await requestJson(
+        `/api/v1/learning-goals/${goal.id}/project-milestones/generate`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      setProjectMilestonesByGoal((current) => ({
+        ...current,
+        [goal.id]: { ...(current[goal.id] || {}), ...result.data, deliverable: current[goal.id]?.deliverable || null },
+      }));
+      await refreshProjectMilestones(goal.id);
+      setNotice({ type: 'success', message: result.data.alreadyGenerated ? 'Your project milestones are up to date.' : 'Project milestones created from your confirmed learning brief.' });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setMilestoneBusyGoal(null);
+    }
+  }
+
+  async function handleUpdateProjectMilestone(goal, milestone, status) {
+    const evidence = String(milestoneEvidenceById[milestone.id] ?? milestone.evidence ?? '').trim();
+    if (status === 'COMPLETED' && evidence.length < 20) {
+      setNotice({ type: 'error', message: 'Add at least 20 characters of evidence before completing this milestone.' });
+      return;
+    }
+    setMilestoneBusyGoal(goal.id);
+    setNotice(null);
+    try {
+      const result = await requestJson(
+        `/api/v1/learning-goals/${goal.id}/project-milestones/${milestone.id}`,
+        { method: 'PATCH', body: JSON.stringify({ status, evidence }) },
+      );
+      setProjectMilestonesByGoal((current) => ({
+        ...current,
+        [goal.id]: {
+          ...current[goal.id],
+          milestones: (current[goal.id]?.milestones || []).map((item) => item.id === milestone.id ? result.data.milestone : item),
+        },
+      }));
+      setMilestoneEvidenceById((current) => ({ ...current, [milestone.id]: result.data.milestone.evidence || '' }));
+      setNotice({ type: 'success', message: status === 'COMPLETED' ? 'Milestone completed with evidence saved.' : 'Milestone progress saved.' });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setMilestoneBusyGoal(null);
     }
   }
 
@@ -498,6 +565,8 @@ function App() {
       setLearningBriefConfirmedByRoadmap({});
       setClarificationByRoadmap({});
       setMissionsByGoal({});
+      setProjectMilestonesByGoal({});
+      setMilestoneEvidenceById({});
       setAssessmentByTopic({});
       setAssessmentAnswers({});
       setAssessmentResultByTopic({});
@@ -686,6 +755,8 @@ function App() {
         <div className="dashboard-spark dashboard-spark-two" aria-hidden="true">✦</div>
       </section>}
 
+      {user && goals.length > 0 && notice && <div role="status" aria-live="polite" className={`mx-auto mb-5 max-w-7xl px-5 sm:px-8`}><div className={`border px-4 py-3 text-sm leading-6 ${notice.type === 'success' ? 'border-[#3f5b46] bg-[#1a241d] text-[#c6e5c9]' : 'border-[#733b2c] bg-[#271915] text-[#ffc0ad]'}`}>{notice.message}</div></div>}
+
       {user && gamification && <section id="learning-stats" data-reveal="up" className="dashboard-section mx-auto max-w-7xl px-5 pb-6 sm:px-8">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border border-[#e3e6dc] bg-white p-4"><div className="flex items-center gap-2 text-[#688663]"><Zap size={17} /><span className="text-xs font-semibold uppercase tracking-wide">Level</span></div><p className="mt-2 text-2xl font-bold">{gamification.level.level}</p><p className="mt-1 text-xs text-[#737b70]">{gamification.level.currentLevelXp}/100 XP · {gamification.level.xpToNextLevel} to next level</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-[#edf0e8]"><div className="h-full rounded-full bg-[#688663]" style={{ width: `${gamification.level.currentLevelXp}%` }} /></div></div>
@@ -804,6 +875,45 @@ function App() {
 </li>)}</ol>
 
 </div>)}
+{(roadmapsByGoal[goal.id] || []).some((item) => item.generationState === 'ACTIVE') && <section className="project-milestones mt-4 rounded-xl border border-[#343432] p-4" aria-label={`Project milestones for ${goal.skill}`}>
+  <div className="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#ff5933]"><Target size={13} className="mr-1 inline" /> Build toward a real result</p>
+      <h3 className="mt-2 text-lg font-semibold text-[#f2f2f0]">Project milestones</h3>
+      <p className="mt-1 max-w-2xl text-xs leading-5 text-[#a3a39f]">Turn your learning brief into a sequence of demonstrable outcomes. Each milestone saves evidence, not just a checkbox.</p>
+    </div>
+    {(projectMilestonesByGoal[goal.id]?.milestones || []).length === 0 && <button type="button" onClick={() => handleGenerateProjectMilestones(goal)} disabled={milestoneBusyGoal !== null || apiStatus !== 'online' || !projectMilestonesByGoal[goal.id]?.deliverable} className="min-h-10 border border-[#ff3300] bg-[#ff3300] px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{milestoneBusyGoal === goal.id ? 'Creating plan…' : 'Create project plan'}</button>}
+  </div>
+  {projectMilestonesByGoal[goal.id]?.deliverable && <p className="mt-3 border-l-2 border-[#ff5933] pl-3 text-sm leading-6 text-[#d1d1cd]"><span className="font-semibold text-white">Final deliverable</span> · {projectMilestonesByGoal[goal.id].deliverable}</p>}
+  {(projectMilestonesByGoal[goal.id]?.milestones || []).length === 0
+    ? <p className="mt-3 text-xs leading-5 text-[#a3a39f]">{projectMilestonesByGoal[goal.id]?.deliverable ? 'Your project plan has not been created yet.' : 'A confirmed learning brief with a final deliverable is required before a project plan can be generated.'}</p>
+    : <>
+      <div className="mt-4 flex items-center gap-3">
+        <div className="h-1.5 flex-1 overflow-hidden bg-[#343432]"><div className="h-full bg-[#ff3300] transition-all" style={{ width: `${Math.round(projectMilestonesByGoal[goal.id].milestones.filter((item) => item.status === 'COMPLETED').length / projectMilestonesByGoal[goal.id].milestones.length * 100)}%` }} /></div>
+        <span className="shrink-0 text-xs text-[#a3a39f]">{projectMilestonesByGoal[goal.id].milestones.filter((item) => item.status === 'COMPLETED').length} / {projectMilestonesByGoal[goal.id].milestones.length} done</span>
+      </div>
+      <ol className="mt-4 space-y-3">{projectMilestonesByGoal[goal.id].milestones.map((milestone, index) => {
+        const completed = milestone.status === 'COMPLETED';
+        const priorDone = projectMilestonesByGoal[goal.id].milestones.slice(0, index).every((item) => item.status === 'COMPLETED');
+        const evidence = milestoneEvidenceById[milestone.id] ?? milestone.evidence ?? '';
+        return <li key={milestone.id} className="border-t border-[#343432] pt-3">
+          <div className="flex items-start gap-3">
+            <span className={`grid h-8 w-8 shrink-0 place-items-center border ${completed ? 'border-[#ff3300] bg-[#ff3300] text-white' : 'border-[#41413d] text-[#ff5933]'}`}>{completed ? <Check size={16} /> : String(index + 1).padStart(2, '0')}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-semibold text-[#f2f2f0]">{milestone.title}</h4><span className="border border-[#41413d] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[#a3a39f]">{milestone.status.replace('_', ' ').toLowerCase()}</span></div>
+              <p className="mt-1 text-xs leading-5 text-[#a3a39f]">{milestone.description}</p>
+              {Array.isArray(milestone.successCriteria) && milestone.successCriteria.length > 0 && <ul className="mt-2 space-y-1">{milestone.successCriteria.map((criterion, criterionIndex) => <li key={criterionIndex} className="flex items-start gap-2 text-xs leading-5 text-[#d1d1cd]"><span className="mt-1 text-[#ff5933]">•</span><span>{criterion}</span></li>)}</ul>}
+              {completed ? <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-[#a3a39f]"><span className="font-semibold text-[#f2f2f0]">Evidence saved:</span> {milestone.evidence}</p> : <>
+                <label className="mt-3 block"><span className="text-xs font-semibold text-[#d1d1cd]">Evidence / progress note</span><textarea value={evidence} onChange={(event) => setMilestoneEvidenceById((current) => ({ ...current, [milestone.id]: event.target.value }))} maxLength={4000} rows={2} placeholder="What did you build, test, or demonstrate? Add links or test results if useful." className="mt-2 w-full resize-y border border-[#41413d] bg-[#111110] p-3 text-sm leading-5 text-[#f2f2f0] placeholder:text-[#777773] focus:border-[#ff3300] focus:outline-none" /></label>
+                <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => handleUpdateProjectMilestone(goal, milestone, milestone.status)} disabled={milestoneBusyGoal !== null} className="min-h-9 border border-[#41413d] px-3 py-2 text-xs font-semibold text-[#d1d1cd] disabled:opacity-40">{milestoneBusyGoal === goal.id ? 'Saving…' : 'Save note'}</button>{milestone.status !== 'IN_PROGRESS' && <button type="button" onClick={() => handleUpdateProjectMilestone(goal, milestone, 'IN_PROGRESS')} disabled={milestoneBusyGoal !== null || !priorDone} className="min-h-9 border border-[#41413d] px-3 py-2 text-xs font-semibold text-[#d1d1cd] disabled:opacity-40">{milestoneBusyGoal === goal.id ? 'Saving…' : milestone.status === 'PLANNED' ? 'Start milestone' : 'Mark in progress'}</button>}<button type="button" onClick={() => handleUpdateProjectMilestone(goal, milestone, 'COMPLETED')} disabled={milestoneBusyGoal !== null || !priorDone || evidence.trim().length < 20} className="min-h-9 border border-[#ff3300] bg-[#ff3300] px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{milestoneBusyGoal === goal.id ? 'Saving…' : 'Complete with evidence'}</button></div>
+                {!priorDone && <p className="mt-2 text-[11px] text-[#777773]">Finish earlier milestones first to unlock this one.</p>}
+              </>}
+            </div>
+          </div>
+        </li>;
+      })}</ol>
+    </>}
+</section>}
 {(missionsByGoal[goal.id]?.missions || []).length > 0 && <div className="mt-4 rounded-xl border border-[#343432] p-4">
 <div className="flex flex-wrap items-center justify-between gap-3">
 <div>
