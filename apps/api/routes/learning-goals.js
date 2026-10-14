@@ -159,7 +159,7 @@ router.get('/:goalId/next-step', async (req, res, next) => {
                 attempts: {
                   where: { userId: req.user.id },
                   orderBy: { createdAt: 'desc' },
-                  take: 1,
+                  take: 2,
                   select: { score: true, passed: true, createdAt: true },
                 },
               },

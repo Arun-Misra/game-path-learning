@@ -13,24 +13,40 @@ function reviewIntervalForScore(score) {
   return score >= 0.95 ? 30 : score >= 0.85 ? 14 : 7;
 }
 
+function recentAssessmentScores(topic) {
+  return [...(topic.assessment?.attempts || [])]
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, 2)
+    .map((attempt) => attempt.score / 100);
+}
+
+function reviewIntervalForEvidence({ score, previousScore = null }) {
+  if (score == null || !Number.isFinite(score)) return null;
+  // A meaningful decline is a reason to revisit sooner, even if long-term mastery is high.
+  if (previousScore != null && Number.isFinite(previousScore) && previousScore - score >= 0.1) return 7;
+  return reviewIntervalForScore(score);
+}
+
 function topicReviewState(topic, now = new Date()) {
   const progress = topicProgress(topic);
   const attempt = latestAttempt(topic);
-  const score = progress?.masteryScore == null
-    ? (attempt?.score == null ? null : attempt.score / 100)
-    : progress.masteryScore;
+  const assessmentScores = recentAssessmentScores(topic);
+  const score = assessmentScores.length ? assessmentScores[0] : progress?.masteryScore ?? null;
+  const previousScore = assessmentScores.length > 1 ? assessmentScores[1] : null;
   const lastActivityAt = progress?.lastActivityAt || attempt?.createdAt || null;
   const timestamp = lastActivityAt ? new Date(lastActivityAt).getTime() : NaN;
   const elapsedDays = Number.isFinite(timestamp)
     ? Math.max(0, Math.floor((now.getTime() - timestamp) / 86400000))
     : null;
-  const intervalDays = progress?.status === 'MASTERED' ? reviewIntervalForScore(score) : null;
+  const intervalDays = progress?.status === 'MASTERED' ? reviewIntervalForEvidence({ score, previousScore }) : null;
 
   return {
     score,
     lastActivityAt,
     elapsedDays,
     intervalDays,
+    previousScore,
+    scoreTrend: previousScore == null || score == null ? 'UNKNOWN' : score - previousScore <= -0.1 ? 'DECLINING' : score - previousScore >= 0.1 ? 'IMPROVING' : 'STABLE',
     reviewDue: intervalDays !== null && elapsedDays !== null && elapsedDays >= intervalDays,
   };
 }
@@ -53,6 +69,8 @@ function buildMasterySummary({ roadmap, now = new Date() } = {}) {
         lastActivityAt: review.lastActivityAt,
         daysSinceActivity: review.elapsedDays,
         reviewIntervalDays: review.intervalDays,
+        previousAssessmentScore: review.previousScore == null ? null : Math.round(review.previousScore * 100),
+        scoreTrend: review.scoreTrend,
         reviewDue: review.reviewDue,
         needsPractice: Boolean(attempt && attempt.score < 85),
       };
@@ -207,4 +225,4 @@ function recommendNextAction({ roadmap, missions = [], now = new Date() }) {
   };
 }
 
-module.exports = { recommendNextAction, buildMasterySummary, reviewIntervalForScore };
+module.exports = { recommendNextAction, buildMasterySummary, reviewIntervalForScore, reviewIntervalForEvidence };

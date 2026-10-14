@@ -823,7 +823,7 @@ function App() {
     <div><p className="text-xl font-semibold text-[#f2f2f0]">{masterySummaryByGoal[goal.id].averageAssessmentScore === null ? '—' : `${masterySummaryByGoal[goal.id].averageAssessmentScore}%`}</p><p className="text-[10px] uppercase tracking-wide text-[#a3a39f]">Avg. assessment</p></div>
   </div>
   {masterySummaryByGoal[goal.id].topics.some((topic) => topic.reviewDue || topic.needsPractice) ? <ul className="mt-3 space-y-2 border-t border-[#343432] pt-3">{masterySummaryByGoal[goal.id].topics.filter((topic) => topic.reviewDue || topic.needsPractice).slice(0, 3).map((topic) => <li key={topic.id} className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="min-w-0 flex-1 text-[#d1d1cd]">{topic.title}</span><span className={`shrink-0 ${topic.reviewDue ? 'text-[#ff9a7f]' : 'text-[#f0d58a]'}`}>{topic.reviewDue ? `Review due · ${topic.daysSinceActivity}d` : 'Practice recommended'}{topic.latestAssessmentScore === null ? '' : ` · ${Math.round(topic.latestAssessmentScore)}%`}</span></li>)}</ul> : <p className="mt-3 border-t border-[#343432] pt-3 text-xs text-[#a3a39f]">No review or practice gaps flagged right now.</p>}
-  <p className="mt-3 text-[10px] leading-4 text-[#777773]">Completed work and demonstrated mastery are tracked separately. Review intervals are initial defaults.</p>
+  <p className="mt-3 text-[10px] leading-4 text-[#777773]">Completed work and demonstrated mastery are tracked separately. Review timing uses recent assessment evidence; a score drop of 10+ points shortens the interval. Rules remain initial defaults.</p>
 </section>}
 
 </div>

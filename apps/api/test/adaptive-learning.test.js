@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { recommendNextAction, buildMasterySummary, reviewIntervalForScore } = require('../lib/adaptive-learning');
+const { recommendNextAction, buildMasterySummary, reviewIntervalForScore, reviewIntervalForEvidence } = require('../lib/adaptive-learning');
 
 function topic(id, position, { status, score, attempts = 1 } = {}) {
   return {
@@ -129,4 +129,35 @@ test('review intervals follow mastery score bands and summary is absent without 
   assert.equal(reviewIntervalForScore(0.7), 7);
   assert.equal(reviewIntervalForScore(null), null);
   assert.equal(buildMasterySummary({ roadmap: null }), null);
+});
+
+test('review interval responds to recent assessment evidence instead of stale mastery alone', () => {
+  assert.equal(reviewIntervalForEvidence({ score: 0.98, previousScore: 0.96 }), 30);
+  assert.equal(reviewIntervalForEvidence({ score: 0.90, previousScore: 0.86 }), 14);
+  assert.equal(reviewIntervalForEvidence({ score: 0.88, previousScore: 0.99 }), 7);
+  assert.equal(reviewIntervalForEvidence({ score: 0.74, previousScore: 0.88 }), 7);
+  assert.equal(reviewIntervalForEvidence({ score: null, previousScore: 0.88 }), null);
+});
+
+test('mastered topic with declining assessment trend gets a shorter review interval', () => {
+  const now = new Date('2026-10-20T12:00:00.000Z');
+  const result = buildMasterySummary({
+    now,
+    roadmap: {
+      topics: [{
+        id: 'declining',
+        position: 0,
+        title: 'Declining score topic',
+        userProgress: [{ status: 'MASTERED', masteryScore: 0.99, attempts: 3, lastActivityAt: new Date('2026-10-01T12:00:00.000Z') }],
+        assessment: { attempts: [
+          { score: 82, passed: true, createdAt: new Date('2026-10-01T12:00:00.000Z') },
+          { score: 96, passed: true, createdAt: new Date('2026-09-01T12:00:00.000Z') },
+        ] },
+      }],
+    },
+  });
+  assert.equal(result.topics[0].reviewIntervalDays, 7);
+  assert.equal(result.topics[0].scoreTrend, 'DECLINING');
+  assert.equal(result.topics[0].previousAssessmentScore, 96);
+  assert.equal(result.topics[0].reviewDue, true);
 });
