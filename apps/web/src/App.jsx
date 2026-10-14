@@ -42,6 +42,7 @@ function App() {
   const [questionFormGoal, setQuestionFormGoal] = useState(null);
   const [roadmapBusyGoal, setRoadmapBusyGoal] = useState(null);
   const [missionsByGoal, setMissionsByGoal] = useState({});
+  const [recoveryByGoal, setRecoveryByGoal] = useState({});
   const [missionBusyId, setMissionBusyId] = useState(null);
   const [expandedMissionId, setExpandedMissionId] = useState(null);
   const [missionEvidenceById, setMissionEvidenceById] = useState({});
@@ -128,7 +129,7 @@ function App() {
           }));
           setMissionsByGoal(Object.fromEntries(missionEntries));
           await Promise.all(result.data.goals.map(async (goal) => {
-            await Promise.all([refreshNextStep(goal.id), refreshProjectMilestones(goal.id)]);
+            await Promise.all([refreshNextStep(goal.id), refreshProjectMilestones(goal.id), refreshMissionRecovery(goal.id)]);
           }));
         }
       })
@@ -138,6 +139,16 @@ function App() {
         }
       });
   }, []);
+
+  async function refreshMissionRecovery(goalId) {
+    try {
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const result = await requestJson(`/api/v1/learning-goals/${goalId}/missions/recovery?timeZone=${encodeURIComponent(timeZone)}`);
+      setRecoveryByGoal((current) => ({ ...current, [goalId]: result.data }));
+    } catch {
+      // Recovery is only available when an active roadmap exists.
+    }
+  }
 
   async function refreshProjectMilestones(goalId) {
     try {
@@ -244,7 +255,7 @@ function App() {
     }));
     setMissionsByGoal(Object.fromEntries(missionEntries));
     await Promise.all(savedGoals.map(async (goal) => {
-      await Promise.all([refreshNextStep(goal.id), refreshProjectMilestones(goal.id)]);
+      await Promise.all([refreshNextStep(goal.id), refreshProjectMilestones(goal.id), refreshMissionRecovery(goal.id)]);
     }));
     await refreshGamification();
     return savedGoals;
@@ -267,6 +278,7 @@ function App() {
       setLearningBriefConfirmedByRoadmap((current) => { const next = { ...current }; for (const roadmap of roadmapsByGoal[goal.id] || []) delete next[roadmap.id]; return next; });
       setClarificationByRoadmap((current) => { const next = { ...current }; for (const roadmap of roadmapsByGoal[goal.id] || []) delete next[roadmap.id]; return next; });
       setMissionsByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
+      setRecoveryByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
       setProjectMilestonesByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
       setAssessmentByTopic({});
       setAssessmentAnswers({});
@@ -380,7 +392,7 @@ function App() {
         }),
       }));
       setGoals((current) => current.map((item) => item.id === goal.id ? { ...item, status: 'active' } : item));
-      await Promise.all([refreshNextStep(goal.id), refreshProjectMilestones(goal.id)]);
+      await Promise.all([refreshNextStep(goal.id), refreshProjectMilestones(goal.id), refreshMissionRecovery(goal.id)]);
       setNotice({ type: 'success', message: `Roadmap activated for ${goal.skill}.` });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
@@ -439,6 +451,25 @@ function App() {
     }
   }
 
+  async function handleRecoverMissedSessions(goal) {
+    setMissionBusyId(goal.id);
+    setNotice(null);
+    try {
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const result = await requestJson(
+        `/api/v1/learning-goals/${goal.id}/missions/recovery/replan?timeZone=${encodeURIComponent(timeZone)}`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      setMissionsByGoal((current) => ({ ...current, [goal.id]: result.data }));
+      await Promise.all([refreshMissionRecovery(goal.id), refreshNextStep(goal.id)]);
+      setNotice({ type: 'success', message: `Recovery plan rebuilt. ${result.data.recoveredMissedCount} missed session${result.data.recoveredMissedCount === 1 ? '' : 's'} accounted for; completed sessions and XP were preserved.` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setMissionBusyId(null);
+    }
+  }
+
   async function handleGenerateMissions(goal) {
     setMissionBusyId(goal.id);
     setNotice(null);
@@ -449,7 +480,7 @@ function App() {
         { method: 'POST', body: JSON.stringify({}) },
       );
       setMissionsByGoal((current) => ({ ...current, [goal.id]: result.data }));
-      await refreshNextStep(goal.id);
+      await Promise.all([refreshNextStep(goal.id), refreshMissionRecovery(goal.id)]);
       setNotice({ type: 'success', message: result.data.missions.length
         ? `Your missions for this week are ready for ${goal.skill}.`
         : 'No new missions are needed for this week.' });
@@ -495,7 +526,7 @@ function App() {
           },
         };
       });
-      await Promise.all([refreshGamification(), refreshNextStep(goal.id)]);
+      await Promise.all([refreshGamification(), refreshNextStep(goal.id), refreshMissionRecovery(goal.id)]);
       setNotice({ type: 'success', message: result.data.alreadyCompleted
         ? 'This mission was already completed.'
         : `Mission complete! You earned ${result.data.xpAwarded} XP.` });
@@ -568,6 +599,7 @@ function App() {
       setLearningBriefConfirmedByRoadmap({});
       setClarificationByRoadmap({});
       setMissionsByGoal({});
+      setRecoveryByGoal({});
       setProjectMilestonesByGoal({});
       setMilestoneEvidenceById({});
       setMasterySummaryByGoal({});
@@ -890,6 +922,19 @@ function App() {
 </li>)}</ol>
 
 </div>)}
+{(recoveryByGoal[goal.id]?.missedCount || 0) > 0 && <section className="missed-session-recovery mt-4 border border-[#343432] bg-[#191918] p-4" aria-label={`Missed session recovery for ${goal.skill}`}>
+  <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="min-w-0 flex-1">
+      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#ff5933]">Recovery mode</p>
+      <h3 className="mt-2 text-base font-semibold text-[#f2f2f0]">Missed session recovery</h3>
+      <p className="mt-1 max-w-2xl text-xs leading-5 text-[#a3a39f]">{recoveryByGoal[goal.id].missedCount} unfinished session{recoveryByGoal[goal.id].missedCount === 1 ? '' : 's'} from earlier dates. Rebuild the current week from remaining topic work without touching completed sessions or XP.</p>
+    </div>
+    <button type="button" onClick={() => handleRecoverMissedSessions(goal)} disabled={missionBusyId !== null || apiStatus !== 'online' || !recoveryByGoal[goal.id].canReplan} className="min-h-10 border border-[#ff3300] bg-[#ff3300] px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{missionBusyId === goal.id ? 'Rebuilding plan…' : !recoveryByGoal[goal.id].canReplan ? 'Finish current session first' : recoveryByGoal[goal.id].hasCurrentPlan ? 'Rebuild this week' : 'Create recovery plan'}</button>
+  </div>
+  {!recoveryByGoal[goal.id].canReplan && <p className="mt-3 text-xs leading-5 text-[#f0d58a]">Your in progress session is protected. Complete it before rebuilding the rest of the week.</p>}
+  <ul className="mt-3 space-y-2 border-t border-[#343432] pt-3">{recoveryByGoal[goal.id].missedMissions.slice(0, 3).map((mission) => <li key={mission.id} className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="min-w-0 flex-1 text-[#d1d1cd]">{mission.topic?.title || 'Learning topic'} · {mission.title}</span><span className="shrink-0 text-[#777773]">{String(mission.scheduledDate).slice(0, 10)}</span></li>)}</ul>
+  {recoveryByGoal[goal.id].missedCount > recoveryByGoal[goal.id].missedMissions.length && <p className="mt-2 text-[10px] text-[#777773]">Showing the latest {recoveryByGoal[goal.id].missedMissions.length} of {recoveryByGoal[goal.id].missedCount} missed sessions.</p>}
+</section>}
 {(roadmapsByGoal[goal.id] || []).some((item) => item.generationState === 'ACTIVE') && <section className="project-milestones mt-4 rounded-xl border border-[#343432] p-4" aria-label={`Project milestones for ${goal.skill}`}>
   <div className="flex flex-wrap items-start justify-between gap-3">
     <div>

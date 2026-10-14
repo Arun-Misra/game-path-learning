@@ -6,6 +6,8 @@ const {
   MissionServiceError,
   listMissions,
   generateWeeklyMissions,
+  getMissedSessionRecovery,
+  recoverMissedSessions,
   completeMission,
 } = require('../lib/mission-service');
 
@@ -53,6 +55,42 @@ function handleServiceError(error, res, next) {
 }
 
 router.use(requireAuth);
+
+router.get('/recovery', async (req, res, next) => {
+  const parsedGoal = idSchema.safeParse(req.params.goalId);
+  const parsedQuery = z.object({ timeZone: timeZoneSchema.default('UTC') }).safeParse(req.query);
+  if (!parsedGoal.success || !parsedQuery.success) {
+    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Provide a valid learning goal and time zone.' } });
+  }
+  try {
+    const data = await getMissedSessionRecovery({
+      userId: req.user.id,
+      goalId: parsedGoal.data,
+      timeZone: parsedQuery.data.timeZone,
+    });
+    return res.json({ data });
+  } catch (error) {
+    return handleServiceError(error, res, next);
+  }
+});
+
+router.post('/recovery/replan', generationLimiter, async (req, res, next) => {
+  const parsedGoal = idSchema.safeParse(req.params.goalId);
+  const parsedQuery = z.object({ timeZone: timeZoneSchema.default('UTC') }).safeParse(req.query);
+  if (!parsedGoal.success || !parsedQuery.success) {
+    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Provide a valid learning goal and time zone.' } });
+  }
+  try {
+    const data = await recoverMissedSessions({
+      userId: req.user.id,
+      goalId: parsedGoal.data,
+      timeZone: parsedQuery.data.timeZone,
+    });
+    return res.status(201).json({ data });
+  } catch (error) {
+    return handleServiceError(error, res, next);
+  }
+});
 
 router.post('/generate', generationLimiter, async (req, res, next) => {
   const parsedGoal = idSchema.safeParse(req.params.goalId);

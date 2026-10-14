@@ -55,7 +55,7 @@ async function listMissions({ userId, goalId, from, to, timeZone = 'UTC', db = p
   };
 }
 
-async function generateWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = new Date(), db = prisma }) {
+async function generateWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = new Date(), forceReplan = false, db = prisma }) {
   const goal = await ownedGoal(db, userId, goalId);
   const startDate = dateInTimeZone(now, timeZone);
   const endDate = addDays(startDate, 6);
@@ -96,6 +96,37 @@ async function generateWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = 
     },
     data: { status: 'EXPIRED' },
   });
+
+  if (forceReplan) {
+    const activeSession = await db.dailyMission.findFirst({
+      where: {
+        userId,
+        learningGoalId: goalId,
+        roadmapId: roadmap.id,
+        scheduledDate: { gte: start, lte: end },
+        status: 'IN_PROGRESS',
+      },
+      select: { id: true, title: true },
+    });
+    if (activeSession) {
+      throw new MissionServiceError(
+        409,
+        'ACTIVE_SESSION_MUST_FINISH',
+        'Finish your in progress session before rebuilding the week. Your current work has been preserved.',
+      );
+    }
+
+    // Only unstarted sessions are replaced. Completed sessions, evidence, and XP remain untouched.
+    await db.dailyMission.deleteMany({
+      where: {
+        userId,
+        learningGoalId: goalId,
+        roadmapId: roadmap.id,
+        scheduledDate: { gte: start, lte: end },
+        status: 'SCHEDULED',
+      },
+    });
+  }
 
   const existing = await db.dailyMission.findMany({
     where: {
@@ -239,6 +270,87 @@ async function generateWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = 
   };
 }
 
+async function getMissedSessionRecovery({ userId, goalId, timeZone = 'UTC', now = new Date(), db = prisma }) {
+  await ownedGoal(db, userId, goalId);
+  const today = dateInTimeZone(now, timeZone);
+  const start = utcDate(today);
+  const end = utcDate(addDays(today, 6));
+  const roadmap = await db.roadmap.findFirst({
+    where: { learningGoalId: goalId, generationState: 'ACTIVE' },
+    orderBy: { version: 'desc' },
+    select: { id: true },
+  });
+  if (!roadmap) {
+    throw new MissionServiceError(409, 'ACTIVE_ROADMAP_REQUIRED', 'Activate a roadmap before recovering missed sessions.');
+  }
+
+  await db.dailyMission.updateMany({
+    where: {
+      userId,
+      learningGoalId: goalId,
+      roadmapId: roadmap.id,
+      scheduledDate: { lt: start },
+      status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+    },
+    data: { status: 'EXPIRED' },
+  });
+
+  const [missedCount, missedMissions, currentWeekMissions] = await Promise.all([
+    db.dailyMission.count({
+      where: { userId, learningGoalId: goalId, roadmapId: roadmap.id, status: 'EXPIRED', recoveredAt: null },
+    }),
+    db.dailyMission.findMany({
+      where: { userId, learningGoalId: goalId, roadmapId: roadmap.id, status: 'EXPIRED', recoveredAt: null },
+      orderBy: [{ scheduledDate: 'desc' }, { createdAt: 'desc' }],
+      take: 10,
+      include: { topic: { select: { id: true, title: true } } },
+    }),
+    db.dailyMission.findMany({
+      where: {
+        userId,
+        learningGoalId: goalId,
+        roadmapId: roadmap.id,
+        scheduledDate: { gte: start, lte: end },
+        status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+      },
+      orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
+      include: { topic: { select: { id: true, title: true } } },
+    }),
+  ]);
+
+  return {
+    roadmapId: roadmap.id,
+    missedCount,
+    missedMissions,
+    currentWeekMissions,
+    hasCurrentPlan: currentWeekMissions.length > 0,
+    canReplan: !currentWeekMissions.some((mission) => mission.status === 'IN_PROGRESS'),
+    timeZone,
+    weekStartsOn: today,
+  };
+}
+
+async function recoverMissedSessions({ userId, goalId, timeZone = 'UTC', now = new Date(), db = prisma }) {
+  const recovery = await getMissedSessionRecovery({ userId, goalId, timeZone, now, db });
+  if (recovery.missedCount === 0) {
+    throw new MissionServiceError(409, 'NO_MISSED_SESSIONS', 'There are no missed sessions to recover on the active roadmap.');
+  }
+  if (!recovery.canReplan) {
+    throw new MissionServiceError(
+      409,
+      'ACTIVE_SESSION_MUST_FINISH',
+      'Finish your in progress session before rebuilding the week. Your current work has been preserved.',
+    );
+  }
+
+  const plan = await generateWeeklyMissions({ userId, goalId, timeZone, now, forceReplan: true, db });
+  await db.dailyMission.updateMany({
+    where: { userId, learningGoalId: goalId, roadmapId: recovery.roadmapId, status: 'EXPIRED', recoveredAt: null },
+    data: { recoveredAt: now },
+  });
+  return { ...plan, recoveredMissedCount: recovery.missedCount };
+}
+
 async function completeMission({ userId, goalId, missionId, evidence, db = prisma }) {
   const result = await db.$transaction(async (tx) => {
     await ownedGoal(tx, userId, goalId);
@@ -339,4 +451,4 @@ async function completeMission({ userId, goalId, missionId, evidence, db = prism
   return result;
 }
 
-module.exports = { MissionServiceError, listMissions, generateWeeklyMissions, completeMission };
+module.exports = { MissionServiceError, listMissions, generateWeeklyMissions, getMissedSessionRecovery, recoverMissedSessions, completeMission };

@@ -48,6 +48,7 @@ test('dashboard New learning goal reveals a visible form and keeps dark surfaces
   await page.route('**/api/v1/learning-goals/goal-test-1/roadmaps', (route) => route.fulfill({ json: { data: { roadmaps: [] } } }));
   await page.route('**/api/v1/learning-goals/goal-test-1/next-step**', (route) => route.fulfill({ json: { data: { recommendation: { action: 'CREATE_ROADMAP', title: 'Build your path', reason: 'Start with a roadmap.' } } } }));
   await page.route('**/api/v1/learning-goals/goal-test-1/missions**', (route) => route.fulfill({ json: { data: { missions: [], totalXp: 0 } } }));
+  await page.route(/\/api\/v1\/learning-goals\/goal-test-1\/missions\/recovery(?:\?.*)?$/, (route) => route.fulfill({ json: { data: { roadmapId: null, missedCount: 0, missedMissions: [], currentWeekMissions: [], hasCurrentPlan: false, canReplan: false, timeZone: 'UTC', weekStartsOn: '2026-10-21' } } }));
   await page.route('**/api/v1/learning-goals/goal-test-1/project-milestones', (route) => route.fulfill({ json: { data: { roadmapId: null, deliverable: null, milestones: [] } } }));
   await page.route('**/api/v1/gamification**', (route) => route.fulfill({
     json: { data: { level: { level: 1 }, streak: { current: 0 }, totalXp: 0, achievements: [] } },
@@ -131,6 +132,7 @@ test('mission player requires a reflection and persists it with completion evide
   await page.route('**/api/v1/learning-goals/goal-test-1/missions?**', (route) => route.fulfill({
     json: { data: { missions: [], totalXp: 0 } },
   }));
+  await page.route(/\/api\/v1\/learning-goals\/goal-test-1\/missions\/recovery(?:\?.*)?$/, (route) => route.fulfill({ json: { data: { roadmapId: 'roadmap-test-1', missedCount: 0, missedMissions: [], currentWeekMissions: [], hasCurrentPlan: false, canReplan: true, timeZone: 'UTC', weekStartsOn: '2026-10-21' } } }));
   await page.route('**/api/v1/learning-goals/goal-test-1/missions/mission-test-1/complete', async (route) => {
     const body = route.request().postDataJSON();
     savedEvidence = body.evidence;
@@ -249,6 +251,7 @@ test('project milestones require evidence and persist progress', async ({ page }
   await page.route('**/api/v1/learning-goals/goal-test-1/missions**', (route) => route.fulfill({
     json: { data: { missions: [], totalXp: 0 } },
   }));
+  await page.route(/\/api\/v1\/learning-goals\/goal-test-1\/missions\/recovery(?:\?.*)?$/, (route) => route.fulfill({ json: { data: { roadmapId: 'roadmap-test-1', missedCount: 0, missedMissions: [], currentWeekMissions: [], hasCurrentPlan: false, canReplan: true, timeZone: 'UTC', weekStartsOn: '2026-10-21' } } }));
   await page.route('**/api/v1/gamification**', (route) => route.fulfill({
     json: { data: { level: { level: 1 }, streak: { current: 0 }, totalXp: 0, achievements: [] } },
   }));
@@ -275,6 +278,107 @@ test('project milestones require evidence and persist progress', async ({ page }
   await expect(page.getByText('Evidence saved:')).toBeVisible();
   expect(savedMilestones[0].status).toBe('COMPLETED');
   expect(savedMilestones[0].evidence).toContain('verified malformed requests');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+});
+
+test('missed session recovery replans unfinished work without losing completed rewards', async ({ page }) => {
+  const goal = {
+    id: 'goal-test-1',
+    skill: 'Java',
+    experience: 'some_experience',
+    outcome: 'Build a Java REST API',
+    minutesPerDay: 30,
+    daysPerWeek: 5,
+    status: 'active',
+  };
+  const roadmap = {
+    id: 'roadmap-test-1',
+    version: 1,
+    title: 'Java REST API',
+    summary: 'Build and test an API.',
+    generationState: 'ACTIVE',
+    topics: [{
+      id: 'topic-test-1',
+      title: 'Request validation',
+      description: 'Validate request input.',
+      learningObjectives: ['Reject malformed input'],
+      estimatedMinutes: 30,
+      position: 0,
+      prerequisites: [],
+    }],
+  };
+  const expiredMission = {
+    id: 'mission-expired-1',
+    title: 'Missed practice session',
+    description: 'This work needs a fresh plan.',
+    estimatedMinutes: 20,
+    scheduledDate: '2026-10-10T00:00:00.000Z',
+    missionType: 'PRACTICE',
+    status: 'EXPIRED',
+    completionCriteria: { instruction: 'Practise request validation.' },
+    topic: { id: 'topic-test-1', title: 'Request validation' },
+  };
+  const recoveredMission = {
+    id: 'mission-recovered-1',
+    title: 'Recovery: practise request validation',
+    description: 'Resume unfinished work with a fresh session.',
+    estimatedMinutes: 20,
+    scheduledDate: '2026-10-21T00:00:00.000Z',
+    missionType: 'PRACTICE',
+    status: 'SCHEDULED',
+    completionCriteria: { instruction: 'Practise request validation.', objectives: ['Reject malformed input'] },
+    topic: { id: 'topic-test-1', title: 'Request validation' },
+  };
+  let recoveryData = {
+    roadmapId: roadmap.id,
+    missedCount: 1,
+    missedMissions: [expiredMission],
+    currentWeekMissions: [],
+    hasCurrentPlan: false,
+    canReplan: true,
+    timeZone: 'UTC',
+    weekStartsOn: '2026-10-21',
+  };
+  await page.route('**/api/v1/ready', (route) => route.fulfill({ json: { data: { ready: true } } }));
+  await page.route('**/api/v1/auth/me', (route) => route.fulfill({
+    json: { data: { user: { id: 'user-test-1', name: 'Learner', email: 'learner@example.com' } } },
+  }));
+  await page.route('**/api/v1/learning-goals', (route) => route.fulfill({ json: { data: { goals: [goal] } } }));
+  await page.route('**/api/v1/learning-goals/goal-test-1/roadmaps', (route) => route.fulfill({
+    json: { data: { roadmaps: [roadmap] } },
+  }));
+  await page.route('**/api/v1/learning-goals/goal-test-1/next-step**', (route) => route.fulfill({
+    json: { data: { recommendation: { action: 'CONTINUE_MISSION', title: 'Continue practice', reason: 'Resume your next session.' }, masterySummary: null } },
+  }));
+  await page.route('**/api/v1/learning-goals/goal-test-1/missions?**', (route) => route.fulfill({
+    json: { data: { missions: [], totalXp: 42 } },
+  }));
+  await page.route(/\/api\/v1\/learning-goals\/goal-test-1\/missions\/recovery(?:\?.*)?$/, (route) => route.fulfill({ json: { data: recoveryData } }));
+  await page.route('**/api/v1/learning-goals/goal-test-1/missions/recovery/replan**', async (route) => {
+    recoveryData = { ...recoveryData, missedCount: 0, missedMissions: [], currentWeekMissions: [recoveredMission], hasCurrentPlan: true };
+    await route.fulfill({
+      status: 201,
+      json: { data: { missions: [recoveredMission], totalXp: 42, from: '2026-10-21', to: '2026-10-27', timeZone: 'UTC', recoveredMissedCount: 1 } },
+    });
+  });
+  await page.route('**/api/v1/learning-goals/goal-test-1/project-milestones', (route) => route.fulfill({
+    json: { data: { roadmapId: roadmap.id, deliverable: null, milestones: [] } },
+  }));
+  await page.route('**/api/v1/gamification**', (route) => route.fulfill({
+    json: { data: { level: { level: 1 }, currentStreak: 0, completedMissionCount: 3, totalXp: 42, achievements: [] } },
+  }));
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Missed session recovery' })).toBeVisible();
+  await expect(page.getByText('Missed practice session')).toBeVisible();
+  await page.getByRole('button', { name: 'Create recovery plan' }).click();
+  await expect(page.getByText('Recovery plan rebuilt. 1 missed session accounted for; completed sessions and XP were preserved.')).toBeVisible();
+  await expect(page.getByText('This week’s missions')).toBeVisible();
+  await expect(page.getByText('Recovery: practise request validation')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Missed session recovery' })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);

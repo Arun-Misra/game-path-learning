@@ -67,6 +67,8 @@ The integration test exercises registration, login, logout, goal persistence, ro
 - `POST /api/v1/learning-goals/:goalId/roadmaps/:roadmapId/activate` — activate a draft version
 - `POST /api/v1/learning-goals/:goalId/missions/generate?timeZone=Asia%2FKolkata` — schedule the next week
 - `GET /api/v1/learning-goals/:goalId/missions?timeZone=Asia%2FKolkata` — list missions and current XP
+- `GET /api/v1/learning-goals/:goalId/missions/recovery?timeZone=Asia%2FKolkata` — preview unrecovered missed sessions and whether the week can be safely rebuilt
+- `POST /api/v1/learning-goals/:goalId/missions/recovery/replan?timeZone=Asia%2FKolkata` — replan unfinished work without discarding completed sessions or XP
 - `POST /api/v1/learning-goals/:goalId/missions/:missionId/complete` — complete a mission and award XP once
 - `GET /api/v1/learning-goals/:goalId/project-milestones` — list saved milestones for the active roadmap
 - `POST /api/v1/learning-goals/:goalId/project-milestones/generate` — create milestones from the confirmed learning brief and final deliverable
@@ -76,7 +78,7 @@ Roadmap generation requests structured JSON from the configured model and valida
 
 Project milestones are generated from a confirmed learning brief's capabilities and final deliverable, then saved against the active roadmap. Completion is sequential and requires evidence of at least 20 characters; ownership is checked on every request. The dashboard displays success criteria, progress, and saved evidence.
 
-Mission scheduling uses the active roadmap, daily minute budget, days-per-week availability, and the user's IANA timezone. It splits long topics into manageable sessions, spaces sessions across the week, avoids creating arbitrary tasks solely for rewards, and persists mission instances idempotently. When a learner generates a new week, overdue unfinished sessions on the active roadmap are marked expired and the remaining topic work is rescheduled from verified completion/progress evidence. The Mission Player records a short learner reflection as completion evidence. Completion checks ownership and prerequisite progress, writes completion and XP ledger records in one transaction, and returns authoritative XP totals. Duplicate completion requests do not award XP twice.
+Mission scheduling uses the active roadmap, daily minute budget, days-per-week availability, and the user's IANA timezone. It splits long topics into manageable sessions, spaces sessions across the week, avoids creating arbitrary tasks solely for rewards, and persists mission instances idempotently. When a learner generates a new week, overdue unfinished sessions on the active roadmap are marked expired and the remaining topic work is rescheduled from verified completion/progress evidence. The Mission Player records a short learner reflection as completion evidence. Completion checks ownership and prerequisite progress, writes completion and XP ledger records in one transaction, and returns authoritative XP totals. Duplicate completion requests do not award XP twice. The recovery flow previews expired sessions, blocks rebuilding while a session is in progress, replaces only unstarted sessions in the current week, and marks recovered history so the prompt does not repeat.
 
 ## Current limitations
 

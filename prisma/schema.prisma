@@ -165,6 +165,7 @@ model DailyMission {
   status             MissionStatus      @default(SCHEDULED)
   createdAt          DateTime           @default(now())
   completedAt        DateTime?
+  recoveredAt        DateTime?
   user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   learningGoal       LearningGoal       @relation(fields: [learningGoalId], references: [id], onDelete: Cascade)
   roadmap            Roadmap            @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
@@ -174,6 +175,7 @@ model DailyMission {
 
   @@unique([userId, roadmapId, scheduledDate, topicId, segmentIndex])
   @@index([userId, scheduledDate, status])
+  @@index([roadmapId, status, recoveredAt])
   @@index([learningGoalId, scheduledDate])
   @@index([topicId, status])
 }

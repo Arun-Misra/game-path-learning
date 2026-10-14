@@ -287,6 +287,16 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       const expiredStaleMission = await prisma.dailyMission.findUnique({ where: { id: staleMission.id } });
       assert.equal(expiredStaleMission.status, 'EXPIRED');
 
+      const recoverySummaryResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/missions/recovery?timeZone=UTC`,
+        { headers: { Cookie: first.cookie } },
+      );
+      assert.equal(recoverySummaryResponse.status, 200);
+      const recoverySummary = (await recoverySummaryResponse.json()).data;
+      assert.equal(recoverySummary.missedCount, 1);
+      assert.equal(recoverySummary.missedMissions[0].id, staleMission.id);
+      assert.equal(recoverySummary.canReplan, true);
+
       const firstMission = generatedMissions.missions[0];
       const completeFirstMission = async (mission) => fetch(
         `${baseUrl}/api/v1/learning-goals/${goal.id}/missions/${mission.id}/complete`,
@@ -487,6 +497,97 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
         { headers: { Cookie: second.cookie } },
       );
       assert.equal(otherUserCannotReadMilestones.status, 404);
+
+      const recoveryStaleDate = new Date();
+      recoveryStaleDate.setUTCDate(recoveryStaleDate.getUTCDate() - 10);
+      recoveryStaleDate.setUTCHours(0, 0, 0, 0);
+      const recoveryStaleMission = await prisma.dailyMission.create({
+        data: {
+          userId: first.body.data.user.id,
+          learningGoalId: disposableGoal.id,
+          roadmapId: briefRoadmap.id,
+          topicId: briefRoadmap.topics[0].id,
+          scheduledDate: recoveryStaleDate,
+          segmentIndex: 50,
+          missionType: 'LEARN',
+          title: 'Missed session for recovery wizard',
+          description: 'This unfinished work should be replanned.',
+          estimatedMinutes: 15,
+          completionCriteria: { instruction: 'Recover this unfinished topic work.' },
+        },
+      });
+      const activeRecoverySession = await prisma.dailyMission.create({
+        data: {
+          userId: first.body.data.user.id,
+          learningGoalId: disposableGoal.id,
+          roadmapId: briefRoadmap.id,
+          topicId: briefRoadmap.topics[0].id,
+          scheduledDate: new Date(),
+          segmentIndex: 51,
+          missionType: 'PRACTICE',
+          title: 'Session in progress during recovery',
+          description: 'This active work must remain untouched.',
+          estimatedMinutes: 15,
+          status: 'IN_PROGRESS',
+          completionCriteria: { instruction: 'Finish this session before rebuilding the plan.' },
+        },
+      });
+      const recoveryPreview = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/missions/recovery?timeZone=UTC`,
+        { headers: { Cookie: first.cookie } },
+      );
+      assert.equal(recoveryPreview.status, 200);
+      const recoveryPreviewData = (await recoveryPreview.json()).data;
+      assert.equal(recoveryPreviewData.missedCount, 1);
+      assert.equal(recoveryPreviewData.missedMissions[0].id, recoveryStaleMission.id);
+      assert.equal(recoveryPreviewData.hasCurrentPlan, true);
+      assert.equal(recoveryPreviewData.canReplan, false);
+
+      const blockedReplanResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/missions/recovery/replan?timeZone=UTC`,
+        { method: 'POST', headers: { Cookie: first.cookie } },
+      );
+      assert.equal(blockedReplanResponse.status, 409);
+      assert.equal((await blockedReplanResponse.json()).error.code, 'ACTIVE_SESSION_MUST_FINISH');
+      const preservedActiveMission = await prisma.dailyMission.findUnique({ where: { id: activeRecoverySession.id } });
+      assert.equal(preservedActiveMission.status, 'IN_PROGRESS');
+
+      await prisma.dailyMission.update({
+        where: { id: activeRecoverySession.id },
+        data: { status: 'SCHEDULED' },
+      });
+      const readyToReplan = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/missions/recovery?timeZone=UTC`,
+        { headers: { Cookie: first.cookie } },
+      );
+      assert.equal((await readyToReplan.json()).data.canReplan, true);
+
+      const recoveryReplanResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/missions/recovery/replan?timeZone=UTC`,
+        { method: 'POST', headers: { Cookie: first.cookie } },
+      );
+      assert.equal(recoveryReplanResponse.status, 201);
+      const recoveryPlan = (await recoveryReplanResponse.json()).data;
+      assert.equal(recoveryPlan.recoveredMissedCount, 1);
+      assert.ok(recoveryPlan.missions.length > 0);
+      assert.ok(recoveryPlan.missions.every((item) => item.status === 'SCHEDULED'));
+
+      const recoveredMissedMission = await prisma.dailyMission.findUnique({ where: { id: recoveryStaleMission.id } });
+      assert.ok(recoveredMissedMission.recoveredAt);
+      const recoveryAfterPlan = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/missions/recovery?timeZone=UTC`,
+        { headers: { Cookie: first.cookie } },
+      );
+      const recoveryAfterPlanData = (await recoveryAfterPlan.json()).data;
+      assert.equal(recoveryAfterPlanData.missedCount, 0);
+      assert.equal(recoveryAfterPlanData.hasCurrentPlan, true);
+
+      const repeatedRecoveryResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${disposableGoal.id}/missions/recovery/replan?timeZone=UTC`,
+        { method: 'POST', headers: { Cookie: first.cookie } },
+      );
+      assert.equal(repeatedRecoveryResponse.status, 409);
+      assert.equal((await repeatedRecoveryResponse.json()).error.code, 'NO_MISSED_SESSIONS');
 
       const otherUserCannotDeleteGoal = await fetch(`${baseUrl}/api/v1/learning-goals/${disposableGoal.id}`, {
         method: 'DELETE', headers: { Cookie: second.cookie },
