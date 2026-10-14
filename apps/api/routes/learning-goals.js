@@ -2,7 +2,7 @@ const express = require('express');
 const { z } = require('zod');
 const { prisma } = require('../lib/prisma');
 const { requireAuth } = require('../middleware/require-auth');
-const { recommendNextAction } = require('../lib/adaptive-learning');
+const { recommendNextAction, buildMasterySummary } = require('../lib/adaptive-learning');
 const { dateInTimeZone } = require('../lib/mission-scheduler');
 
 const router = express.Router();
@@ -174,7 +174,11 @@ router.get('/:goalId/next-step', async (req, res, next) => {
       },
     });
 
-    return res.json({ data: { recommendation: recommendNextAction({ roadmap, missions: roadmap?.missions || [] }) } });
+    const now = new Date();
+    return res.json({ data: {
+      recommendation: recommendNextAction({ roadmap, missions: roadmap?.missions || [], now }),
+      masterySummary: buildMasterySummary({ roadmap, now }),
+    } });
   } catch (error) {
     return next(error);
   }

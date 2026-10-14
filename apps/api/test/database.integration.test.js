@@ -225,9 +225,14 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
         { headers: { Cookie: first.cookie } },
       );
       assert.equal(nextStepResponse.status, 200);
-      const nextStep = (await nextStepResponse.json()).data.recommendation;
+      const nextStepData = (await nextStepResponse.json()).data;
+      const nextStep = nextStepData.recommendation;
       assert.equal(nextStep.action, 'LEARN_TOPIC');
       assert.equal(nextStep.topicId, secondDraft.topics[1].id);
+      assert.equal(nextStepData.masterySummary.totalTopics, 2);
+      assert.equal(nextStepData.masterySummary.masteredCount, 1);
+      assert.equal(nextStepData.masterySummary.averageAssessmentScore, 100);
+      assert.equal(nextStepData.masterySummary.topics[0].latestAssessmentScore, 100);
 
       const otherUserCannotReadNextStep = await fetch(
         `${baseUrl}/api/v1/learning-goals/${goal.id}/next-step`,

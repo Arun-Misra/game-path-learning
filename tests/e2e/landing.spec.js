@@ -220,7 +220,17 @@ test('project milestones require evidence and persist progress', async ({ page }
     json: { data: { roadmaps: [roadmap] } },
   }));
   await page.route('**/api/v1/learning-goals/goal-test-1/next-step**', (route) => route.fulfill({
-    json: { data: { recommendation: { action: 'LEARN_TOPIC', title: 'Implement request validation', reason: 'Continue your next step.' } } },
+    json: { data: {
+      recommendation: { action: 'LEARN_TOPIC', title: 'Implement request validation', reason: 'Continue your next step.' },
+      masterySummary: {
+        totalTopics: 2, masteredCount: 1, completedCount: 0, inProgressCount: 1, notStartedCount: 0,
+        dueReviewCount: 1, needsPracticeCount: 1, averageAssessmentScore: 72,
+        topics: [
+          { id: 'topic-test-1', title: 'Request validation', position: 0, status: 'IN_PROGRESS', latestAssessmentScore: 65, latestAssessmentAt: '2026-10-19T12:00:00.000Z', lastActivityAt: '2026-10-19T12:00:00.000Z', daysSinceActivity: 1, reviewIntervalDays: null, reviewDue: false, needsPractice: true },
+          { id: 'topic-test-2', title: 'HTTP basics', position: 1, status: 'MASTERED', latestAssessmentScore: 79, latestAssessmentAt: '2026-09-01T12:00:00.000Z', lastActivityAt: '2026-09-01T12:00:00.000Z', daysSinceActivity: 50, reviewIntervalDays: 7, reviewDue: true, needsPractice: true },
+        ],
+      },
+    } },
   }));
   await page.route('**/api/v1/learning-goals/goal-test-1/project-milestones', (route) => route.fulfill({
     json: { data: { roadmapId: roadmap.id, deliverable: roadmap.learningBrief.finalDeliverable, milestones: savedMilestones } },
@@ -245,6 +255,9 @@ test('project milestones require evidence and persist progress', async ({ page }
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/');
+  await expect(page.getByText('Mastery snapshot')).toBeVisible();
+  await expect(page.getByText('Reviews due')).toBeVisible();
+  await expect(page.getByText('HTTP basics', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Project milestones' })).toBeVisible();
   await page.getByRole('button', { name: 'Create project plan' }).click();
   await expect(page.getByRole('heading', { name: 'Implement request validation' })).toBeVisible();

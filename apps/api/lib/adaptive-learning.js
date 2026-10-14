@@ -8,6 +8,73 @@ function topicProgress(topic) {
   return progress[0] || null;
 }
 
+function reviewIntervalForScore(score) {
+  if (score == null || !Number.isFinite(score)) return null;
+  return score >= 0.95 ? 30 : score >= 0.85 ? 14 : 7;
+}
+
+function topicReviewState(topic, now = new Date()) {
+  const progress = topicProgress(topic);
+  const attempt = latestAttempt(topic);
+  const score = progress?.masteryScore == null
+    ? (attempt?.score == null ? null : attempt.score / 100)
+    : progress.masteryScore;
+  const lastActivityAt = progress?.lastActivityAt || attempt?.createdAt || null;
+  const timestamp = lastActivityAt ? new Date(lastActivityAt).getTime() : NaN;
+  const elapsedDays = Number.isFinite(timestamp)
+    ? Math.max(0, Math.floor((now.getTime() - timestamp) / 86400000))
+    : null;
+  const intervalDays = progress?.status === 'MASTERED' ? reviewIntervalForScore(score) : null;
+
+  return {
+    score,
+    lastActivityAt,
+    elapsedDays,
+    intervalDays,
+    reviewDue: intervalDays !== null && elapsedDays !== null && elapsedDays >= intervalDays,
+  };
+}
+
+function buildMasterySummary({ roadmap, now = new Date() } = {}) {
+  if (!roadmap) return null;
+  const topics = [...(roadmap.topics || [])]
+    .sort((a, b) => a.position - b.position)
+    .map((topic) => {
+      const progress = topicProgress(topic);
+      const attempt = latestAttempt(topic);
+      const review = topicReviewState(topic, now);
+      return {
+        id: topic.id,
+        title: topic.title,
+        position: topic.position,
+        status: progress?.status || 'NOT_STARTED',
+        latestAssessmentScore: attempt?.score ?? null,
+        latestAssessmentAt: attempt?.createdAt || null,
+        lastActivityAt: review.lastActivityAt,
+        daysSinceActivity: review.elapsedDays,
+        reviewIntervalDays: review.intervalDays,
+        reviewDue: review.reviewDue,
+        needsPractice: Boolean(attempt && attempt.score < 85),
+      };
+    });
+  const assessedTopics = topics.filter((topic) => topic.latestAssessmentScore !== null);
+  const averageAssessmentScore = assessedTopics.length
+    ? Math.round(assessedTopics.reduce((sum, topic) => sum + topic.latestAssessmentScore, 0) / assessedTopics.length)
+    : null;
+
+  return {
+    totalTopics: topics.length,
+    masteredCount: topics.filter((topic) => topic.status === 'MASTERED').length,
+    completedCount: topics.filter((topic) => topic.status === 'COMPLETED').length,
+    inProgressCount: topics.filter((topic) => topic.status === 'IN_PROGRESS').length,
+    notStartedCount: topics.filter((topic) => topic.status === 'NOT_STARTED').length,
+    dueReviewCount: topics.filter((topic) => topic.reviewDue).length,
+    needsPracticeCount: topics.filter((topic) => topic.needsPractice).length,
+    averageAssessmentScore,
+    topics,
+  };
+}
+
 function recommendNextAction({ roadmap, missions = [], now = new Date() }) {
   if (!roadmap) {
     return {
@@ -102,30 +169,18 @@ function recommendNextAction({ roadmap, missions = [], now = new Date() }) {
   }
 
   const dueReview = topics
-    .map((topic) => {
-      const progress = topicProgress(topic);
-      const attempt = latestAttempt(topic);
-      const score = progress?.masteryScore == null
-        ? (attempt?.score == null ? null : attempt.score / 100)
-        : progress.masteryScore;
-      if (progress?.status !== 'MASTERED' || score == null) return null;
-      const intervalDays = score >= 0.95 ? 30 : score >= 0.85 ? 14 : 7;
-      const lastActivity = progress.lastActivityAt || attempt?.createdAt;
-      if (!lastActivity) return null;
-      const elapsedDays = Math.floor((now.getTime() - new Date(lastActivity).getTime()) / 86400000);
-      return elapsedDays >= intervalDays ? { topic, intervalDays, elapsedDays, score } : null;
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.elapsedDays - a.elapsedDays)[0];
+    .map((topic) => ({ topic, review: topicReviewState(topic, now) }))
+    .filter(({ topic, review }) => topicProgress(topic)?.status === 'MASTERED' && review.reviewDue)
+    .sort((a, b) => b.review.elapsedDays - a.review.elapsedDays)[0];
 
   if (dueReview) {
     return {
       action: 'REVIEW_TOPIC',
       title: `Refresh: ${dueReview.topic.title}`,
-      reason: `You last worked on this mastered topic ${dueReview.elapsedDays} days ago. A short retrieval-practice review can help keep it fresh.`,
+      reason: `You last worked on this mastered topic ${dueReview.review.elapsedDays} days ago. A short retrieval-practice review can help keep it fresh.`,
       topicId: dueReview.topic.id,
       missionId: null,
-      reviewIntervalDays: dueReview.intervalDays,
+      reviewIntervalDays: dueReview.review.intervalDays,
     };
   }
 
@@ -152,4 +207,4 @@ function recommendNextAction({ roadmap, missions = [], now = new Date() }) {
   };
 }
 
-module.exports = { recommendNextAction };
+module.exports = { recommendNextAction, buildMasterySummary, reviewIntervalForScore };

@@ -51,6 +51,7 @@ function App() {
   const [assessmentResultByTopic, setAssessmentResultByTopic] = useState({});
   const [gamification, setGamification] = useState(null);
   const [nextStepByGoal, setNextStepByGoal] = useState({});
+  const [masterySummaryByGoal, setMasterySummaryByGoal] = useState({});
   const [projectMilestonesByGoal, setProjectMilestonesByGoal] = useState({});
   const [milestoneBusyGoal, setMilestoneBusyGoal] = useState(null);
   const [milestoneEvidenceById, setMilestoneEvidenceById] = useState({});
@@ -152,6 +153,7 @@ function App() {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
       const result = await requestJson(`/api/v1/learning-goals/${goalId}/next-step?timeZone=${encodeURIComponent(timeZone)}`);
       setNextStepByGoal((current) => ({ ...current, [goalId]: result.data.recommendation }));
+      setMasterySummaryByGoal((current) => ({ ...current, [goalId]: result.data.masterySummary || null }));
     } catch {
       // Recommendations are helpful, but should not make the rest of the workspace unavailable.
     }
@@ -260,6 +262,7 @@ function App() {
       await requestJson(`/api/v1/learning-goals/${goal.id}`, { method: 'DELETE' });
       setGoals((current) => current.filter((item) => item.id !== goal.id));
       setNextStepByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
+      setMasterySummaryByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
       setRoadmapsByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
       setLearningBriefConfirmedByRoadmap((current) => { const next = { ...current }; for (const roadmap of roadmapsByGoal[goal.id] || []) delete next[roadmap.id]; return next; });
       setClarificationByRoadmap((current) => { const next = { ...current }; for (const roadmap of roadmapsByGoal[goal.id] || []) delete next[roadmap.id]; return next; });
@@ -567,6 +570,7 @@ function App() {
       setMissionsByGoal({});
       setProjectMilestonesByGoal({});
       setMilestoneEvidenceById({});
+      setMasterySummaryByGoal({});
       setAssessmentByTopic({});
       setAssessmentAnswers({});
       setAssessmentResultByTopic({});
@@ -778,6 +782,17 @@ function App() {
 <p className="mt-1 text-sm text-[#737b70]">{goal.outcome}</p>
 
 <p className="mt-3 text-xs text-[#82917b]">{goal.minutesPerDay} min/day · {goal.daysPerWeek} days/week · {goal.status} · {missionsByGoal[goal.id]?.totalXp || 0} XP</p>
+{masterySummaryByGoal[goal.id] && <section className="mt-4 border border-[#343432] bg-[#191918] p-3" aria-label={`Mastery snapshot for ${goal.skill}`}>
+  <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#ff5933]">Mastery snapshot</p><span className="text-[11px] text-[#a3a39f]">{masterySummaryByGoal[goal.id].totalTopics} topics</span></div>
+  <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div><p className="text-xl font-semibold text-[#f2f2f0]">{masterySummaryByGoal[goal.id].masteredCount}</p><p className="text-[10px] uppercase tracking-wide text-[#a3a39f]">Mastered</p></div>
+    <div><p className="text-xl font-semibold text-[#f2f2f0]">{masterySummaryByGoal[goal.id].needsPracticeCount}</p><p className="text-[10px] uppercase tracking-wide text-[#a3a39f]">Needs practice</p></div>
+    <div><p className="text-xl font-semibold text-[#f2f2f0]">{masterySummaryByGoal[goal.id].dueReviewCount}</p><p className="text-[10px] uppercase tracking-wide text-[#a3a39f]">Reviews due</p></div>
+    <div><p className="text-xl font-semibold text-[#f2f2f0]">{masterySummaryByGoal[goal.id].averageAssessmentScore === null ? '—' : `${masterySummaryByGoal[goal.id].averageAssessmentScore}%`}</p><p className="text-[10px] uppercase tracking-wide text-[#a3a39f]">Avg. assessment</p></div>
+  </div>
+  {masterySummaryByGoal[goal.id].topics.some((topic) => topic.reviewDue || topic.needsPractice) ? <ul className="mt-3 space-y-2 border-t border-[#343432] pt-3">{masterySummaryByGoal[goal.id].topics.filter((topic) => topic.reviewDue || topic.needsPractice).slice(0, 3).map((topic) => <li key={topic.id} className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="min-w-0 flex-1 text-[#d1d1cd]">{topic.title}</span><span className={`shrink-0 ${topic.reviewDue ? 'text-[#ff9a7f]' : 'text-[#f0d58a]'}`}>{topic.reviewDue ? `Review due · ${topic.daysSinceActivity}d` : 'Practice recommended'}{topic.latestAssessmentScore === null ? '' : ` · ${Math.round(topic.latestAssessmentScore)}%`}</span></li>)}</ul> : <p className="mt-3 border-t border-[#343432] pt-3 text-xs text-[#a3a39f]">No review or practice gaps flagged right now.</p>}
+  <p className="mt-3 text-[10px] leading-4 text-[#777773]">Completed work and demonstrated mastery are tracked separately. Review intervals are initial defaults.</p>
+</section>}
 
 </div>
 <div className="flex flex-wrap gap-2">

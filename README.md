@@ -60,7 +60,7 @@ The integration test exercises registration, login, logout, goal persistence, ro
 - `POST /api/v1/learning-goals`
 - `GET /api/v1/learning-goals`
 - `GET /api/v1/learning-goals/:goalId`
-- `GET /api/v1/learning-goals/:goalId/next-step?timeZone=Asia%2FKolkata` — recommend the next action from topic progress, recent assessments, current missions, and due spaced reviews
+- `GET /api/v1/learning-goals/:goalId/next-step?timeZone=Asia%2FKolkata` — recommend the next action from topic progress, recent assessments, current missions, and due spaced reviews; response also includes a mastery snapshot with topic states, latest scores, practice gaps, and due reviews
 - `POST /api/v1/learning-goals/:goalId/roadmaps/generate` — generate and persist a personalised draft
 - `POST /api/v1/learning-goals/:goalId/roadmaps` — validate and persist a supplied draft
 - `GET /api/v1/learning-goals/:goalId/roadmaps` — list versions

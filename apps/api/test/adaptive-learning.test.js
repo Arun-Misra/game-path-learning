@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { recommendNextAction } = require('../lib/adaptive-learning');
+const { recommendNextAction, buildMasterySummary, reviewIntervalForScore } = require('../lib/adaptive-learning');
 
 function topic(id, position, { status, score, attempts = 1 } = {}) {
   return {
@@ -76,4 +76,57 @@ test('suggests spaced review for mastered topics when their review interval is d
   assert.equal(result.action, 'REVIEW_TOPIC');
   assert.equal(result.topicId, 'review-me');
   assert.equal(result.reviewIntervalDays, 30);
+});
+
+test('mastery summary separates mastery, completed work, practice gaps, and due reviews', () => {
+  const now = new Date('2026-10-20T12:00:00.000Z');
+  const roadmap = {
+    topics: [
+      {
+        id: 'mastered-due',
+        position: 0,
+        title: 'Mastered but due',
+        userProgress: [{ status: 'MASTERED', masteryScore: 0.96, attempts: 2, lastActivityAt: new Date('2026-08-01T12:00:00.000Z') }],
+        assessment: { attempts: [{ score: 96, passed: true, createdAt: new Date('2026-08-01T12:00:00.000Z') }] },
+      },
+      {
+        id: 'completed-weak',
+        position: 1,
+        title: 'Completed but weak',
+        userProgress: [{ status: 'COMPLETED', masteryScore: 0.68, attempts: 1, lastActivityAt: new Date('2026-10-19T12:00:00.000Z') }],
+        assessment: { attempts: [{ score: 68, passed: false, createdAt: new Date('2026-10-19T12:00:00.000Z') }] },
+      },
+      {
+        id: 'in-progress',
+        position: 2,
+        title: 'In progress',
+        userProgress: [{ status: 'IN_PROGRESS', masteryScore: null, attempts: 0, lastActivityAt: null }],
+        assessment: { attempts: [] },
+      },
+      { id: 'not-started', position: 3, title: 'Not started', userProgress: [], assessment: { attempts: [] } },
+    ],
+  };
+
+  const summary = buildMasterySummary({ roadmap, now });
+  assert.equal(summary.totalTopics, 4);
+  assert.equal(summary.masteredCount, 1);
+  assert.equal(summary.completedCount, 1);
+  assert.equal(summary.inProgressCount, 1);
+  assert.equal(summary.notStartedCount, 1);
+  assert.equal(summary.dueReviewCount, 1);
+  assert.equal(summary.needsPracticeCount, 1);
+  assert.equal(summary.averageAssessmentScore, 82);
+  assert.equal(summary.topics[0].reviewDue, true);
+  assert.equal(summary.topics[0].reviewIntervalDays, 30);
+  assert.equal(summary.topics[1].reviewDue, false);
+  assert.equal(summary.topics[1].needsPractice, true);
+  assert.equal(summary.topics[3].status, 'NOT_STARTED');
+});
+
+test('review intervals follow mastery score bands and summary is absent without an active roadmap', () => {
+  assert.equal(reviewIntervalForScore(0.96), 30);
+  assert.equal(reviewIntervalForScore(0.85), 14);
+  assert.equal(reviewIntervalForScore(0.7), 7);
+  assert.equal(reviewIntervalForScore(null), null);
+  assert.equal(buildMasterySummary({ roadmap: null }), null);
 });
