@@ -224,3 +224,9 @@ Do not update master/reference docs frequently; update this context only for mat
 - Extended PostgreSQL integration coverage to submit a failed attempt followed by a passing attempt and verify progress transitions from IN_PROGRESS to MASTERED, attempt count increments, and mastery score updates.
 - Added Playwright coverage for a learner scoring 54% on an initial assessment, retaking it at 92%, and then seeing the latest check update and next step change from reinforcement to the next unmastered topic.
 - Validation: `npm test` passed 71/71 including PostgreSQL integration; `npm run test:e2e` passed 9/9. Re-run `npm run check`, `npm run build`, and `git diff --check` after this batch's final edits.
+
+## Targeted practice in weekly mission generation (2026-10-21)
+- Weekly mission generation reads each active roadmap topic's latest assessment score alongside progress status. A recent score below 85% overrides an old COMPLETED or MASTERED label for scheduling purposes and yields a short practice only session instead of a new learn session.
+- Practice only scheduling is supported by the mission scheduler and uses a 15 minute target within the daily budget. Historical mastery and completed minute evidence remain intact.
+- PostgreSQL integration coverage includes repeated assessments where the learner's latest score falls again after previous mastery; the next generated week adds targeted practice. Scheduler unit coverage verifies the mission type and description.
+- Validation: `npm test` passed 72/72 including PostgreSQL integration; `npm run check`, `npm run build`, and `npm run test:e2e` (9/9) passed. Run `git diff --check` before commit.

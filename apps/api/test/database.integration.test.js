@@ -276,6 +276,22 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       );
       assert.equal(secondCannotListRoadmaps.status, 404);
 
+      const regressionAttemptResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/assessments/${secondDraft.topics[0].id}/attempts`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
+          body: JSON.stringify({
+            answers: assessmentQuestions.map((question) => ({ key: question.key, answerIndex: 1 })),
+          }),
+        },
+      );
+      assert.equal(regressionAttemptResponse.status, 201);
+      const regressionAttempt = (await regressionAttemptResponse.json()).data;
+      assert.equal(regressionAttempt.attempt.score, 0);
+      assert.equal(regressionAttempt.topicProgress.status, 'MASTERED');
+      assert.equal(regressionAttempt.topicProgress.masteryScore, 1);
+
       const staleDate = new Date();
       staleDate.setUTCDate(staleDate.getUTCDate() - 10);
       staleDate.setUTCHours(0, 0, 0, 0);
@@ -301,7 +317,10 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       );
       assert.equal(generatedMissionsResponse.status, 201);
       const generatedMissions = (await generatedMissionsResponse.json()).data;
-      assert.equal(generatedMissions.missions.length, 2);
+      assert.equal(generatedMissions.missions.length, 3);
+      assert.equal(generatedMissions.missions[0].topicId, secondDraft.topics[0].id);
+      assert.equal(generatedMissions.missions[0].missionType, 'PRACTICE');
+      assert.match(generatedMissions.missions[0].title, /^Practice:/);
       assert.ok(generatedMissions.missions.every((mission) => mission.estimatedMinutes <= 30));
       const expiredStaleMission = await prisma.dailyMission.findUnique({ where: { id: staleMission.id } });
       assert.equal(expiredStaleMission.status, 'EXPIRED');
@@ -324,8 +343,8 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       const firstCompletionResponse = await completeFirstMission(firstMission);
       assert.equal(firstCompletionResponse.status, 200);
       const firstCompletion = (await firstCompletionResponse.json()).data;
-      assert.equal(firstCompletion.xpAwarded, 16);
-      assert.equal(firstCompletion.totalXp, 16);
+      assert.equal(firstCompletion.xpAwarded, 13);
+      assert.equal(firstCompletion.totalXp, 13);
 
       const duplicateCompletionResponse = await completeFirstMission(firstMission);
       assert.equal(duplicateCompletionResponse.status, 200);
@@ -335,7 +354,7 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
 
       const secondMissionResponse = await completeFirstMission(generatedMissions.missions[1]);
       assert.equal(secondMissionResponse.status, 200);
-      assert.equal((await secondMissionResponse.json()).data.totalXp, 29);
+      assert.equal((await secondMissionResponse.json()).data.totalXp, 26);
 
       const secondUserCannotListMissions = await fetch(
         `${baseUrl}/api/v1/learning-goals/${goal.id}/missions`,
@@ -349,7 +368,7 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       );
       assert.equal(gamificationResponse.status, 200);
       const gamification = (await gamificationResponse.json()).data;
-      assert.equal(gamification.level.totalXp, 29);
+      assert.equal(gamification.level.totalXp, 26);
       assert.equal(gamification.completedMissionCount, 2);
       assert.equal(gamification.currentStreak, 1);
       assert.ok(gamification.achievements.some((item) => item.key === 'first_mission'));

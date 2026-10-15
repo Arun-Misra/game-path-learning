@@ -86,3 +86,19 @@ test('rejects invalid timezone and malformed schedule inputs', () => {
 test('calculates local calendar date in the requested timezone', () => {
   assert.equal(dateInTimeZone(new Date('2026-10-18T20:00:00.000Z'), 'Asia/Kolkata'), '2026-10-19');
 });
+
+test('low assessment evidence creates a targeted practice mission instead of a learn mission', () => {
+  const result = buildWeeklyMissionPlan({
+    topics: [{ ...topics[0], estimatedMinutes: 15, practiceOnly: true }],
+    minutesPerDay: 30,
+    daysPerWeek: 3,
+    startDate: '2026-10-21',
+    timeZone: 'UTC',
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.data.missions.length, 1);
+  assert.equal(result.data.missions[0].missionType, 'PRACTICE');
+  assert.match(result.data.missions[0].title, /^Practice:/);
+  assert.match(result.data.missions[0].description, /Targeted practice after your latest assessment/);
+});

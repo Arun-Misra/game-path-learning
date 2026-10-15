@@ -75,6 +75,16 @@ async function generateWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = 
           learningObjectives: true,
           estimatedMinutes: true,
           position: true,
+          assessment: {
+            select: {
+              attempts: {
+                where: { userId },
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+                select: { score: true },
+              },
+            },
+          },
         },
       },
     },
@@ -174,8 +184,14 @@ async function generateWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = 
     }),
   ]);
 
+  const latestScoreByTopic = new Map(
+    roadmap.topics.map((topic) => [topic.id, topic.assessment?.attempts?.[0]?.score ?? null]),
+  );
   const completedTopicIds = new Set(
-    progress.filter((item) => ['COMPLETED', 'MASTERED'].includes(item.status)).map((item) => item.topicId),
+    progress
+      .filter((item) => ['COMPLETED', 'MASTERED'].includes(item.status)
+        && !(latestScoreByTopic.get(item.topicId) !== null && latestScoreByTopic.get(item.topicId) < 85))
+      .map((item) => item.topicId),
   );
   const completedMinutesByTopic = new Map();
   for (const mission of completedMissions) {
@@ -189,7 +205,10 @@ async function generateWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = 
     .filter((topic) => !completedTopicIds.has(topic.id))
     .map((topic) => ({
       ...topic,
-      estimatedMinutes: topic.estimatedMinutes - (completedMinutesByTopic.get(topic.id) || 0),
+      estimatedMinutes: latestScoreByTopic.get(topic.id) !== null && latestScoreByTopic.get(topic.id) < 85
+        ? Math.min(goal.minutesPerDay, 15)
+        : topic.estimatedMinutes - (completedMinutesByTopic.get(topic.id) || 0),
+      practiceOnly: latestScoreByTopic.get(topic.id) !== null && latestScoreByTopic.get(topic.id) < 85,
     }))
     .filter((topic) => topic.estimatedMinutes >= 5);
 

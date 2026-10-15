@@ -73,7 +73,7 @@ function buildWeeklyMissionPlan({ topics, minutesPerDay, daysPerWeek, startDate,
     while (remainingToday >= 5 && topicIndex < orderedTopics.length) {
       const topic = orderedTopics[topicIndex];
       const duration = Math.min(topicRemaining, remainingToday);
-      const isFirstSegment = segmentIndex === 0;
+      const isFirstSegment = segmentIndex === 0 && !topic.practiceOnly;
       const objectives = Array.isArray(topic.learningObjectives) ? topic.learningObjectives : [];
 
       missions.push({
@@ -85,7 +85,9 @@ function buildWeeklyMissionPlan({ topics, minutesPerDay, daysPerWeek, startDate,
         title: `${isFirstSegment ? 'Learn' : 'Practice'}: ${topic.title}`,
         description: isFirstSegment
           ? topic.description
-          : `Practise the ideas from “${topic.title}”. ${topic.description}`,
+          : topic.practiceOnly
+            ? `Targeted practice after your latest assessment: ${topic.description}`
+            : `Practise the ideas from “${topic.title}”. ${topic.description}`,
         estimatedMinutes: duration,
         completionCriteria: {
           objectives,
