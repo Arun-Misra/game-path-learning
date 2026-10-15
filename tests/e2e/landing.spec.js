@@ -531,3 +531,108 @@ test('each saved learning goal shows its own adaptive next step', async ({ page 
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
+
+test('assessment retake refreshes topic mastery and the next recommendation', async ({ page }) => {
+  const goal = { id: 'goal-retake', skill: 'Data Structures', experience: 'some_experience', outcome: 'Solve interview problems', minutesPerDay: 30, daysPerWeek: 5, status: 'active' };
+  let latestScore = 54;
+  let attemptCount = 0;
+  const roadmap = {
+    id: 'roadmap-retake',
+    version: 1,
+    title: 'Data Structures path',
+    summary: 'Practice and verify core topics.',
+    generationState: 'ACTIVE',
+    topics: [
+      {
+        id: 'topic-arrays',
+        title: 'Arrays',
+        description: 'Understand indexed collections.',
+        learningObjectives: ['Read and update elements'],
+        estimatedMinutes: 30,
+        position: 0,
+        prerequisites: [],
+        userProgress: [{ status: latestScore >= 85 ? 'MASTERED' : 'COMPLETED', masteryScore: latestScore / 100, attempts: attemptCount, lastActivityAt: '2026-10-20T12:00:00.000Z' }],
+        assessment: { attempts: [{ score: latestScore, passed: latestScore >= 70, createdAt: '2026-10-20T12:00:00.000Z' }] },
+      },
+      {
+        id: 'topic-hashing',
+        title: 'Hashing',
+        description: 'Use hash maps to solve lookup problems.',
+        learningObjectives: ['Choose an appropriate hash map'],
+        estimatedMinutes: 30,
+        position: 1,
+        prerequisites: [],
+        userProgress: [],
+        assessment: { attempts: [] },
+      },
+    ],
+  };
+  const refreshRoadmap = () => ({
+    ...roadmap,
+    topics: roadmap.topics.map((topic) => topic.id === 'topic-arrays' ? {
+      ...topic,
+      userProgress: [{ status: latestScore >= 85 ? 'MASTERED' : 'COMPLETED', masteryScore: latestScore / 100, attempts: attemptCount, lastActivityAt: '2026-10-21T00:00:00.000Z' }],
+      assessment: { attempts: [{ score: latestScore, passed: latestScore >= 70, createdAt: '2026-10-21T00:00:00.000Z' }] },
+    } : topic),
+  });
+  await page.route('**/api/v1/ready', (route) => route.fulfill({ json: { data: { ready: true } } }));
+  await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { data: { user: { id: 'user-retake', name: 'Learner', email: 'learner@example.com' } } } }));
+  await page.route('**/api/v1/learning-goals', (route) => route.fulfill({ json: { data: { goals: [goal] } } }));
+  await page.route('**/api/v1/learning-goals/goal-retake/roadmaps', (route) => route.fulfill({ json: { data: { roadmaps: [refreshRoadmap()] } } }));
+  await page.route('**/api/v1/learning-goals/goal-retake/next-step**', (route) => {
+    const low = latestScore < 85;
+    return route.fulfill({ json: { data: {
+      recommendation: low
+        ? { action: 'REINFORCE_TOPIC', title: 'Reinforce: Arrays', reason: 'Your latest assessment was 54%. Practise before moving on.' }
+        : { action: 'LEARN_TOPIC', title: 'Start: Hashing', reason: 'Arrays now have mastery evidence. Continue to the next topic.' },
+      masterySummary: {
+        totalTopics: 2, masteredCount: latestScore >= 85 ? 1 : 0, completedCount: latestScore >= 85 ? 0 : 1, inProgressCount: 0, notStartedCount: 1,
+        dueReviewCount: 0, needsPracticeCount: latestScore < 85 ? 1 : 0, averageAssessmentScore: latestScore,
+        topics: [
+          { id: 'topic-arrays', title: 'Arrays', position: 0, status: latestScore >= 85 ? 'MASTERED' : 'COMPLETED', latestAssessmentScore: latestScore, latestAssessmentAt: '2026-10-21T00:00:00.000Z', lastActivityAt: '2026-10-21T00:00:00.000Z', daysSinceActivity: 0, reviewIntervalDays: null, reviewDue: false, needsPractice: latestScore < 85, scoreTrend: 'IMPROVING', previousAssessmentScore: 54 },
+          { id: 'topic-hashing', title: 'Hashing', position: 1, status: 'NOT_STARTED', latestAssessmentScore: null, latestAssessmentAt: null, lastActivityAt: null, daysSinceActivity: null, reviewIntervalDays: null, reviewDue: false, needsPractice: false, scoreTrend: 'UNKNOWN', previousAssessmentScore: null },
+        ],
+      },
+    } } });
+  });
+  await page.route('**/api/v1/learning-goals/goal-retake/assessments/topic-arrays/generate', (route) => route.fulfill({
+    status: attemptCount === 0 ? 201 : 200,
+    json: { data: { alreadyExisted: attemptCount > 0, assessment: {
+      id: 'assessment-arrays',
+      title: 'Arrays understanding check',
+      instructions: 'Choose the best answer.',
+      questions: [{ key: 'q1', prompt: 'Which option demonstrates correct array access?', options: ['Incorrect access', 'Correct indexed access'] }],
+    } } },
+  }));
+  await page.route('**/api/v1/learning-goals/goal-retake/assessments/topic-arrays/attempts', async (route) => {
+    attemptCount += 1;
+    latestScore = attemptCount === 1 ? 54 : 92;
+    await route.fulfill({ status: 201, json: { data: {
+      attempt: { id: `attempt-${attemptCount}`, score: latestScore, correctCount: attemptCount === 1 ? 0 : 1, questionCount: 1, passed: latestScore >= 70, createdAt: '2026-10-21T00:00:00.000Z' },
+      feedback: [{ key: 'q1', correct: latestScore >= 70, explanation: 'Use the array index to access the element.' }],
+      topicProgress: { status: latestScore >= 85 ? 'MASTERED' : 'COMPLETED', masteryScore: latestScore / 100 },
+    } } });
+  });
+  await page.route('**/api/v1/learning-goals/goal-retake/missions?**', (route) => route.fulfill({ json: { data: { missions: [], totalXp: 0 } } }));
+  await page.route(/\/api\/v1\/learning-goals\/goal-retake\/missions\/recovery(?:\?.*)?$/, (route) => route.fulfill({ json: { data: { roadmapId: roadmap.id, missedCount: 0, missedMissions: [], currentWeekMissions: [], hasCurrentPlan: false, canReplan: true, timeZone: 'UTC', weekStartsOn: '2026-10-21' } } }));
+  await page.route('**/api/v1/learning-goals/goal-retake/project-milestones', (route) => route.fulfill({ json: { data: { roadmapId: roadmap.id, deliverable: null, milestones: [] } } }));
+  await page.route('**/api/v1/gamification**', (route) => route.fulfill({ json: { data: { level: { level: 1 }, streak: { current: 0 }, totalXp: 0, achievements: [] } } }));
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/');
+  await expect(page.getByText('Reinforce: Arrays', { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Take assessment' }).first().click();
+  await page.getByLabel('Incorrect access').check();
+  await page.getByRole('button', { name: 'Submit assessment' }).click();
+  await expect(page.getByText('Score: 54% · Keep practising')).toBeVisible();
+  await expect(page.getByText('Reinforce: Arrays', { exact: true }).first()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Reload assessment' }).first().click();
+  await page.getByLabel('Correct indexed access').check();
+  await page.getByRole('button', { name: 'Submit assessment' }).click();
+  await expect(page.getByText('Score: 92% · Passed')).toBeVisible();
+  await expect(page.getByText('Start: Hashing', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Latest check: 92%')).toBeVisible();
+  await expect(page.getByText('Demonstrated understanding', { exact: true }).first()).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440);
+});

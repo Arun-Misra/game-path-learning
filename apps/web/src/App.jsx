@@ -140,6 +140,15 @@ function App() {
       });
   }, []);
 
+  async function refreshRoadmaps(goalId) {
+    try {
+      const result = await requestJson(`/api/v1/learning-goals/${goalId}/roadmaps`);
+      setRoadmapsByGoal((current) => ({ ...current, [goalId]: result.data.roadmaps }));
+    } catch {
+      // Keep the last loaded roadmap if a refresh fails.
+    }
+  }
+
   async function refreshMissionRecovery(goalId) {
     try {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -582,7 +591,7 @@ function App() {
         type: result.data.attempt.passed ? 'success' : 'error',
         message: `Assessment score: ${result.data.attempt.score}%. ${result.data.attempt.passed ? 'You passed!' : 'Review the explanations and try again.'}`,
       });
-      await refreshNextStep(goal.id);
+      await Promise.all([refreshNextStep(goal.id), refreshRoadmaps(goal.id)]);
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
     } finally {

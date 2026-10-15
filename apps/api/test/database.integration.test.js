@@ -204,6 +204,21 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       );
       assert.equal(otherUserAssessmentResponse.status, 404);
 
+      const failedAttemptResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/assessments/${secondDraft.topics[0].id}/attempts`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Cookie: first.cookie },
+          body: JSON.stringify({
+            answers: assessmentQuestions.map((question) => ({ key: question.key, answerIndex: 1 })),
+          }),
+        },
+      );
+      assert.equal(failedAttemptResponse.status, 201);
+      const failedAttemptData = (await failedAttemptResponse.json()).data;
+      assert.equal(failedAttemptData.attempt.score, 0);
+      assert.equal(failedAttemptData.topicProgress.status, 'IN_PROGRESS');
+
       const attemptResponse = await fetch(
         `${baseUrl}/api/v1/learning-goals/${goal.id}/assessments/${secondDraft.topics[0].id}/attempts`,
         {
@@ -219,6 +234,10 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       assert.equal(attemptData.attempt.score, 100);
       assert.equal(attemptData.attempt.passed, true);
       assert.equal(attemptData.topicProgress.status, 'MASTERED');
+      const persistedProgress = await prisma.userTopicProgress.findUnique({ where: { userId_topicId: { userId: first.body.data.user.id, topicId: secondDraft.topics[0].id } } });
+      assert.equal(persistedProgress.status, 'MASTERED');
+      assert.equal(persistedProgress.attempts, 2);
+      assert.equal(persistedProgress.masteryScore, 1);
 
       const nextStepResponse = await fetch(
         `${baseUrl}/api/v1/learning-goals/${goal.id}/next-step`,

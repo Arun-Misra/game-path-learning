@@ -218,3 +218,9 @@ Do not update master/reference docs frequently; update this context only for mat
 - If a topic remains marked mastered but the two latest assessment scores differ by a decline of at least 10 percentage points, the next-step policy now recommends a retrieval review immediately instead of waiting until the shorter 7 day interval expires.
 - Score deltas are rounded to percentage points before threshold comparisons, avoiding floating point edge cases at exactly 10 points.
 - Added a regression test for a 99% to 89% decline within the previous day. Validation: `npm test` passed 71/71, `npm run check`, `npm run build`, and `npm run test:e2e` (8/8) passed. Run `git diff --check` before committing.
+
+## Assessment retake consistency (2026-10-21)
+- After submitting an assessment, the dashboard now refreshes both the adaptive next step/mastery summary and the persisted roadmap data used for topic status and latest score labels.
+- Extended PostgreSQL integration coverage to submit a failed attempt followed by a passing attempt and verify progress transitions from IN_PROGRESS to MASTERED, attempt count increments, and mastery score updates.
+- Added Playwright coverage for a learner scoring 54% on an initial assessment, retaking it at 92%, and then seeing the latest check update and next step change from reinforcement to the next unmastered topic.
+- Validation: `npm test` passed 71/71 including PostgreSQL integration; `npm run test:e2e` passed 9/9. Re-run `npm run check`, `npm run build`, and `git diff --check` after this batch's final edits.
