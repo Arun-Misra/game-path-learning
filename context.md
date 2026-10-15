@@ -202,3 +202,8 @@ Do not update master/reference docs frequently; update this context only for mat
 - Added unit coverage for score bands, declining performance, and stale mastery versus recent attempts.
 - Added a Playwright dashboard journey that switches between a learner needing reinforcement after a low score and a high-performing learner whose mastered topic is due for retrieval review. Both profiles verify different recommendations and responsive layout.
 - The 7, 14, and 30 day intervals remain heuristic defaults; no real learner outcome dataset exists here to justify claiming they are calibrated. Validation for this batch: `npm test` passed 68/68 including PostgreSQL integration; `npm run check`, `npm run build`, `npm run test:e2e` (7/7), and `git diff --check` passed.
+
+## Reinforcement guard for recently weak mastered topics (2026-10-21)
+- Recommendation priority now treats any latest assessment below 85% as a reinforcement signal, even if historical progress still labels the topic mastered. This avoids sending a learner to a new chunk immediately after a weak check.
+- Added boundary assertions for the 85% threshold, a mastered topic scoring 82%, and an improving trend where the latest score should supersede older mastery.
+- Validation: `npm test` passed 70/70 including PostgreSQL integration; `npm run check`, `npm run build`, and `npm run test:e2e` (7/7) passed. `git diff --check` remains to be run before commit.

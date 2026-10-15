@@ -62,9 +62,7 @@ The integration test exercises registration, login, logout, goal persistence, ro
 - `GET /api/v1/learning-goals/:goalId`
 - `GET /api/v1/learning-goals/:goalId/next-step?timeZone=Asia%2FKolkata` — recommend the next action from topic progress, recent assessments, current missions, and due spaced reviews; response also includes a mastery snapshot with topic states, latest scores, practice gaps, and due reviews
 
-Adaptive review timing uses the latest assessment score when available, falling back to stored mastery. A decline of at least 10 percentage points between the two latest attempts shortens the interval to 7 days. The 7, 14, and 30 day bands are heuristic defaults and are not calibrated against real learner outcome data.
-
-Adaptive review timing uses the latest assessment score when available, falling back to stored mastery. A decline of at least 10 percentage points between the two latest attempts shortens the interval to 7 days. The 7, 14, and 30 day bands are heuristic defaults and are not calibrated against real learner outcome data.
+Adaptive review timing uses the latest assessment score when available, falling back to stored mastery. A decline of at least 10 percentage points between the two latest attempts shortens the interval to 7 days. The 7, 14, and 30 day bands are heuristic defaults and are not calibrated against real learner outcome data. A mastered topic with a recent assessment below 85% is routed to reinforcement instead of automatically advancing to a new learning chunk.
 - `POST /api/v1/learning-goals/:goalId/roadmaps/generate` — generate and persist a personalised draft
 - `POST /api/v1/learning-goals/:goalId/roadmaps` — validate and persist a supplied draft
 - `GET /api/v1/learning-goals/:goalId/roadmaps` — list versions

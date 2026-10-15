@@ -53,6 +53,15 @@ test('suggests the next unmastered topic and moves to a new chunk only when all 
   const done = recommendNextAction({ roadmap: { topics: [topic('a', 0, { status: 'MASTERED', score: 95 }), topic('b', 1, { status: 'MASTERED', score: 90 })] } });
   assert.equal(done.action, 'NEXT_CHUNK');
 });
+test('a mastered topic with a recent score below 85 is reinforced instead of advancing to a new chunk', () => {
+  const result = recommendNextAction({
+    roadmap: { topics: [topic('a', 0, { status: 'MASTERED', score: 82 })] },
+  });
+  assert.equal(result.action, 'REINFORCE_TOPIC');
+  assert.equal(result.topicId, 'a');
+  assert.match(result.reason, /82%/);
+});
+
 test('a recent low score can trigger reinforcement even after earlier mastery', () => {
   const result = recommendNextAction({
     roadmap: { topics: [topic('a', 0, { status: 'MASTERED', score: 45 })] },
@@ -126,6 +135,8 @@ test('mastery summary separates mastery, completed work, practice gaps, and due 
 test('review intervals follow mastery score bands and summary is absent without an active roadmap', () => {
   assert.equal(reviewIntervalForScore(0.96), 30);
   assert.equal(reviewIntervalForScore(0.85), 14);
+  assert.equal(reviewIntervalForScore(0.8499), 7);
+  assert.equal(reviewIntervalForScore(0.95), 30);
   assert.equal(reviewIntervalForScore(0.7), 7);
   assert.equal(reviewIntervalForScore(null), null);
   assert.equal(buildMasterySummary({ roadmap: null }), null);
@@ -137,6 +148,28 @@ test('review interval responds to recent assessment evidence instead of stale ma
   assert.equal(reviewIntervalForEvidence({ score: 0.88, previousScore: 0.99 }), 7);
   assert.equal(reviewIntervalForEvidence({ score: 0.74, previousScore: 0.88 }), 7);
   assert.equal(reviewIntervalForEvidence({ score: null, previousScore: 0.88 }), null);
+});
+
+test('improving assessment trend uses the latest score band instead of stale mastery', () => {
+  const result = buildMasterySummary({
+    now: new Date('2026-10-20T12:00:00.000Z'),
+    roadmap: {
+      topics: [{
+        id: 'improving',
+        position: 0,
+        title: 'Improving topic',
+        userProgress: [{ status: 'MASTERED', masteryScore: 0.71, attempts: 2, lastActivityAt: new Date('2026-10-01T12:00:00.000Z') }],
+        assessment: { attempts: [
+          { score: 92, passed: true, createdAt: new Date('2026-10-01T12:00:00.000Z') },
+          { score: 71, passed: true, createdAt: new Date('2026-09-01T12:00:00.000Z') },
+        ] },
+      }],
+    },
+  });
+  assert.equal(result.topics[0].reviewIntervalDays, 14);
+  assert.equal(result.topics[0].scoreTrend, 'IMPROVING');
+  assert.equal(result.topics[0].latestAssessmentScore, 92);
+  assert.equal(result.topics[0].previousAssessmentScore, 71);
 });
 
 test('mastered topic with declining assessment trend gets a shorter review interval', () => {

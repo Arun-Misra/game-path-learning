@@ -172,7 +172,7 @@ function recommendNextAction({ roadmap, missions = [], now = new Date() }) {
   const needsReinforcement = topics.find((topic) => {
     const progress = topicProgress(topic);
     const attempt = latestAttempt(topic);
-    return attempt && attempt.score < 85 && progress?.status !== 'MASTERED';
+    return attempt && attempt.score < 85;
   });
   if (needsReinforcement) {
     const attempt = latestAttempt(needsReinforcement);
