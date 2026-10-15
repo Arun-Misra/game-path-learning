@@ -207,3 +207,9 @@ Do not update master/reference docs frequently; update this context only for mat
 - Recommendation priority now treats any latest assessment below 85% as a reinforcement signal, even if historical progress still labels the topic mastered. This avoids sending a learner to a new chunk immediately after a weak check.
 - Added boundary assertions for the 85% threshold, a mastered topic scoring 82%, and an improving trend where the latest score should supersede older mastery.
 - Validation: `npm test` passed 70/70 including PostgreSQL integration; `npm run check`, `npm run build`, and `npm run test:e2e` (7/7) passed. `git diff --check` remains to be run before commit.
+
+## Per goal recommendations and reinforcement guard (2026-10-21)
+- The dashboard now renders each saved goal's own recommended next step inside its card, in addition to the primary next-move panel. This makes separate goal-specific advice visible when learners maintain multiple active goals.
+- A latest assessment below 85% now routes to reinforcement even if older progress data still labels the topic mastered, preventing an immediate leap to a new chunk after a weak check.
+- Added boundary tests for the 85% practice threshold and improving assessment trends; added Playwright coverage for two goals with different recommendations and mastery profiles.
+- Validation: `npm test` passed 70/70 including PostgreSQL integration; `npm run check`, `npm run build`, `npm run test:e2e` (8/8), and `git diff --check` passed.

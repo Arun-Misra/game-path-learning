@@ -61,8 +61,6 @@ The integration test exercises registration, login, logout, goal persistence, ro
 - `GET /api/v1/learning-goals`
 - `GET /api/v1/learning-goals/:goalId`
 - `GET /api/v1/learning-goals/:goalId/next-step?timeZone=Asia%2FKolkata` — recommend the next action from topic progress, recent assessments, current missions, and due spaced reviews; response also includes a mastery snapshot with topic states, latest scores, practice gaps, and due reviews
-
-Adaptive review timing uses the latest assessment score when available, falling back to stored mastery. A decline of at least 10 percentage points between the two latest attempts shortens the interval to 7 days. The 7, 14, and 30 day bands are heuristic defaults and are not calibrated against real learner outcome data. A mastered topic with a recent assessment below 85% is routed to reinforcement instead of automatically advancing to a new learning chunk.
 - `POST /api/v1/learning-goals/:goalId/roadmaps/generate` — generate and persist a personalised draft
 - `POST /api/v1/learning-goals/:goalId/roadmaps` — validate and persist a supplied draft
 - `GET /api/v1/learning-goals/:goalId/roadmaps` — list versions
@@ -79,6 +77,8 @@ Adaptive review timing uses the latest assessment score when available, falling 
 Roadmap generation requests structured JSON from the configured model and validates the result, including prerequisite references and cycles, before saving. Generation is rate-limited and does not silently substitute a canned roadmap.
 
 Project milestones are generated from a confirmed learning brief's capabilities and final deliverable, then saved against the active roadmap. Completion is sequential and requires evidence of at least 20 characters; ownership is checked on every request. The dashboard displays success criteria, progress, and saved evidence.
+
+Adaptive review timing uses the latest assessment score when available, falling back to stored mastery. A decline of at least 10 percentage points between the two latest attempts shortens the interval to 7 days. The 7, 14, and 30 day bands are heuristic defaults and are not calibrated against real learner outcome data. A mastered topic with a recent assessment below 85% is routed to reinforcement instead of automatically advancing to a new learning chunk. The dashboard shows each saved goal's own adaptive recommendation, so advice for one goal is not hidden by another.
 
 Mission scheduling uses the active roadmap, daily minute budget, days-per-week availability, and the user's IANA timezone. It splits long topics into manageable sessions, spaces sessions across the week, avoids creating arbitrary tasks solely for rewards, and persists mission instances idempotently. When a learner generates a new week, overdue unfinished sessions on the active roadmap are marked expired and the remaining topic work is rescheduled from verified completion/progress evidence. The Mission Player records a short learner reflection as completion evidence. Completion checks ownership and prerequisite progress, writes completion and XP ledger records in one transaction, and returns authoritative XP totals. Duplicate completion requests do not award XP twice. The recovery flow previews expired sessions, blocks rebuilding while a session is in progress, replaces only unstarted sessions in the current week, and marks recovered history so the prompt does not repeat.
 

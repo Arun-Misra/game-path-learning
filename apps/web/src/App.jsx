@@ -814,6 +814,7 @@ function App() {
 <p className="mt-1 text-sm text-[#737b70]">{goal.outcome}</p>
 
 <p className="mt-3 text-xs text-[#82917b]">{goal.minutesPerDay} min/day · {goal.daysPerWeek} days/week · {goal.status} · {missionsByGoal[goal.id]?.totalXp || 0} XP</p>
+{nextStepByGoal[goal.id] && <div className="mt-3 border-l-2 border-[#688663] pl-3" aria-label={`Next step for ${goal.skill}`}><p className="text-[10px] font-bold uppercase tracking-wide text-[#688663]">Recommended next step</p><p className="mt-1 text-sm font-semibold text-[#29263b]">{nextStepByGoal[goal.id].title}</p><p className="mt-1 text-xs leading-5 text-[#737b70]">{nextStepByGoal[goal.id].reason}</p></div>}
 {masterySummaryByGoal[goal.id] && <section className="mt-4 border border-[#343432] bg-[#191918] p-3" aria-label={`Mastery snapshot for ${goal.skill}`}>
   <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#ff5933]">Mastery snapshot</p><span className="text-[11px] text-[#a3a39f]">{masterySummaryByGoal[goal.id].totalTopics} topics</span></div>
   <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">

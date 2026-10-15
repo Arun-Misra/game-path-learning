@@ -461,17 +461,73 @@ test('adaptive dashboard responds differently to a learner needing practice and 
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/');
-  await expect(page.getByText('Reinforce: Arrays', { exact: true })).toBeVisible();
+  await expect(page.getByText('Reinforce: Arrays', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Needs practice', { exact: true })).toBeVisible();
   await expect(page.getByText('54%', { exact: true })).toBeVisible();
 
   activeProfile = 'dueReview';
   await page.reload();
-  await expect(page.getByText('Refresh: Binary Search', { exact: true })).toBeVisible();
+  await expect(page.getByText('Refresh: Binary Search', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Reviews due', { exact: true })).toBeVisible();
   await expect(page.getByText('Binary Search', { exact: true })).toBeVisible();
   await expect(page.getByText('97%', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+});
+
+test('each saved learning goal shows its own adaptive next step', async ({ page }) => {
+  const goals = [
+    { id: 'goal-arrays', skill: 'Data Structures', experience: 'some_experience', outcome: 'Solve interview problems', minutesPerDay: 30, daysPerWeek: 5, status: 'active' },
+    { id: 'goal-web', skill: 'Web Development', experience: 'beginner', outcome: 'Build a full stack app', minutesPerDay: 45, daysPerWeek: 4, status: 'active' },
+  ];
+  const roadmaps = {
+    'goal-arrays': { id: 'roadmap-arrays', version: 1, title: 'Data Structures path', summary: 'Practice core structures.', generationState: 'ACTIVE', topics: [] },
+    'goal-web': { id: 'roadmap-web', version: 1, title: 'Web Development path', summary: 'Build and test an app.', generationState: 'ACTIVE', topics: [] },
+  };
+  const recommendations = {
+    'goal-arrays': {
+      recommendation: { action: 'REINFORCE_TOPIC', title: 'Reinforce: Arrays', reason: 'Your latest assessment was 54%. Practise before moving on.' },
+      masterySummary: { totalTopics: 1, masteredCount: 0, completedCount: 1, inProgressCount: 0, notStartedCount: 0, dueReviewCount: 0, needsPracticeCount: 1, averageAssessmentScore: 54, topics: [{ id: 'arrays', title: 'Arrays', position: 0, status: 'COMPLETED', latestAssessmentScore: 54, latestAssessmentAt: '2026-10-20T12:00:00.000Z', lastActivityAt: '2026-10-20T12:00:00.000Z', daysSinceActivity: 1, reviewIntervalDays: null, reviewDue: false, needsPractice: true, scoreTrend: 'DECLINING' }] },
+    },
+    'goal-web': {
+      recommendation: { action: 'REVIEW_TOPIC', title: 'Refresh: HTML semantics', reason: 'Your latest assessment is strong, and retrieval review is due.' },
+      masterySummary: { totalTopics: 1, masteredCount: 1, completedCount: 0, inProgressCount: 0, notStartedCount: 0, dueReviewCount: 1, needsPracticeCount: 0, averageAssessmentScore: 97, topics: [{ id: 'html', title: 'HTML semantics', position: 0, status: 'MASTERED', latestAssessmentScore: 97, latestAssessmentAt: '2026-08-01T12:00:00.000Z', lastActivityAt: '2026-08-01T12:00:00.000Z', daysSinceActivity: 81, reviewIntervalDays: 30, reviewDue: true, needsPractice: false, scoreTrend: 'STABLE' }] },
+    },
+  };
+  await page.route('**/api/v1/ready', (route) => route.fulfill({ json: { data: { ready: true } } }));
+  await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { data: { user: { id: 'user-multi', name: 'Learner', email: 'learner@example.com' } } } }));
+  await page.route('**/api/v1/learning-goals', (route) => route.fulfill({ json: { data: { goals } } }));
+  await page.route(/\/api\/v1\/learning-goals\/([^/]+)\/roadmaps$/, (route) => {
+    const goalId = route.request().url().match(/learning-goals\/([^/]+)\/roadmaps/)[1];
+    return route.fulfill({ json: { data: { roadmaps: [roadmaps[goalId]] } } });
+  });
+  await page.route(/\/api\/v1\/learning-goals\/([^/]+)\/next-step(?:\?.*)?$/, (route) => {
+    const goalId = route.request().url().match(/learning-goals\/([^/]+)\/next-step/)[1];
+    return route.fulfill({ json: { data: recommendations[goalId] } });
+  });
+  await page.route(/\/api\/v1\/learning-goals\/([^/]+)\/project-milestones$/, (route) => {
+    const goalId = route.request().url().match(/learning-goals\/([^/]+)\/project-milestones/)[1];
+    return route.fulfill({ json: { data: { roadmapId: roadmaps[goalId].id, deliverable: null, milestones: [] } } });
+  });
+  await page.route(/\/api\/v1\/learning-goals\/([^/]+)\/missions(?:\?.*)?$/, (route) => route.fulfill({ json: { data: { missions: [], totalXp: 0 } } }));
+  await page.route(/\/api\/v1\/learning-goals\/([^/]+)\/missions\/recovery(?:\?.*)?$/, (route) => {
+    const goalId = route.request().url().match(/learning-goals\/([^/]+)\/missions\/recovery/)[1];
+    return route.fulfill({ json: { data: { roadmapId: roadmaps[goalId].id, missedCount: 0, missedMissions: [], currentWeekMissions: [], hasCurrentPlan: false, canReplan: true, timeZone: 'UTC', weekStartsOn: '2026-10-21' } } });
+  });
+  await page.route('**/api/v1/gamification**', (route) => route.fulfill({ json: { data: { level: { level: 1 }, streak: { current: 0 }, totalXp: 0, achievements: [] } } }));
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/');
+  await expect(page.getByText('2 goals saved')).toBeVisible();
+  await expect(page.getByText('Reinforce: Arrays', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Refresh: HTML semantics', { exact: true }).first()).toBeVisible();
+  const arraysCard = page.getByRole('article').filter({ hasText: 'Data Structures' });
+  const webCard = page.getByRole('article').filter({ hasText: 'Web Development' });
+  await expect(arraysCard.getByText('Reinforce: Arrays')).toBeVisible();
+  await expect(webCard.getByText('Refresh: HTML semantics')).toBeVisible();
+  await expect(arraysCard.getByText('54%', { exact: true })).toBeVisible();
+  await expect(webCard.getByText('97%', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
