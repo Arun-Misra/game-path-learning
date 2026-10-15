@@ -213,3 +213,8 @@ Do not update master/reference docs frequently; update this context only for mat
 - A latest assessment below 85% now routes to reinforcement even if older progress data still labels the topic mastered, preventing an immediate leap to a new chunk after a weak check.
 - Added boundary tests for the 85% practice threshold and improving assessment trends; added Playwright coverage for two goals with different recommendations and mastery profiles.
 - Validation: `npm test` passed 70/70 including PostgreSQL integration; `npm run check`, `npm run build`, `npm run test:e2e` (8/8), and `git diff --check` passed.
+
+## Immediate review on a declining mastered topic (2026-10-21)
+- If a topic remains marked mastered but the two latest assessment scores differ by a decline of at least 10 percentage points, the next-step policy now recommends a retrieval review immediately instead of waiting until the shorter 7 day interval expires.
+- Score deltas are rounded to percentage points before threshold comparisons, avoiding floating point edge cases at exactly 10 points.
+- Added a regression test for a 99% to 89% decline within the previous day. Validation: `npm test` passed 71/71, `npm run check`, `npm run build`, and `npm run test:e2e` (8/8) passed. Run `git diff --check` before committing.

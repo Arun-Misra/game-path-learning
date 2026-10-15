@@ -23,7 +23,7 @@ function recentAssessmentScores(topic) {
 function reviewIntervalForEvidence({ score, previousScore = null }) {
   if (score == null || !Number.isFinite(score)) return null;
   // A meaningful decline is a reason to revisit sooner, even if long-term mastery is high.
-  if (previousScore != null && Number.isFinite(previousScore) && previousScore - score >= 0.1) return 7;
+  if (previousScore != null && Number.isFinite(previousScore) && Math.round((previousScore - score) * 100) >= 10) return 7;
   return reviewIntervalForScore(score);
 }
 
@@ -46,7 +46,7 @@ function topicReviewState(topic, now = new Date()) {
     elapsedDays,
     intervalDays,
     previousScore,
-    scoreTrend: previousScore == null || score == null ? 'UNKNOWN' : score - previousScore <= -0.1 ? 'DECLINING' : score - previousScore >= 0.1 ? 'IMPROVING' : 'STABLE',
+    scoreTrend: previousScore == null || score == null ? 'UNKNOWN' : Math.round((score - previousScore) * 100) <= -10 ? 'DECLINING' : Math.round((score - previousScore) * 100) >= 10 ? 'IMPROVING' : 'STABLE',
     reviewDue: intervalDays !== null && elapsedDays !== null && elapsedDays >= intervalDays,
   };
 }
@@ -183,6 +183,23 @@ function recommendNextAction({ roadmap, missions = [], now = new Date() }) {
       topicId: needsReinforcement.id,
       missionId: null,
       assessmentScore: attempt.score,
+    };
+  }
+
+  const decliningMastered = topics
+    .map((topic) => ({ topic, review: topicReviewState(topic, now) }))
+    .filter(({ topic, review }) => topicProgress(topic)?.status === 'MASTERED' && review.scoreTrend === 'DECLINING')
+    .sort((a, b) => (b.review.previousScore - b.review.score) - (a.review.previousScore - a.review.score))[0];
+
+  if (decliningMastered) {
+    return {
+      action: 'REVIEW_TOPIC',
+      title: `Refresh: ${decliningMastered.topic.title}`,
+      reason: `Your latest assessment dropped from ${Math.round(decliningMastered.review.previousScore * 100)}% to ${Math.round(decliningMastered.review.score * 100)}%. Review this topic now before moving on.`,
+      topicId: decliningMastered.topic.id,
+      missionId: null,
+      reviewIntervalDays: decliningMastered.review.intervalDays,
+      scoreTrend: decliningMastered.review.scoreTrend,
     };
   }
 

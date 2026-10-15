@@ -69,6 +69,28 @@ test('a recent low score can trigger reinforcement even after earlier mastery', 
   assert.equal(result.action, 'REINFORCE_TOPIC');
   assert.equal(result.topicId, 'a');
 });
+test('immediately reviews a mastered topic when recent assessment performance declines by ten points', () => {
+  const result = recommendNextAction({
+    now: new Date('2026-10-20T12:00:00.000Z'),
+    roadmap: {
+      topics: [{
+        id: 'declining-now',
+        position: 0,
+        title: 'Binary Search',
+        userProgress: [{ status: 'MASTERED', masteryScore: 0.99, attempts: 3, lastActivityAt: new Date('2026-10-19T12:00:00.000Z') }],
+        assessment: { attempts: [
+          { score: 89, passed: true, createdAt: new Date('2026-10-19T12:00:00.000Z') },
+          { score: 99, passed: true, createdAt: new Date('2026-10-01T12:00:00.000Z') },
+        ] },
+      }],
+    },
+  });
+  assert.equal(result.action, 'REVIEW_TOPIC');
+  assert.equal(result.topicId, 'declining-now');
+  assert.equal(result.reviewIntervalDays, 7);
+  assert.match(result.reason, /dropped from 99% to 89%/);
+});
+
 test('suggests spaced review for mastered topics when their review interval is due', () => {
   const result = recommendNextAction({
     now: new Date('2026-10-20T12:00:00.000Z'),
