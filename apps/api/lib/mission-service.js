@@ -440,7 +440,9 @@ async function completeMission({ userId, goalId, missionId, evidence, db = prism
     });
     const topicStatus = currentTopicProgress?.status === 'MASTERED'
       ? 'MASTERED'
-      : isTopicComplete ? 'COMPLETED' : 'IN_PROGRESS';
+      : currentTopicProgress?.status === 'COMPLETED' || isTopicComplete
+        ? 'COMPLETED'
+        : 'IN_PROGRESS';
     await tx.userTopicProgress.upsert({
       where: { userId_topicId: { userId, topicId: mission.topicId } },
       create: {

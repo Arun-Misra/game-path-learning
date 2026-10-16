@@ -230,3 +230,9 @@ Do not update master/reference docs frequently; update this context only for mat
 - Practice only scheduling is supported by the mission scheduler and uses a 15 minute target within the daily budget. Historical mastery and completed minute evidence remain intact.
 - PostgreSQL integration coverage includes repeated assessments where the learner's latest score falls again after previous mastery; the next generated week adds targeted practice. Scheduler unit coverage verifies the mission type and description.
 - Validation: `npm test` passed 72/72 including PostgreSQL integration; `npm run check`, `npm run build`, and `npm run test:e2e` (9/9) passed. Run `git diff --check` before commit.
+
+## Assessment regression and targeted mission recovery (2026-10-21)
+- A low retake no longer leaves a stale historical mastery score in `UserTopicProgress`. Scores of 85% or above mark the topic mastered; a weaker retake reopens it as completed work that needs practice, and stores the latest score rather than the maximum ever achieved.
+- Weekly mission generation already had targeted practice support, but the active roadmap query must load the current user's latest assessment attempt for that topic. The generated practice is short (up to 15 minutes) and marked `PRACTICE`, instead of silently skipping the topic due to stale progress.
+- Completing targeted practice must not demote a previously completed topic to `IN_PROGRESS`, since this would block downstream topics whose prerequisite is already complete.
+- Integration coverage now verifies that a weak retake updates status and mastery score and that the next generated mission is targeted practice. `npm test` passes 72/72 including PostgreSQL integration.

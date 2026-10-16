@@ -116,10 +116,12 @@ async function submitAssessmentAttempt({ userId, goalId, topicId, answers, db = 
       where: { userId_topicId: { userId, topicId } },
       select: { status: true, attempts: true, masteryScore: true },
     });
+    // Mastery is evidence-based, not permanent: a weak retake should reopen practice.
+    // Keep task completion distinct from mastery so completed work is not erased.
     const status = scored.data.score >= 85
       ? 'MASTERED'
-      : current && ['COMPLETED', 'MASTERED'].includes(current.status)
-        ? current.status
+      : current?.status === 'COMPLETED' || current?.status === 'MASTERED'
+        ? 'COMPLETED'
         : 'IN_PROGRESS';
 
     await tx.userTopicProgress.upsert({
@@ -134,7 +136,7 @@ async function submitAssessmentAttempt({ userId, goalId, topicId, answers, db = 
       },
       update: {
         status,
-        masteryScore: Math.max(current?.masteryScore || 0, scored.data.score / 100),
+        masteryScore: scored.data.score / 100,
         attempts: { increment: 1 },
         lastActivityAt: attempt.createdAt,
       },
@@ -152,7 +154,7 @@ async function submitAssessmentAttempt({ userId, goalId, topicId, answers, db = 
       feedback: scored.data.feedback,
       topicProgress: {
         status,
-        masteryScore: Math.max(current?.masteryScore || 0, scored.data.score / 100),
+        masteryScore: scored.data.score / 100,
       },
     };
   });

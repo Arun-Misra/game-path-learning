@@ -289,8 +289,13 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       assert.equal(regressionAttemptResponse.status, 201);
       const regressionAttempt = (await regressionAttemptResponse.json()).data;
       assert.equal(regressionAttempt.attempt.score, 0);
-      assert.equal(regressionAttempt.topicProgress.status, 'MASTERED');
-      assert.equal(regressionAttempt.topicProgress.masteryScore, 1);
+      assert.equal(regressionAttempt.topicProgress.status, 'COMPLETED');
+      assert.equal(regressionAttempt.topicProgress.masteryScore, 0);
+      const regressedProgress = await prisma.userTopicProgress.findUnique({
+        where: { userId_topicId: { userId: first.body.data.user.id, topicId: secondDraft.topics[0].id } },
+      });
+      assert.equal(regressedProgress.status, 'COMPLETED');
+      assert.equal(regressedProgress.masteryScore, 0);
 
       const staleDate = new Date();
       staleDate.setUTCDate(staleDate.getUTCDate() - 10);
@@ -321,6 +326,7 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       assert.equal(generatedMissions.missions[0].topicId, secondDraft.topics[0].id);
       assert.equal(generatedMissions.missions[0].missionType, 'PRACTICE');
       assert.match(generatedMissions.missions[0].title, /^Practice:/);
+      assert.match(generatedMissions.missions[0].description, /Targeted practice after your latest assessment/);
       assert.ok(generatedMissions.missions.every((mission) => mission.estimatedMinutes <= 30));
       const expiredStaleMission = await prisma.dailyMission.findUnique({ where: { id: staleMission.id } });
       assert.equal(expiredStaleMission.status, 'EXPIRED');
