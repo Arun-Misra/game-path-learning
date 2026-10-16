@@ -236,3 +236,8 @@ Do not update master/reference docs frequently; update this context only for mat
 - Weekly mission generation already had targeted practice support, but the active roadmap query must load the current user's latest assessment attempt for that topic. The generated practice is short (up to 15 minutes) and marked `PRACTICE`, instead of silently skipping the topic due to stale progress.
 - Completing targeted practice must not demote a previously completed topic to `IN_PROGRESS`, since this would block downstream topics whose prerequisite is already complete.
 - Integration coverage now verifies that a weak retake updates status and mastery score and that the next generated mission is targeted practice. `npm test` passes 72/72 including PostgreSQL integration.
+
+## Immediate review visibility for declining mastered topics (2026-10-21)
+- A mastered topic with a decline of at least 10 percentage points is now marked `reviewDue` in the mastery snapshot immediately, even when the latest assessment happened less than 7 days ago. This aligns the dashboard's review count with the recommendation policy.
+- Added a regression test for a 99% to 89% decline one day after the prior assessment; verifies the topic's review interval remains 7 days but it is already due, and due review count increments.
+- Validation: `npm test` passed 73/73 including PostgreSQL integration. Final checks to run: `npm run check`, `npm run build`, `npm run test:e2e`, and `git diff --check`.

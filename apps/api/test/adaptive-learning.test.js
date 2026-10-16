@@ -194,6 +194,28 @@ test('improving assessment trend uses the latest score band instead of stale mas
   assert.equal(result.topics[0].previousAssessmentScore, 71);
 });
 
+test('a recent ten point decline marks a mastered topic due for immediate review', () => {
+  const result = buildMasterySummary({
+    now: new Date('2026-10-20T12:00:00.000Z'),
+    roadmap: {
+      topics: [{
+        id: 'recent-decline',
+        position: 0,
+        title: 'Binary Search',
+        userProgress: [{ status: 'MASTERED', masteryScore: 0.99, attempts: 3, lastActivityAt: new Date('2026-10-19T12:00:00.000Z') }],
+        assessment: { attempts: [
+          { score: 89, passed: true, createdAt: new Date('2026-10-19T12:00:00.000Z') },
+          { score: 99, passed: true, createdAt: new Date('2026-10-18T12:00:00.000Z') },
+        ] },
+      }],
+    },
+  });
+  assert.equal(result.topics[0].reviewIntervalDays, 7);
+  assert.equal(result.topics[0].daysSinceActivity, 1);
+  assert.equal(result.topics[0].reviewDue, true);
+  assert.equal(result.dueReviewCount, 1);
+});
+
 test('mastered topic with declining assessment trend gets a shorter review interval', () => {
   const now = new Date('2026-10-20T12:00:00.000Z');
   const result = buildMasterySummary({

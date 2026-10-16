@@ -27,6 +27,11 @@ function reviewIntervalForEvidence({ score, previousScore = null }) {
   return reviewIntervalForScore(score);
 }
 
+function scoreTrendIsDeclining(score, previousScore) {
+  return score != null && previousScore != null && Number.isFinite(score) && Number.isFinite(previousScore)
+    && Math.round((previousScore - score) * 100) >= 10;
+}
+
 function topicReviewState(topic, now = new Date()) {
   const progress = topicProgress(topic);
   const attempt = latestAttempt(topic);
@@ -47,7 +52,7 @@ function topicReviewState(topic, now = new Date()) {
     intervalDays,
     previousScore,
     scoreTrend: previousScore == null || score == null ? 'UNKNOWN' : Math.round((score - previousScore) * 100) <= -10 ? 'DECLINING' : Math.round((score - previousScore) * 100) >= 10 ? 'IMPROVING' : 'STABLE',
-    reviewDue: intervalDays !== null && elapsedDays !== null && elapsedDays >= intervalDays,
+    reviewDue: intervalDays !== null && (scoreTrendIsDeclining(score, previousScore) || (elapsedDays !== null && elapsedDays >= intervalDays)),
   };
 }
 
