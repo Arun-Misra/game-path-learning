@@ -289,6 +289,11 @@ async function generateWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = 
   };
 }
 
+async function adaptWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = new Date(), db = prisma }) {
+  const result = await generateWeeklyMissions({ userId, goalId, timeZone, now, forceReplan: true, db });
+  return { ...result, adapted: true };
+}
+
 async function getMissedSessionRecovery({ userId, goalId, timeZone = 'UTC', now = new Date(), db = prisma }) {
   await ownedGoal(db, userId, goalId);
   const today = dateInTimeZone(now, timeZone);
@@ -472,4 +477,4 @@ async function completeMission({ userId, goalId, missionId, evidence, db = prism
   return result;
 }
 
-module.exports = { MissionServiceError, listMissions, generateWeeklyMissions, getMissedSessionRecovery, recoverMissedSessions, completeMission };
+module.exports = { MissionServiceError, listMissions, generateWeeklyMissions, adaptWeeklyMissions, getMissedSessionRecovery, recoverMissedSessions, completeMission };

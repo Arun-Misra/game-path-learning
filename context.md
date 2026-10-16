@@ -241,3 +241,8 @@ Do not update master/reference docs frequently; update this context only for mat
 - A mastered topic with a decline of at least 10 percentage points is now marked `reviewDue` in the mastery snapshot immediately, even when the latest assessment happened less than 7 days ago. This aligns the dashboard's review count with the recommendation policy.
 - Added a regression test for a 99% to 89% decline one day after the prior assessment; verifies the topic's review interval remains 7 days but it is already due, and due review count increments.
 - Validation: `npm test` passed 73/73 including PostgreSQL integration. Final checks to run: `npm run check`, `npm run build`, `npm run test:e2e`, and `git diff --check`.
+
+## Safe adaptation of an existing weekly plan (2026-10-21)
+- Added `POST /api/v1/learning-goals/:goalId/missions/adapt`, which uses the existing safe replan path: it refuses to replace an in progress session, deletes only unstarted current week missions, and retains completed sessions and XP.
+- The goal card now exposes an explicit `Adapt this week` action when a current plan has unstarted sessions and the mastery snapshot identifies a practice gap. The dashboard refreshes the plan and recovery/next-step data after adaptation.
+- Integration coverage verifies the adapted plan still schedules targeted practice, preserves the daily minutes budget, and has unique mission IDs. The E2E assessment retake journey now exercises the adaptation action.

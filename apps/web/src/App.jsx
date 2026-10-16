@@ -500,6 +500,25 @@ function App() {
     }
   }
 
+  async function handleAdaptMissions(goal) {
+    setMissionBusyId(goal.id);
+    setNotice(null);
+    try {
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const result = await requestJson(
+        `/api/v1/learning-goals/${goal.id}/missions/adapt?timeZone=${encodeURIComponent(timeZone)}`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      setMissionsByGoal((current) => ({ ...current, [goal.id]: result.data }));
+      await Promise.all([refreshNextStep(goal.id), refreshMissionRecovery(goal.id)]);
+      setNotice({ type: 'success', message: `This week's plan for ${goal.skill} now reflects your latest assessment. Completed sessions and XP were preserved.` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setMissionBusyId(null);
+    }
+  }
+
   async function handleCompleteMission(goal, mission) {
     const reflection = String(missionEvidenceById[mission.id] || '').trim();
     if (reflection.length < 10) {
@@ -840,8 +859,12 @@ function App() {
 <div className="flex flex-wrap gap-2">
 <button type="button" onClick={() => handleDeleteGoal(goal)} disabled={roadmapBusyGoal !== null || apiStatus !== 'online'} className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">{roadmapBusyGoal === goal.id ? 'Working…' : 'Delete goal'}</button>
 <button type="button" onClick={() => handleGenerateRoadmap(goal)} disabled={roadmapBusyGoal !== null || apiStatus !== 'online'} className="rounded-xl bg-[#263f32] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{questionFormGoal === goal.id ? 'Questions open below' : 'Plan next learning chunk'}</button>
-{(roadmapsByGoal[goal.id] || []).some((item) => item.generationState === 'ACTIVE') && <button type="button" onClick={() => handleGenerateMissions(goal)} disabled={missionBusyId !== null || apiStatus !== 'online'} className="rounded-xl border border-[#b9cbb2] px-3 py-2 text-xs font-semibold text-[#355a39] disabled:opacity-50">{missionBusyId === goal.id ? 'Scheduling…' : 'Plan this week'}</button>
-}</div>
+{(roadmapsByGoal[goal.id] || []).some((item) => item.generationState === 'ACTIVE') && <button type="button" onClick={() => handleGenerateMissions(goal)} disabled={missionBusyId !== null || apiStatus !== 'online'} className="rounded-xl border border-[#b9cbb2] px-3 py-2 text-xs font-semibold text-[#355a39] disabled:opacity-50">{missionBusyId === goal.id ? 'Scheduling…' : 'Plan this week'}</button>}
+{masterySummaryByGoal[goal.id]?.needsPracticeCount > 0
+  && (missionsByGoal[goal.id]?.missions || []).some((mission) => mission.status === 'SCHEDULED')
+  && !(missionsByGoal[goal.id]?.missions || []).some((mission) => mission.status === 'IN_PROGRESS')
+  && <button type="button" onClick={() => handleAdaptMissions(goal)} disabled={missionBusyId !== null || apiStatus !== 'online'} className="rounded-xl border border-[#ff9b7d] px-3 py-2 text-xs font-semibold text-[#a43d21] disabled:opacity-50">{missionBusyId === goal.id ? 'Adapting…' : 'Adapt this week'}</button>}
+</div>
 
 </div>
 {questionFormGoal === goal.id && <div className="mt-4 rounded-2xl border border-[#dfe7d9] bg-[#fbfcf8] p-4">

@@ -613,7 +613,30 @@ test('assessment retake refreshes topic mastery and the next recommendation', as
       topicProgress: { status: latestScore >= 85 ? 'MASTERED' : 'COMPLETED', masteryScore: latestScore / 100 },
     } } });
   });
-  await page.route('**/api/v1/learning-goals/goal-retake/missions?**', (route) => route.fulfill({ json: { data: { missions: [], totalXp: 0 } } }));
+  let missionState = [{
+    id: 'mission-retake',
+    topicId: 'topic-arrays',
+    scheduledDate: '2026-10-21',
+    status: 'SCHEDULED',
+    missionType: 'LEARN',
+    title: 'Learn: Arrays',
+    description: 'Work through array fundamentals.',
+    estimatedMinutes: 15,
+    completionCriteria: { instruction: 'Explain array access.' },
+    topic: { id: 'topic-arrays', title: 'Arrays', position: 0 },
+    completion: null,
+  }];
+  await page.route('**/api/v1/learning-goals/goal-retake/missions?**', (route) => route.fulfill({ json: { data: { missions: missionState, totalXp: 0 } } }));
+  await page.route('**/api/v1/learning-goals/goal-retake/missions/adapt?**', async (route) => {
+    missionState = [{
+      ...missionState[0],
+      id: 'mission-retake-practice',
+      missionType: 'PRACTICE',
+      title: 'Practice: Arrays',
+      description: 'Targeted practice after your latest assessment: review array access.',
+    }];
+    await route.fulfill({ status: 201, json: { data: { missions: missionState, totalXp: 0, adapted: true } } });
+  });
   await page.route(/\/api\/v1\/learning-goals\/goal-retake\/missions\/recovery(?:\?.*)?$/, (route) => route.fulfill({ json: { data: { roadmapId: roadmap.id, missedCount: 0, missedMissions: [], currentWeekMissions: [], hasCurrentPlan: false, canReplan: true, timeZone: 'UTC', weekStartsOn: '2026-10-21' } } }));
   await page.route('**/api/v1/learning-goals/goal-retake/project-milestones', (route) => route.fulfill({ json: { data: { roadmapId: roadmap.id, deliverable: null, milestones: [] } } }));
   await page.route('**/api/v1/gamification**', (route) => route.fulfill({ json: { data: { level: { level: 1 }, streak: { current: 0 }, totalXp: 0, achievements: [] } } }));
@@ -626,6 +649,10 @@ test('assessment retake refreshes topic mastery and the next recommendation', as
   await page.getByRole('button', { name: 'Submit assessment' }).click();
   await expect(page.getByText('Score: 54% · Keep practising')).toBeVisible();
   await expect(page.getByText('Reinforce: Arrays', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Adapt this week' })).toBeVisible();
+  await page.getByRole('button', { name: 'Adapt this week' }).click();
+  await expect(page.getByText(/This week's plan for Data Structures now reflects your latest assessment/)).toBeVisible();
+  await expect(page.getByText('Practice: Arrays', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Reload assessment' }).first().click();
   await page.getByLabel('Correct indexed access').check();

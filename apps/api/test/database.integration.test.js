@@ -341,7 +341,23 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       assert.equal(recoverySummary.missedMissions[0].id, staleMission.id);
       assert.equal(recoverySummary.canReplan, true);
 
-      const firstMission = generatedMissions.missions[0];
+      const adaptMissionsResponse = await fetch(
+        `${baseUrl}/api/v1/learning-goals/${goal.id}/missions/adapt?timeZone=UTC`,
+        { method: 'POST', headers: { Cookie: first.cookie } },
+      );
+      assert.equal(adaptMissionsResponse.status, 201);
+      const adaptedMissions = (await adaptMissionsResponse.json()).data;
+      assert.equal(adaptedMissions.adapted, true);
+      assert.equal(adaptedMissions.missions.length, 3);
+      assert.equal(adaptedMissions.missions[0].missionType, 'PRACTICE');
+      const dailyMinutes = new Map();
+      for (const mission of adaptedMissions.missions) {
+        dailyMinutes.set(mission.scheduledDate, (dailyMinutes.get(mission.scheduledDate) || 0) + mission.estimatedMinutes);
+      }
+      assert.ok([...dailyMinutes.values()].every((minutes) => minutes <= 30));
+      assert.equal(new Set(adaptedMissions.missions.map((mission) => mission.id)).size, adaptedMissions.missions.length);
+
+      const firstMission = adaptedMissions.missions[0];
       const completeFirstMission = async (mission) => fetch(
         `${baseUrl}/api/v1/learning-goals/${goal.id}/missions/${mission.id}/complete`,
         { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: first.cookie }, body: JSON.stringify({}) },
@@ -358,7 +374,7 @@ test('database integration: auth, goals, roadmaps, assessments, missions, reward
       assert.equal(duplicateCompletion.alreadyCompleted, true);
       assert.equal(duplicateCompletion.xpAwarded, 0);
 
-      const secondMissionResponse = await completeFirstMission(generatedMissions.missions[1]);
+      const secondMissionResponse = await completeFirstMission(adaptedMissions.missions[1]);
       assert.equal(secondMissionResponse.status, 200);
       assert.equal((await secondMissionResponse.json()).data.totalXp, 26);
 
