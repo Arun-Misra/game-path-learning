@@ -88,3 +88,7 @@ Mission scheduling uses the active roadmap, daily minute budget, days-per-week a
 The API integration suite passes against the isolated PostgreSQL test database when `TEST_DATABASE_URL` points to a migrated test database. If the default `DATABASE_URL` still returns Prisma P1010 in your environment, correct its credentials and apply migrations before using that database. Local AI generation requires Ollama running with the configured model; hosted providers require a valid provider key.
 
 See `context.md` for current implementation status and the master implementation plan for product requirements and implementation order.
+
+## Deterministic roadmap continuity guard
+
+Later roadmap chunks are checked against verified prior learning before revision. A topic that was completed or mastered and has assessment evidence of at least 85% cannot be repeated under the same normalized title unless the proposed session explicitly serves a review, retrieval, diagnostic, revision, reinforcement, refresh, spaced-practice, or practice-gap purpose. Low-scoring and incomplete topics remain eligible for further work. The same guard runs after the model revises the roadmap, so a revision cannot silently reintroduce an unjustified repeat.

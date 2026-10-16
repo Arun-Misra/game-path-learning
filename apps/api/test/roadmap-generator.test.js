@@ -30,6 +30,7 @@ const {
   applyRealismFloor,
   generateRoadmap,
   getJavaBeginnerInstructionIssues,
+  getUnjustifiedRepeatedTopicIssues,
   isLocalOllama,
   normalizeRoadmapProposal,
   validateReview,
@@ -119,6 +120,26 @@ test('later chunks explicitly continue from prior evidence instead of restarting
   assert.match(review, /CONTINUITY AUDIT/);
   assert.match(review, /repeated completed material without a clear diagnostic\/revision purpose/i);
   assert.match(review, /Variables and types/);
+});
+
+test('deterministic continuity guard blocks unjustified repeats of mastered topics but allows gaps and purposeful review', () => {
+  const priorLearningContext = JSON.stringify({
+    topics: [
+      { title: 'Variables and Types', progress: [{ status: 'MASTERED', masteryScore: 95 }], assessments: [{ score: 95, passed: true }] },
+      { title: 'Loops', progress: [{ status: 'COMPLETED', masteryScore: 70 }], assessments: [{ score: 62, passed: false }] },
+      { title: 'Arrays', progress: [{ status: 'IN_PROGRESS', masteryScore: 0 }], assessments: [] },
+    ],
+  });
+  const candidate = (title, description = 'Learn the concept', key = 'topic') => ({
+    topics: [{ key, title, description, learningObjectives: ['Apply the concept'] }],
+  });
+  const goal = { priorLearningContext };
+  assert.equal(getUnjustifiedRepeatedTopicIssues(candidate('Variables and Types'), goal)[0].code, 'UNJUSTIFIED_COMPLETED_TOPIC_REPEAT');
+  assert.deepEqual(getUnjustifiedRepeatedTopicIssues(candidate('Loops'), goal), []);
+  assert.deepEqual(getUnjustifiedRepeatedTopicIssues(candidate('Arrays'), goal), []);
+  assert.deepEqual(getUnjustifiedRepeatedTopicIssues(candidate('Variables and Types', 'Use retrieval practice to diagnose retention'), goal), []);
+  assert.deepEqual(getUnjustifiedRepeatedTopicIssues(candidate('A new topic'), goal), []);
+  assert.deepEqual(getUnjustifiedRepeatedTopicIssues(candidate('Variables and Types'), {}), []);
 });
 
 test('planner adapts to experience and revision intent without forcing a difficulty level', () => {
@@ -302,6 +323,29 @@ test('E4B revises a draft when its review finds major outcome-alignment issues',
   assert.match(requests[3].messages[1].content, /ENHANCED LEARNING BRIEF TO HONOUR/);
   assert.match(requests[3].messages[1].content, /framework is not a user requirement/);
   assert.equal(result.topics[1].title, 'Character drawing');
+});
+
+test('generation rejects a revised continuation that still repeats a mastered topic without a review purpose', async () => {
+  const priorLearningContext = JSON.stringify({
+    topics: [{
+      title: 'Shape and form',
+      progress: [{ status: 'MASTERED', masteryScore: 95 }],
+      assessments: [{ score: 95, passed: true }],
+    }],
+  });
+  await assert.rejects(
+    generateRoadmap({ ...goal, priorLearningContext }, {
+      apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const name = requestSchemaName(body);
+        if (name === 'enhanced_learning_brief') return responseFor(validLearningBrief());
+        if (name === 'roadmap_review') return responseFor(approvedReview());
+        return responseFor(validProposal());
+      },
+    }),
+    (error) => error instanceof RoadmapGenerationError && error.code === 'ROADMAP_CONTINUITY_FAILED',
+  );
 });
 
 test('invalid reviewer output is rejected instead of silently trusting an unaudited roadmap', async () => {

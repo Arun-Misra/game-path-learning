@@ -329,6 +329,39 @@ function getJavaBeginnerInstructionIssues(roadmap, goal) {
   return issues;
 }
 
+function getUnjustifiedRepeatedTopicIssues(roadmap, goal) {
+  if (!goal?.priorLearningContext || !roadmap || !Array.isArray(roadmap.topics)) return [];
+  let prior;
+  try { prior = JSON.parse(goal.priorLearningContext); } catch { return []; }
+  const normalize = (value) => String(value || '').normalize('NFKD').toLowerCase().replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const evidence = new Map();
+  for (const topic of Array.isArray(prior.topics) ? prior.topics : []) {
+    const title = normalize(topic.title);
+    if (!title) continue;
+    const progress = Array.isArray(topic.progress) ? topic.progress : [];
+    const assessments = Array.isArray(topic.assessments) ? topic.assessments : [];
+    const latestScore = assessments.length && Number.isFinite(Number(assessments[0].score))
+      ? Number(assessments[0].score) : null;
+    const completed = progress.some((item) => ['COMPLETED', 'MASTERED'].includes(String(item.status || '').toUpperCase()));
+    const demonstrated = latestScore !== null ? latestScore >= 85
+      : progress.some((item) => String(item.status || '').toUpperCase() === 'MASTERED'
+        || (String(item.status || '').toUpperCase() === 'COMPLETED' && Number(item.masteryScore) >= 85));
+    if (completed && demonstrated && (latestScore === null || latestScore >= 85)) evidence.set(title, true);
+  }
+  const purposefulReview = /\b(review|retrieval|diagnostic|revision|revise|reinforce|reinforcement|refresh|spaced practice|practice gap)\b/i;
+  return roadmap.topics.flatMap((topic) => {
+    const priorTopic = evidence.get(normalize(topic.title));
+    if (!priorTopic || purposefulReview.test([topic.title, topic.description, ...(topic.learningObjectives || [])].join(' '))) return [];
+    return [{
+      severity: 'major',
+      code: 'UNJUSTIFIED_COMPLETED_TOPIC_REPEAT',
+      explanation: `“${topic.title}” repeats a previously completed topic with demonstrated mastery and no explicit review purpose.`,
+      suggestedFix: 'Move to the next unmastered capability, or make this an explicitly purposeful diagnostic, retrieval, or revision session only when it serves the learner goal.',
+      relatedTopicKeys: topic.key ? [topic.key] : [],
+    }];
+  });
+}
+
 function getOverlongSessions(roadmap, maxSessionMinutes) {
   if (!roadmap || !Array.isArray(roadmap.topics)) return [];
   return roadmap.topics.filter((topic) => topic.estimatedMinutes > maxSessionMinutes);
@@ -614,7 +647,8 @@ async function generateRoadmap(goal, {
   const totalBudgetIssues = initialTotalMinutes > chunkBudgetMinutes
     ? [{ severity: 'major', code: 'CHUNK_OVER_BUDGET', explanation: `The proposed chunk needs ${initialTotalMinutes} minutes, exceeding the available ${chunkBudgetMinutes}-minute chunk budget.`, suggestedFix: 'Reduce the scope or split work into later chunks; do not shrink estimates without reducing the activities.', relatedTopicKeys: roadmap.topics.map((topic) => topic.key) }]
     : [];
-  const requiredFixes = [...sessionBudgetIssues, ...instructionalIssues, ...totalBudgetIssues];
+  const continuityIssues = getUnjustifiedRepeatedTopicIssues(roadmap, boundedGoal);
+  const requiredFixes = [...sessionBudgetIssues, ...instructionalIssues, ...totalBudgetIssues, ...continuityIssues];
   const reviewForRevision = requiredFixes.length
     ? { ...review, approved: false, score: Math.min(review.score, 79), issues: [...review.issues, ...requiredFixes] }
     : review;
@@ -652,6 +686,9 @@ async function generateRoadmap(goal, {
       throw new RoadmapGenerationError(502, 'ROADMAP_CHUNK_OVER_BUDGET', 'The AI could not fit the revised learning chunk into your available time without underestimating the work. Try a shorter planning horizon or generate the chunk again.');
     }
     const overlongAfterRevision = getOverlongSessions(roadmap, goal.minutesPerDay);
+    if (getUnjustifiedRepeatedTopicIssues(roadmap, boundedGoal).length > 0) {
+      throw new RoadmapGenerationError(502, 'ROADMAP_CONTINUITY_FAILED', 'The revised roadmap still repeats mastered topics without a clear learning purpose. Please generate the next chunk again.');
+    }
     const instructionalIssuesAfterRevision = getJavaBeginnerInstructionIssues(roadmap, goal);
     if (instructionalIssuesAfterRevision.length > 0) {
       throw new RoadmapGenerationError(502, 'ROADMAP_INSTRUCTIONAL_QUALITY_FAILED', 'The AI could not produce a realistic beginner sequence after revision. Try a shorter planning horizon or generate the chunk again.');
@@ -680,6 +717,7 @@ module.exports = {
   applyChunkBudget,
   getOverlongSessions,
   getJavaBeginnerInstructionIssues,
+  getUnjustifiedRepeatedTopicIssues,
   normalizeJavaBeginnerContent,
   guardUnverifiedSongDetails,
   generateRoadmap,

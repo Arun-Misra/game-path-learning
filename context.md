@@ -246,3 +246,9 @@ Do not update master/reference docs frequently; update this context only for mat
 - Added `POST /api/v1/learning-goals/:goalId/missions/adapt`, which uses the existing safe replan path: it refuses to replace an in progress session, deletes only unstarted current week missions, and retains completed sessions and XP.
 - The goal card now exposes an explicit `Adapt this week` action when a current plan has unstarted sessions and the mastery snapshot identifies a practice gap. The dashboard refreshes the plan and recovery/next-step data after adaptation.
 - Integration coverage verifies the adapted plan still schedules targeted practice, preserves the daily minutes budget, and has unique mission IDs. The E2E assessment retake journey now exercises the adaptation action.
+
+## Deterministic roadmap continuity guard (2026-10-21)
+- Added a deterministic quality check for follow-up chunks: exact normalized topic-title repeats are flagged when prior evidence shows completed/mastered work and a latest assessment of at least 85%, unless the new session explicitly states a purposeful review or reinforcement intent.
+- Incomplete topics and completed topics with weak recent assessment evidence remain eligible for repetition. The guard is included in the revision feedback and checked again after the revised proposal to prevent the model from reintroducing the same unjustified repeat.
+- Added unit coverage for mastered repeats, low-score gaps, incomplete topics, purposeful retrieval practice, unrelated topics, and missing prior context.
+- Validation: npm test passed 75/75 including PostgreSQL integration; npm run check, npm run build, and git diff --check passed. npm run test:e2e passed 9/9. All requested checks passed before commit.
