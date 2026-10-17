@@ -90,13 +90,25 @@ function buildDeadlineFeasibility({ goal, estimatedRemainingMinutes, estimateCon
   const plannedDailyMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
   const availableMinutes = availableStudyDays * plannedDailyMinutes;
   const marginMinutes = availableMinutes - estimatedRemainingMinutes;
+  const shortfallMinutes = Math.max(0, estimatedRemainingMinutes - availableMinutes);
+  const requiredMinutesPerStudyDay = availableStudyDays > 0
+    ? Math.ceil(estimatedRemainingMinutes / availableStudyDays)
+    : null;
+  const additionalMinutesPerStudyDay = requiredMinutesPerStudyDay === null
+    ? null
+    : Math.max(0, requiredMinutesPerStudyDay - plannedDailyMinutes);
+  const requiredStudyDays = Math.ceil(estimatedRemainingMinutes / plannedDailyMinutes);
+  const additionalStudyDaysRequired = Math.max(0, requiredStudyDays - availableStudyDays);
+  const estimatedExtensionCalendarDays = additionalStudyDaysRequired > 0 && goal.daysPerWeek > 0
+    ? Math.ceil(additionalStudyDaysRequired * 7 / goal.daysPerWeek)
+    : 0;
   const status = marginMinutes < 0
     ? 'OVER_CAPACITY'
     : marginMinutes < estimatedRemainingMinutes * 0.15
       ? 'AT_RISK'
       : 'ON_TRACK';
   const recommendation = status === 'OVER_CAPACITY'
-    ? 'The estimated remaining work exceeds buffered capacity. Reduce the outcome scope, increase realistic study time, or extend the deadline.'
+    ? `The estimate is ${shortfallMinutes} minutes over buffered capacity. To keep the deadline, plan about ${requiredMinutesPerStudyDay} minutes per study day (${additionalMinutesPerStudyDay} extra minutes/day above your buffered plan); otherwise, extend by approximately ${additionalStudyDaysRequired} study days (~${estimatedExtensionCalendarDays} calendar days) or reduce the outcome scope.`
     : status === 'AT_RISK'
       ? 'The goal may fit, but there is little room for delays. Keep the scope focused and review progress after the next chunk.'
       : 'The current estimate fits within the available study time. Recheck after each chunk because estimates and pace can change.';
@@ -109,6 +121,11 @@ function buildDeadlineFeasibility({ goal, estimatedRemainingMinutes, estimateCon
     availableMinutes,
     estimatedRemainingMinutes,
     marginMinutes,
+    shortfallMinutes,
+    requiredMinutesPerStudyDay,
+    additionalMinutesPerStudyDay,
+    additionalStudyDaysRequired,
+    estimatedExtensionCalendarDays,
     estimateConfidence: ['low', 'medium', 'high'].includes(estimateConfidence) ? estimateConfidence : 'low',
     recommendation,
   };

@@ -45,7 +45,7 @@ test('dashboard New learning goal reveals a visible form and keeps dark surfaces
     json: { data: { user: { id: 'user-test-1', name: 'Learner', email: 'learner@example.com' } } },
   }));
   await page.route('**/api/v1/learning-goals', (route) => route.fulfill({ json: { data: { goals: [goal] } } }));
-  await page.route('**/api/v1/learning-goals/goal-test-1/roadmaps', (route) => route.fulfill({ json: { data: { roadmaps: [] } } }));
+  await page.route('**/api/v1/learning-goals/goal-test-1/roadmaps**', (route) => route.fulfill({ json: { data: { roadmaps: [] } } }));
   await page.route('**/api/v1/learning-goals/goal-test-1/next-step**', (route) => route.fulfill({ json: { data: { recommendation: { action: 'CREATE_ROADMAP', title: 'Build your path', reason: 'Start with a roadmap.' } } } }));
   await page.route('**/api/v1/learning-goals/goal-test-1/missions**', (route) => route.fulfill({ json: { data: { missions: [], totalXp: 0 } } }));
   await page.route(/\/api\/v1\/learning-goals\/goal-test-1\/missions\/recovery(?:\?.*)?$/, (route) => route.fulfill({ json: { data: { roadmapId: null, missedCount: 0, missedMissions: [], currentWeekMissions: [], hasCurrentPlan: false, canReplan: false, timeZone: 'UTC', weekStartsOn: '2026-10-21' } } }));
@@ -107,7 +107,7 @@ test('mission player requires a reflection and persists it with completion evide
     json: { data: { user: { id: 'user-test-1', name: 'Learner', email: 'learner@example.com' } } },
   }));
   await page.route('**/api/v1/learning-goals', (route) => route.fulfill({ json: { data: { goals: [goal] } } }));
-  await page.route('**/api/v1/learning-goals/goal-test-1/roadmaps', (route) => route.fulfill({
+  await page.route('**/api/v1/learning-goals/goal-test-1/roadmaps**', (route) => route.fulfill({
     json: { data: { roadmaps: [{
       id: 'roadmap-test-1',
       version: 1,
@@ -221,7 +221,7 @@ test('project milestones require evidence and persist progress', async ({ page }
     json: { data: { user: { id: 'user-test-1', name: 'Learner', email: 'learner@example.com' } } },
   }));
   await page.route('**/api/v1/learning-goals', (route) => route.fulfill({ json: { data: { goals: [goal] } } }));
-  await page.route('**/api/v1/learning-goals/goal-test-1/roadmaps', (route) => route.fulfill({
+  await page.route('**/api/v1/learning-goals/goal-test-1/roadmaps**', (route) => route.fulfill({
     json: { data: { roadmaps: [roadmap] } },
   }));
   await page.route('**/api/v1/learning-goals/goal-test-1/next-step**', (route) => route.fulfill({
@@ -349,7 +349,7 @@ test('missed session recovery replans unfinished work without losing completed r
     json: { data: { user: { id: 'user-test-1', name: 'Learner', email: 'learner@example.com' } } },
   }));
   await page.route('**/api/v1/learning-goals', (route) => route.fulfill({ json: { data: { goals: [goal] } } }));
-  await page.route('**/api/v1/learning-goals/goal-test-1/roadmaps', (route) => route.fulfill({
+  await page.route('**/api/v1/learning-goals/goal-test-1/roadmaps**', (route) => route.fulfill({
     json: { data: { roadmaps: [roadmap] } },
   }));
   await page.route('**/api/v1/learning-goals/goal-test-1/next-step**', (route) => route.fulfill({
@@ -443,7 +443,7 @@ test('adaptive dashboard responds differently to a learner needing practice and 
     json: { data: { user: { id: 'user-profile-1', name: 'Learner', email: 'learner@example.com' } } },
   }));
   await page.route('**/api/v1/learning-goals', (route) => route.fulfill({ json: { data: { goals: [goal] } } }));
-  await page.route('**/api/v1/learning-goals/goal-profile-1/roadmaps', (route) => route.fulfill({
+  await page.route('**/api/v1/learning-goals/goal-profile-1/roadmaps**', (route) => route.fulfill({
     json: { data: { roadmaps: [roadmap] } },
   }));
   await page.route('**/api/v1/learning-goals/goal-profile-1/next-step**', (route) => route.fulfill({
@@ -501,7 +501,7 @@ test('each saved learning goal shows its own adaptive next step', async ({ page 
   await page.route('**/api/v1/ready', (route) => route.fulfill({ json: { data: { ready: true } } }));
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { data: { user: { id: 'user-multi', name: 'Learner', email: 'learner@example.com' } } } }));
   await page.route('**/api/v1/learning-goals', (route) => route.fulfill({ json: { data: { goals } } }));
-  await page.route(/\/api\/v1\/learning-goals\/([^/]+)\/roadmaps$/, (route) => {
+  await page.route(/\/api\/v1\/learning-goals\/([^/]+)\/roadmaps(?:\?.*)?$/, (route) => {
     const goalId = route.request().url().match(/learning-goals\/([^/]+)\/roadmaps/)[1];
     return route.fulfill({ json: { data: { roadmaps: [roadmaps[goalId]] } } });
   });
@@ -581,7 +581,7 @@ test('assessment retake refreshes topic mastery and the next recommendation', as
   await page.route('**/api/v1/ready', (route) => route.fulfill({ json: { data: { ready: true } } }));
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { data: { user: { id: 'user-retake', name: 'Learner', email: 'learner@example.com' } } } }));
   await page.route('**/api/v1/learning-goals', (route) => route.fulfill({ json: { data: { goals: [goal] } } }));
-  await page.route('**/api/v1/learning-goals/goal-retake/roadmaps', (route) => route.fulfill({ json: { data: { roadmaps: [refreshRoadmap()] } } }));
+  await page.route('**/api/v1/learning-goals/goal-retake/roadmaps**', (route) => route.fulfill({ json: { data: { roadmaps: [refreshRoadmap()] } } }));
   await page.route('**/api/v1/learning-goals/goal-retake/next-step**', (route) => {
     const low = latestScore < 85;
     return route.fulfill({ json: { data: {

@@ -1,6 +1,7 @@
 const express = require('express');
 const { z } = require('zod');
 const { requireAuth } = require('../middleware/require-auth');
+const { prisma } = require('../lib/prisma');
 const {
   RoadmapServiceError,
   createRoadmapDraft,
@@ -8,12 +9,17 @@ const {
   rollForwardRoadmap,
   getClarifyingQuestions,
   listRoadmaps,
+  buildDeadlineFeasibility,
   deleteRoadmapDraft,
   activateRoadmap,
 } = require('../lib/roadmap-service');
 
 const router = express.Router({ mergeParams: true });
 const idSchema = z.string().trim().min(1).max(100);
+const timeZoneSchema = z.string().min(1).max(100).default('UTC').refine((value) => {
+  try { new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date()); return true; }
+  catch { return false; }
+});
 
 function handleServiceError(error, res, next) {
   if (error instanceof RoadmapServiceError || (Number.isInteger(error.status) && error.code)) {
@@ -43,10 +49,7 @@ router.post('/questions', async (req, res, next) => {
 router.post('/roll-forward', async (req, res, next) => {
   const parsedId = idSchema.safeParse(req.params.goalId);
   const parsedBody = z.object({ completedDate: z.string().date().optional() }).safeParse(req.body ?? {});
-  const parsedQuery = z.object({ timeZone: z.string().min(1).max(100).default('UTC').refine((value) => {
-    try { new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date()); return true; }
-    catch { return false; }
-  }) }).safeParse(req.query);
+  const parsedQuery = z.object({ timeZone: timeZoneSchema }).safeParse(req.query);
   if (!parsedId.success || !parsedBody.success || !parsedQuery.success) {
     return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Provide a valid goal, completion date, and time zone.' } });
   }
@@ -65,10 +68,7 @@ router.post('/roll-forward', async (req, res, next) => {
 
 router.post('/generate', async (req, res, next) => {
   const parsedId = idSchema.safeParse(req.params.goalId);
-  const parsedQuery = z.object({ timeZone: z.string().min(1).max(100).default('UTC').refine((value) => {
-    try { new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date()); return true; }
-    catch { return false; }
-  }) }).safeParse(req.query);
+  const parsedQuery = z.object({ timeZone: timeZoneSchema }).safeParse(req.query);
   const parsedBody = z.object({ clarifications: z.string().trim().max(1200).optional(), planningDays: z.number().int().min(1).max(28).optional(), answers: z.array(z.object({ question: z.string().trim().min(1).max(500), answer: z.string().trim().min(1).max(1000) })).max(4).optional() }).safeParse(req.body ?? {});
   if (!parsedBody.success || !parsedQuery.success) {
     return res.status(400).json({
@@ -118,15 +118,37 @@ router.post('/', async (req, res, next) => {
 
 router.get('/', async (req, res, next) => {
   const parsedId = idSchema.safeParse(req.params.goalId);
-  if (!parsedId.success) {
+  const parsedQuery = z.object({ timeZone: timeZoneSchema }).safeParse(req.query);
+  if (!parsedId.success || !parsedQuery.success) {
     return res.status(400).json({
-      error: { code: 'VALIDATION_ERROR', message: 'A valid learning goal ID is required.' },
+      error: { code: 'VALIDATION_ERROR', message: 'Provide a valid learning goal ID and time zone.' },
     });
   }
 
   try {
     const roadmaps = await listRoadmaps({ userId: req.user.id, goalId: parsedId.data });
-    return res.json({ data: { roadmaps } });
+    const goal = await prisma.learningGoal.findFirst({
+      where: { id: parsedId.data, userId: req.user.id },
+      select: { targetDate: true, minutesPerDay: true, daysPerWeek: true },
+    });
+    const refreshedRoadmaps = roadmaps.map((roadmap) => {
+      if (!roadmap.learningBrief || typeof roadmap.learningBrief !== 'object' || Array.isArray(roadmap.learningBrief)) return roadmap;
+      const learningBrief = roadmap.learningBrief;
+      return {
+        ...roadmap,
+        learningBrief: {
+          ...learningBrief,
+          deadlineFeasibility: buildDeadlineFeasibility({
+            goal,
+            estimatedRemainingMinutes: learningBrief.estimatedRemainingMinutes,
+            estimateConfidence: learningBrief.estimateConfidence,
+            now: new Date(),
+            timeZone: parsedQuery.data.timeZone,
+          }),
+        },
+      };
+    });
+    return res.json({ data: { roadmaps: refreshedRoadmaps } });
   } catch (error) {
     return handleServiceError(error, res, next);
   }

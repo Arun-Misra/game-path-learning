@@ -256,7 +256,14 @@ test('deadline feasibility compares remaining effort with buffered study capacit
 
   const overCapacity = buildDeadlineFeasibility({ goal, estimatedRemainingMinutes: 500, estimateConfidence: 'low', now, timeZone: 'UTC' });
   assert.equal(overCapacity.status, 'OVER_CAPACITY');
-  assert.match(overCapacity.recommendation, /Reduce the outcome scope/);
+  assert.equal(overCapacity.shortfallMinutes, 308);
+  assert.equal(overCapacity.requiredMinutesPerStudyDay, 125);
+  assert.equal(overCapacity.additionalMinutesPerStudyDay, 77);
+  assert.equal(overCapacity.additionalStudyDaysRequired, 7);
+  assert.equal(overCapacity.estimatedExtensionCalendarDays, 7);
+  assert.match(overCapacity.recommendation, /308 minutes over buffered capacity/);
+  assert.match(overCapacity.recommendation, /125 minutes per study day/);
+  assert.match(overCapacity.recommendation, /reduce the outcome scope/i);
 });
 
 test('deadline feasibility is explicit when there is no deadline or the estimate is unavailable', () => {

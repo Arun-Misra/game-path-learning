@@ -9,7 +9,7 @@ test('deadline outlook explains feasible, over-capacity, and passed-deadline goa
 
   const outlooks = {
     'goal-on-track': { status: 'ON_TRACK', targetDate: '2026-11-20', estimatedRemainingMinutes: 60, estimateConfidence: 'high', availableMinutes: 240, availableStudyDays: 10, recommendation: 'The current estimate fits within the available study time. Recheck after each chunk because estimates and pace can change.' },
-    'goal-over-capacity': { status: 'OVER_CAPACITY', targetDate: '2026-10-24', estimatedRemainingMinutes: 500, estimateConfidence: 'low', availableMinutes: 48, availableStudyDays: 2, recommendation: 'The estimated remaining work exceeds buffered capacity. Reduce the outcome scope, increase realistic study time, or extend the deadline.' },
+    'goal-over-capacity': { status: 'OVER_CAPACITY', targetDate: '2026-10-24', estimatedRemainingMinutes: 500, estimateConfidence: 'low', availableMinutes: 48, availableStudyDays: 2, recommendation: 'The estimate is 452 minutes over buffered capacity. To keep the deadline, plan about 250 minutes per study day (226 extra minutes/day above your buffered plan); otherwise, extend by approximately 19 study days (~27 calendar days) or reduce the outcome scope.' },
     'goal-deadline-passed': { status: 'DEADLINE_PASSED', targetDate: '2026-10-20', estimatedRemainingMinutes: 90, estimateConfidence: 'medium', availableMinutes: 0, availableStudyDays: 0, recommendation: 'The target date has passed. Choose a new date or reduce the goal scope.' },
   };
   const roadmaps = Object.fromEntries(goals.map((goal) => [goal.id, {
@@ -20,7 +20,7 @@ test('deadline outlook explains feasible, over-capacity, and passed-deadline goa
   await page.route('**/api/v1/ready', (route) => route.fulfill({ json: { data: { ready: true } } }));
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { data: { user: { id: 'user-deadline', name: 'Learner', email: 'learner@example.com' } } } }));
   await page.route('**/api/v1/learning-goals', (route) => route.fulfill({ json: { data: { goals } } }));
-  await page.route(/\/api\/v1\/learning-goals\/([^/]+)\/roadmaps$/, (route) => {
+  await page.route(/\/api\/v1\/learning-goals\/([^/]+)\/roadmaps(?:\?.*)?$/, (route) => {
     const goalId = route.request().url().match(/learning-goals\/([^/]+)\/roadmaps/)[1];
     return route.fulfill({ json: { data: { roadmaps: [roadmaps[goalId]] } } });
   });
@@ -49,7 +49,9 @@ test('deadline outlook explains feasible, over-capacity, and passed-deadline goa
   await expect(javaCard.getByText(/Deadline outlook: on track/i)).toBeVisible();
   await expect(javaCard.getByText(/60 min \(high confidence\); buffered capacity: 240 min across 10 study days/i)).toBeVisible();
   await expect(mlCard.getByText(/Deadline outlook: over capacity/i)).toBeVisible();
-  await expect(mlCard.getByText(/Reduce the outcome scope, increase realistic study time, or extend the deadline/i)).toBeVisible();
+  await expect(mlCard.getByText(/452 minutes over buffered capacity/i)).toBeVisible();
+  await expect(mlCard.getByText(/250 minutes per study day/i)).toBeVisible();
+  await expect(mlCard.getByText(/reduce the outcome scope/i)).toBeVisible();
   await expect(networkingCard.getByText(/Deadline outlook: deadline passed/i)).toBeVisible();
   await expect(networkingCard.getByText(/Choose a new date or reduce the goal scope/i)).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440);

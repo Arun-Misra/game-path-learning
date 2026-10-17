@@ -116,7 +116,7 @@ function App() {
         if (result?.data?.goals) {
           setGoals(result.data.goals);
           const entries = await Promise.all(result.data.goals.map(async (goal) => {
-            const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps`);
+            const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`);
             return [goal.id, saved.data.roadmaps];
           }));
           setRoadmapsByGoal(Object.fromEntries(entries));
@@ -143,7 +143,7 @@ function App() {
 
   async function refreshRoadmaps(goalId) {
     try {
-      const result = await requestJson(`/api/v1/learning-goals/${goalId}/roadmaps`);
+      const result = await requestJson(`/api/v1/learning-goals/${goalId}/roadmaps?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`);
       setRoadmapsByGoal((current) => ({ ...current, [goalId]: result.data.roadmaps }));
     } catch {
       // Keep the last loaded roadmap if a refresh fails.
@@ -251,7 +251,7 @@ function App() {
     const savedGoals = result.data.goals || [];
     setGoals(savedGoals);
     const entries = await Promise.all(savedGoals.map(async (goal) => {
-      const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps`);
+      const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`);
       return [goal.id, saved.data.roadmaps || []];
     }));
     setRoadmapsByGoal(Object.fromEntries(entries));
@@ -539,7 +539,7 @@ function App() {
         if (rollingResult.data.reason === 'ALREADY_GENERATED') {
           const [missionRefresh, roadmapRefresh] = await Promise.all([
             requestJson(`/api/v1/learning-goals/${goal.id}/missions?timeZone=${encodeURIComponent(timeZone)}`),
-            requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps`),
+            requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`),
           ]);
           setMissionsByGoal((current) => ({ ...current, [goal.id]: missionRefresh.data }));
           setRoadmapsByGoal((current) => ({ ...current, [goal.id]: roadmapRefresh.data.roadmaps }));

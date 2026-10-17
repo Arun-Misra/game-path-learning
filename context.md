@@ -25,6 +25,11 @@ Latest validation after the single-model, realism, and output-truncation fix: `n
 ## Database limitation
 PostgreSQL 18 is running locally on localhost:5432. Both `gamified_learning` and the isolated `gamified_learning_test` databases have all five migrations applied, including `20261018040000_enhanced_learning_brief`. The root `.env` is local-only and ignored by Git. Run `npm run db:migrate:test` to apply pending migrations to the isolated test database without printing its connection string. Persistence was verified by the integration suite with the root `.env` loaded.
 
+## Git commit message convention
+- Before creating or amending a commit, inspect recent `git log` entries and follow the repository's Conventional Commit style, using prefixes such as `feat:`, `fix:`, `test:`, or `chore:` as appropriate.
+- Use spaces between words in the subject. Do not join words with hyphens or underscores; for example, use `fix: refresh deadline feasibility outlook`, not `fix-refresh-deadline-feasibility-outlook`.
+- If a commit subject violates this rule, amend it to match. Include material `context.md` updates in the relevant implementation commit; avoid unnecessary standalone context-only commits.
+
 ## Git
 - 09b83b3 feat: clarify and confirm learning briefs
 - 62ff8d1 test: evaluate roadmaps across learning domains
@@ -290,3 +295,10 @@ Do not update master/reference docs frequently; update this context only for mat
 - Added persistent `RoadmapGenerationRun` idempotency keyed by goal and trigger date, with a 10-minute lease, retryable failed/expired runs, and returning the already-generated result on repeated requests. Initial mission rows also remain protected by the existing database uniqueness constraint.
 - Enhanced learning briefs now contain `estimatedRemainingMinutes` and `estimateConfidence`. The service calculates available study dates/minutes through the goal deadline using the buffered daily cap and attaches a feasibility status/recommendation; the dashboard surfaces this outlook and asks for scope/time/deadline trade-offs when capacity is insufficient.
 - Validation after this audit: `npm run db:validate`, Prisma Client generation, test and development DB migrations, `npm test` (86/86), `npm run check`, `npm run build`, `npm run test:e2e` (9/9), and `git diff --check` passed. The live software-engineering smoke test passed with a 250-minute remaining-work estimate at low confidence and a 103-minute first chunk; the smoke output now exposes the remaining-work estimate and confidence for review. The development server was restarted after Prisma generation.
+
+## Live deadline outlook refresh (2026-10-21)
+- Roadmap listing now recalculates deadline feasibility against the current date, saved goal deadline, current daily availability, and remaining-work estimate instead of returning only the status stored when the chunk was generated. This prevents the dashboard from continuing to show an old on-track status after a deadline passes or the capacity outlook changes.
+- The roadmap list endpoint accepts a validated IANA `timeZone` query parameter. Dashboard roadmap-list requests now send the browser's timezone.
+- Over-capacity recommendations now quantify the minute shortfall, the average minutes needed per remaining study day, the extra daily minutes above the buffered plan, and approximate additional study/calendar days. These are planning estimates; calendar-day extension is approximate when study days are distributed unevenly.
+- Added a PostgreSQL-backed API integration test that creates a real user, goal, and roadmap, then verifies the same saved roadmap changes from `ON_TRACK` to `DEADLINE_PASSED` as the goal's persisted target date changes, even though the original saved outlook was stale.
+- Verification: `npm test` passed 87/87 including PostgreSQL integration; `npm run test:e2e -- --workers=2` passed 10/10 after updating route mocks for timezone query strings; `npm run check`, `npm run build`, and `git diff --check` passed. Dashboard E2E uses mocked API data; the new API integration test exercises real PostgreSQL persistence and the live endpoint.
