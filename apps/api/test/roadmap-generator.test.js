@@ -1,26 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
@@ -29,6 +6,7 @@ const {
   buildReviewPrompt,
   applyRealismFloor,
   generateRoadmap,
+  getTimeBreakdownIssues,
   getJavaBeginnerInstructionIssues,
   getUnjustifiedRepeatedTopicIssues,
   isLocalOllama,
@@ -43,8 +21,8 @@ function validProposal() {
     title: 'Digital illustration path',
     summary: 'Learn drawing fundamentals and produce a finished character illustration.',
     topics: [
-      { key: 'shapes', title: 'Shape and form', description: 'Observe and construct simple forms, then use them to sketch a character silhouette.', learningObjectives: ['Construct a drawing from simple forms'], estimatedMinutes: 30, prerequisiteKeys: [] },
-      { key: 'character', title: 'Character drawing', description: 'Develop a character sketch from the silhouette, refine anatomy, and produce a polished final illustration.', learningObjectives: ['Create a character sketch', 'Finish and export a character illustration'], estimatedMinutes: 25, prerequisiteKeys: ['shapes'] },
+      { key: 'shapes', title: 'Shape and form', description: 'Observe and construct simple forms, then use them to sketch a character silhouette.', learningObjectives: ['Construct a drawing from simple forms'], estimatedMinutes: 24, timeBreakdown: { conceptMinutes: 6, workedExampleMinutes: 5, guidedPracticeMinutes: 5, independentPracticeMinutes: 5, reviewMinutes: 3 }, prerequisiteKeys: [] },
+      { key: 'character', title: 'Character drawing', description: 'Develop a character sketch from the silhouette, refine anatomy, and produce a polished final illustration.', learningObjectives: ['Create a character sketch', 'Finish and export a character illustration'], estimatedMinutes: 20, timeBreakdown: { conceptMinutes: 4, workedExampleMinutes: 4, guidedPracticeMinutes: 4, independentPracticeMinutes: 5, reviewMinutes: 3 }, prerequisiteKeys: ['shapes'] },
     ],
   };
 }
@@ -83,18 +61,46 @@ test('planner prompt prioritises the exact outcome, steps, deliverable, and week
   assert.match(prompt, /teach the prerequisite first or remove the activity/i);
   assert.match(prompt, /do not force a capstone for the long-term outcome into an introductory chunk/i);
   assert.match(prompt, /“I do not know where to start” means assume no practical ability/i);
-  assert.match(prompt, /No topic may exceed 30 minutes/i);
+  assert.match(prompt, /No topic may exceed 24 minutes/i);
+  assert.match(prompt, /estimatedMinutes MUST equal the exact sum of all five timeBreakdown fields/i);
+  assert.match(prompt, /concept\/explanation, worked example, guided practice, independent practice, and review\/check/i);
   assert.match(prompt, /worked example, to a partially completed example with guidance/i);
   assert.match(prompt, /"prerequisiteKeys"/);
   assert.match(prompt, /valid JSON only/i);
 });
 
-test('planner prompt includes weekly time budget and discourages generic or repetitive topics', () => {
+test('planner prompt includes weekly time budget, a safety buffer, and consistent session counts', () => {
   const prompt = buildPrompt({ ...goal, title: 'Java', minutesPerDay: 45, daysPerWeek: 5, targetOutcome: 'Build a client-server app and implement Dijkstra routing' });
   assert.match(prompt, /225 minutes\/week/);
   assert.match(prompt, /Build a client-server app and implement Dijkstra routing/);
   assert.match(prompt, /Avoid duplicate topics, filler/i);
   assert.match(prompt, /do not force a capstone for the long-term outcome into an introductory chunk/i);
+  assert.match(prompt, /No topic may exceed 36 minutes/i);
+  assert.match(prompt, /180 minutes across 5 practice sessions/i);
+  assert.match(prompt, /Reserve roughly 20%/i);
+});
+
+test('planner and reviewer use self-reported timing history when enough evidence exists', () => {
+  const timeCalibrationContext = JSON.stringify({
+    sampleCount: 5,
+    medianActualToEstimatedRatio: 1.4,
+    observedPattern: 'actual time is typically about 40% longer than estimated',
+  });
+  const calibratedGoal = { ...goal, timeCalibrationContext };
+  assert.match(buildPrompt(calibratedGoal), /LEARNER-SPECIFIC TIME CALIBRATION/);
+  assert.match(buildReviewPrompt(calibratedGoal, validProposal()), /LEARNER-SPECIFIC TIME CALIBRATION/);
+});
+
+test('time breakdown audit rejects missing phases, arithmetic mismatches, and too few meaningful phases', () => {
+  const roadmap = { topics: [
+    { key: 'a', title: 'A', estimatedMinutes: 30, timeBreakdown: { conceptMinutes: 8, workedExampleMinutes: 7, guidedPracticeMinutes: 6, independentPracticeMinutes: 6, reviewMinutes: 3 } },
+    { key: 'b', title: 'B', estimatedMinutes: 25, timeBreakdown: { conceptMinutes: 5, workedExampleMinutes: 5, guidedPracticeMinutes: 5, independentPracticeMinutes: 7, reviewMinutes: 2 } },
+    { key: 'c', title: 'C', estimatedMinutes: 10, timeBreakdown: { conceptMinutes: 10, workedExampleMinutes: 0, guidedPracticeMinutes: 0, independentPracticeMinutes: 0, reviewMinutes: 0 } },
+    { key: 'd', title: 'D', estimatedMinutes: 20 },
+  ] };
+  const issues = getTimeBreakdownIssues(roadmap);
+  assert.equal(issues.length, 3);
+  assert.deepEqual(issues.map((issue) => issue.relatedTopicKeys[0]), ['b', 'c', 'd']);
 });
 
 test('later chunks explicitly continue from prior evidence instead of restarting', () => {
@@ -195,7 +201,8 @@ test('review prompt checks the roadmap against the learner outcome rather than a
   assert.match(prompt, /independent, skeptical instructional-design auditor/i);
   assert.match(prompt, /DESIRED OUTCOME: Create a polished character illustration/);
   assert.match(prompt, /TIME AUDIT/i);
-  assert.match(prompt, /estimate realistic effort for this learner and the requested activity/i);
+  assert.match(prompt, /at least three phases must be positive/i);
+  assert.match(prompt, /Judge whether each phase allows realistic time for this learner/i);
   assert.match(prompt, /TEACHING AUDIT/i);
   assert.match(prompt, /Approve only when there are no critical or major issues/i);
 });
@@ -262,18 +269,20 @@ test('E4B handles the enhanced brief, planning, and independent review without l
   assert.equal(requestSchemaName(requests[0].body), 'enhanced_learning_brief');
   assert.equal(requests[1].body.model, 'gemma4:e4b');
   assert.equal(requestSchemaName(requests[1].body), 'personalised_learning_roadmap');
-  assert.equal(requests[1].body.options.num_predict, 6144);
+  assert.equal(requests[1].body.options.num_predict, 3072);
   assert.equal(requests[1].body.options.num_ctx, 16384);
   assert.equal(requests[1].body.options.temperature, 0.2);
-  assert.equal(requests[1].body.think, 'medium');
+  assert.equal(requests[1].body.think, 'low');
   assert.equal(requests[1].url, 'http://127.0.0.1:11434/api/chat');
   assert.equal(requests[2].body.model, 'gemma4:e4b');
   assert.equal(requests[0].headers.Authorization, undefined);
   assert.ok(requests[0].body.format && requests[0].body.format.type === 'object');
+  assert.ok(requests[1].body.format.properties.topics.items.properties.timeBreakdown);
+  assert.equal(requests[1].body.format.properties.topics.items.required.includes('timeBreakdown'), true);
   assert.match(requests[2].body.messages[1].content, /Create a polished character illustration/);
   assert.equal(result.topics.length, 2);
   assert.equal(result.topics[1].position, 1);
-  assert.equal(result.estimatedTotalMinutes, 55);
+  assert.equal(result.estimatedTotalMinutes, 44);
   assert.equal(result.learningBrief.finalDeliverable, validLearningBrief().finalDeliverable);
 });
 
@@ -405,10 +414,12 @@ test('retries one malformed structured response with an explicit JSON repair ins
 
 test('rejects a chunk that remains over budget after revision instead of silently compressing estimates', async () => {
   const overBudgetProposal = validProposal();
-  overBudgetProposal.topics[0].estimatedMinutes = 100;
-  overBudgetProposal.topics[1].estimatedMinutes = 50;
+  overBudgetProposal.topics[0].estimatedMinutes = 20;
+  overBudgetProposal.topics[0].timeBreakdown = { conceptMinutes: 4, workedExampleMinutes: 4, guidedPracticeMinutes: 4, independentPracticeMinutes: 5, reviewMinutes: 3 };
+  overBudgetProposal.topics[1].estimatedMinutes = 20;
+  overBudgetProposal.topics[1].timeBreakdown = { conceptMinutes: 4, workedExampleMinutes: 4, guidedPracticeMinutes: 4, independentPracticeMinutes: 5, reviewMinutes: 3 };
   await assert.rejects(
-    generateRoadmap(goal, {
+    generateRoadmap({ ...goal, daysPerWeek: 1, planningDays: 1 }, {
       apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1',
       fetchImpl: async (_url, options) => {
         const body = JSON.parse(options.body);

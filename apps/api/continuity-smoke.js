@@ -42,7 +42,7 @@ async function main() {
     topics: priorTopics.map((topic, position) => ({
       ...topic,
       position,
-      progress: [{ status: 'MASTERED', masteryScore: 0.9, attempts: 1 }],
+      progress: [{ status: 'MASTERED', masteryScore: 90, attempts: 1 }],
       assessments: [{ score: 90, passed: true }],
     })),
   });
@@ -54,25 +54,26 @@ async function main() {
     priorLearningContext,
   });
 
-  const previousTitles = new Set(priorTopics.map((topic) => topic.title.trim().toLowerCase()));
-  const repeatedTitles = second.topics.filter((topic) => previousTitles.has(topic.title.trim().toLowerCase()));
+  const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  const previousTitles = new Set(priorTopics.map((topic) => normalize(topic.title)));
+  const repeatedTitles = second.topics.filter((topic) => previousTitles.has(normalize(topic.title)));
   const summary = {
     goal: goal.targetOutcome,
     firstChunk: {
       title: first.title,
       topicCount: first.topics.length,
       estimatedMinutes: first.estimatedTotalMinutes,
-      topics: first.topics.map((topic) => topic.title),
+      topics: priorTopics,
     },
     secondChunk: {
       title: second.title,
       topicCount: second.topics.length,
       estimatedMinutes: second.estimatedTotalMinutes,
-      topics: second.topics.map((topic) => topic.title),
+      topics: compactTopics(second),
     },
     exactRepeatedTopicTitles: repeatedTitles.map((topic) => topic.title),
     continuationContextIncluded: true,
-    note: 'Review topic descriptions and objectives too; a different title alone does not prove meaningful progression.',
+    note: 'Audit descriptions and learning objectives, not only titles. Distinct titles alone do not prove meaningful progression; compare each new objective with the demonstrated prior capabilities.',
   };
 
   console.log(JSON.stringify(summary, null, 2));

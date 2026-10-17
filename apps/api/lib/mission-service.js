@@ -1,5 +1,5 @@
 const { prisma } = require('./prisma');
-const { buildWeeklyMissionPlan, addDays, dateInTimeZone } = require('./mission-scheduler');
+const { buildWeeklyMissionPlan, addDays, dateInTimeZone, sessionDayIndexes } = require('./mission-scheduler');
 
 class MissionServiceError extends Error {
   constructor(status, code, message) {
@@ -53,6 +53,93 @@ async function listMissions({ userId, goalId, from, to, timeZone = 'UTC', db = p
     to: endDate,
     timeZone,
   };
+}
+
+async function generateInitialRollingMissions({ userId, goalId, timeZone = 'UTC', now = new Date(), db = prisma }) {
+  const goal = await db.learningGoal.findFirst({
+    where: { id: goalId, userId },
+    select: { id: true, minutesPerDay: true, daysPerWeek: true, targetDate: true },
+  });
+  if (!goal) throw new MissionServiceError(404, 'GOAL_NOT_FOUND', 'Learning goal not found.');
+
+  const roadmap = await db.roadmap.findFirst({
+    where: { learningGoalId: goalId, generationState: 'ACTIVE' },
+    orderBy: { version: 'desc' },
+    include: { topics: { orderBy: { position: 'asc' }, select: { id: true, title: true, description: true, learningObjectives: true, estimatedMinutes: true, position: true } } },
+  });
+  if (!roadmap) throw new MissionServiceError(409, 'ACTIVE_ROADMAP_REQUIRED', 'Activate a roadmap before scheduling the first learning sessions.');
+
+  const today = dateInTimeZone(now, timeZone);
+  const deadline = goal.targetDate ? goal.targetDate.toISOString().slice(0, 10) : null;
+  const existing = await db.dailyMission.findMany({
+    where: { userId, learningGoalId: goalId, roadmapId: roadmap.id, scheduledDate: { gte: utcDate(today) }, status: { in: ['SCHEDULED', 'IN_PROGRESS'] } },
+    orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
+    include: { topic: { select: { id: true, title: true, position: true } }, completion: true },
+  });
+  if (existing.length > 0) {
+    const xp = await db.xpTransaction.aggregate({ where: { userId }, _sum: { amount: true } });
+    return { missions: existing, totalXp: xp._sum.amount || 0, from: today, to: existing[existing.length - 1].scheduledDate.toISOString().slice(0, 10), timeZone, alreadyScheduled: true };
+  }
+
+  const dayIndexes = new Set(sessionDayIndexes(goal.daysPerWeek));
+  const dates = [];
+  for (let offset = 0; offset <= 365 && dates.length < 3; offset += 1) {
+    const candidate = addDays(today, offset);
+    if (deadline && candidate > deadline) break;
+    if (dayIndexes.has(offset % 7)) dates.push(candidate);
+  }
+  if (dates.length === 0) throw new MissionServiceError(409, 'NO_STUDY_DAYS_BEFORE_DEADLINE', 'There are no study days left before this goal’s target date.');
+
+  const dailyBudget = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+  const groups = dates.map(() => []);
+  let dateIndex = 0;
+  let usedMinutes = 0;
+  for (const topic of roadmap.topics) {
+    if (!Number.isInteger(topic.estimatedMinutes) || topic.estimatedMinutes < 5 || topic.estimatedMinutes > dailyBudget) {
+      throw new MissionServiceError(409, 'INITIAL_CHUNK_DAILY_BUDGET_INVALID', 'The first learning chunk contains a session that does not fit the daily time budget. Regenerate a smaller chunk.');
+    }
+    if (usedMinutes + topic.estimatedMinutes > dailyBudget) {
+      dateIndex += 1;
+      usedMinutes = 0;
+    }
+    if (dateIndex >= groups.length) {
+      throw new MissionServiceError(409, 'INITIAL_CHUNK_DAILY_BUDGET_INVALID', 'The first learning chunk is larger than the first three study days can support. Regenerate a smaller chunk.');
+    }
+    groups[dateIndex].push(topic);
+    usedMinutes += topic.estimatedMinutes;
+  }
+
+  const missionRows = [];
+  for (let index = 0; index < groups.length; index += 1) {
+    for (const topic of groups[index]) {
+      missionRows.push({
+        userId,
+        learningGoalId: goalId,
+        roadmapId: roadmap.id,
+        topicId: topic.id,
+        scheduledDate: utcDate(dates[index]),
+        segmentIndex: 0,
+        missionType: 'LEARN',
+        title: `Learn: ${topic.title}`,
+        description: topic.description,
+        estimatedMinutes: topic.estimatedMinutes,
+        completionCriteria: {
+          objectives: Array.isArray(topic.learningObjectives) ? topic.learningObjectives : [],
+          instruction: 'Work through the session, practise the topic, and check your result against the learning objectives.',
+        },
+      });
+    }
+  }
+  if (missionRows.length > 0) await db.dailyMission.createMany({ data: missionRows, skipDuplicates: true });
+  const [missions, xp] = await Promise.all([
+    db.dailyMission.findMany({
+      where: { userId, learningGoalId: goalId, roadmapId: roadmap.id, scheduledDate: { in: dates.map(utcDate) } },
+      orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
+      include: { topic: { select: { id: true, title: true, position: true } }, completion: true },
+    }),
+    db.xpTransaction.aggregate({ where: { userId }, _sum: { amount: true } }),
+  ]);
+  return { missions, totalXp: xp._sum.amount || 0, from: today, to: dates[dates.length - 1], timeZone, alreadyScheduled: false, plannedDays: dates.length, scheduledMinutes: missionRows.reduce((sum, item) => sum + item.estimatedMinutes, 0), availableMinutes: dailyBudget * dates.length };
 }
 
 async function generateWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = new Date(), forceReplan = false, db = prisma }) {
@@ -477,4 +564,4 @@ async function completeMission({ userId, goalId, missionId, evidence, db = prism
   return result;
 }
 
-module.exports = { MissionServiceError, listMissions, generateWeeklyMissions, adaptWeeklyMissions, getMissedSessionRecovery, recoverMissedSessions, completeMission };
+module.exports = { MissionServiceError, listMissions, generateInitialRollingMissions, generateWeeklyMissions, adaptWeeklyMissions, getMissedSessionRecovery, recoverMissedSessions, completeMission };

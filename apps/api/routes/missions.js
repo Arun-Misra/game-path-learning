@@ -5,6 +5,7 @@ const { requireAuth } = require('../middleware/require-auth');
 const {
   MissionServiceError,
   listMissions,
+  generateInitialRollingMissions,
   generateWeeklyMissions,
   adaptWeeklyMissions,
   getMissedSessionRecovery,
@@ -88,6 +89,20 @@ router.post('/recovery/replan', generationLimiter, async (req, res, next) => {
       timeZone: parsedQuery.data.timeZone,
     });
     return res.status(201).json({ data });
+  } catch (error) {
+    return handleServiceError(error, res, next);
+  }
+});
+
+router.post('/initial', generationLimiter, async (req, res, next) => {
+  const parsedGoal = idSchema.safeParse(req.params.goalId);
+  const parsedQuery = z.object({ timeZone: timeZoneSchema.default('UTC') }).safeParse(req.query);
+  if (!parsedGoal.success || !parsedQuery.success) {
+    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Provide a valid learning goal and time zone.' } });
+  }
+  try {
+    const result = await generateInitialRollingMissions({ userId: req.user.id, goalId: parsedGoal.data, timeZone: parsedQuery.data.timeZone });
+    return res.status(201).json({ data: result });
   } catch (error) {
     return handleServiceError(error, res, next);
   }

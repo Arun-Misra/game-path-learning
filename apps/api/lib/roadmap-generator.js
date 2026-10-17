@@ -1,37 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 const { validateRoadmap } = require('./roadmap-validation');
 
 class RoadmapGenerationError extends Error {
@@ -46,8 +12,8 @@ const responseSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    title: { type: 'string' },
-    summary: { type: 'string' },
+    title: { type: 'string', maxLength: 100 },
+    summary: { type: 'string', maxLength: 500 },
     topics: {
       type: 'array',
       minItems: 2,
@@ -56,14 +22,26 @@ const responseSchema = {
         type: 'object',
         additionalProperties: false,
         properties: {
-          key: { type: 'string' },
-          title: { type: 'string' },
-          description: { type: 'string' },
-          learningObjectives: { type: 'array', items: { type: 'string' } },
+          key: { type: 'string', maxLength: 80 },
+          title: { type: 'string', maxLength: 120 },
+          description: { type: 'string', maxLength: 450 },
+          learningObjectives: { type: 'array', minItems: 2, maxItems: 4, items: { type: 'string', maxLength: 180 } },
           estimatedMinutes: { type: 'integer' },
-          prerequisiteKeys: { type: 'array', items: { type: 'string' } },
+          timeBreakdown: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              conceptMinutes: { type: 'integer', minimum: 0 },
+              workedExampleMinutes: { type: 'integer', minimum: 0 },
+              guidedPracticeMinutes: { type: 'integer', minimum: 0 },
+              independentPracticeMinutes: { type: 'integer', minimum: 0 },
+              reviewMinutes: { type: 'integer', minimum: 0 },
+            },
+            required: ['conceptMinutes', 'workedExampleMinutes', 'guidedPracticeMinutes', 'independentPracticeMinutes', 'reviewMinutes'],
+          },
+          prerequisiteKeys: { type: 'array', maxItems: 12, items: { type: 'string', maxLength: 80 } },
         },
-        required: ['key', 'title', 'description', 'learningObjectives', 'estimatedMinutes', 'prerequisiteKeys'],
+        required: ['key', 'title', 'description', 'learningObjectives', 'estimatedMinutes', 'timeBreakdown', 'prerequisiteKeys'],
       },
     },
   },
@@ -125,9 +103,9 @@ function buildPrompt(goal, outcomeBrief = '') {
   const weeklyMinutes = goal.minutesPerDay * goal.daysPerWeek;
   const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 7;
   const practiceDays = Math.ceil(goal.daysPerWeek * planningDays / 7);
-  const chunkBudgetMinutes = goal.minutesPerDay * practiceDays;
+  const sessionMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+  const chunkBudgetMinutes = sessionMinutes * practiceDays;
   const sessionCount = Math.max(2, practiceDays);
-  const sessionMinutes = goal.minutesPerDay;
   const target = goal.targetDate
     ? new Date(goal.targetDate).toISOString().slice(0, 10)
     : 'No fixed deadline';
@@ -154,7 +132,9 @@ function buildPrompt(goal, outcomeBrief = '') {
     '',
     'INSTRUCTIONAL DESIGN AND SCOPE:',
     '- Plan the chunk as a sequence of individual practice sessions. Each topic is one session, not a bundle of several days. Produce exactly ' + sessionCount + ' topics/sessions for this chunk; do not collapse a multi-day chunk into one topic. If a single day must contain two tiny sessions to satisfy the minimum plan structure, keep their combined time within that day’s total budget.',
-    '- No topic may exceed ' + sessionMinutes + ' minutes. Estimate explanation, demonstration, guided practice, independent attempt, and a quick understanding check together; leave room for a beginner to think and make mistakes.',
+    '- No topic may exceed ' + sessionMinutes + ' minutes. Reserve roughly 20% of the learner\'s stated daily availability for breaks, context switching, and overruns.',
+    '- Every topic MUST include timeBreakdown with integer minutes for conceptMinutes, workedExampleMinutes, guidedPracticeMinutes, independentPracticeMinutes, and reviewMinutes. estimatedMinutes MUST equal the exact sum of all five timeBreakdown fields. At least three phases must be positive, and every phase must be nonnegative.',
+    '- Use realistic time for each phase: concept/explanation, worked example, guided practice, independent practice, and review/check. Do not count the same activity twice or hide unestimated work.',
     '- Never silently compress work to make it fit. If the useful work exceeds the available time, teach fewer concepts and defer the rest to a later chunk.',
     '- The total effort must fit within ' + chunkBudgetMinutes + ' minutes across ' + practiceDays + ' practice sessions. Prefer one coherent objective per session over a list of disconnected topics.',
     '- For each topic, describe a concrete teaching sequence: (1) explain the idea and unfamiliar syntax, (2) walk through a complete worked example, (3) guide the learner through a small variation, (4) ask for a tiny independent task, and (5) state how success will be checked. Adapt these steps to non-programming skills where appropriate.',
@@ -165,7 +145,7 @@ function buildPrompt(goal, outcomeBrief = '') {
     '- Use previous-chunk evidence to adapt: repeat or simplify only where evidence shows a need; otherwise progress to the next capability. If the goal is revision, prioritize retrieval practice, diagnosis of gaps, and targeted reinforcement rather than automatically teaching topics from scratch.',
     '- Do not invent song-specific chords, tabs, lyrics, or exact strumming patterns. If a named arrangement has not been supplied or verified, clearly ask the learner to provide a tutorial, chord chart, or other trusted reference; use generic technique practice until then.',
     '- Avoid duplicate topics, filler, generic motivation, and unrealistic mastery claims.',
-    '- Give every topic 1–5 assessable learning objectives and an actionable description. Each objective must be achievable within this session, not merely describe a long-term aspiration.',
+    '- Give every topic 2–4 short assessable learning objectives and a concise actionable description. Each objective must be achievable within this session, not merely describe a long-term aspiration.',
     '- End the chunk with a small checkpoint that tests only what this chunk actually taught; do not force a capstone for the long-term outcome into an introductory chunk.',
     '',
     'DEPENDENCIES:',
@@ -184,6 +164,7 @@ function buildPrompt(goal, outcomeBrief = '') {
     `Availability: ${goal.minutesPerDay} minutes/day, ${goal.daysPerWeek} days/week (${weeklyMinutes} minutes/week)`,
     `Target date: ${target}`,
     outcomeBrief ? `ENHANCED LEARNING BRIEF TO HONOUR:\n${outcomeBrief}` : '',
+    goal.timeCalibrationContext ? `LEARNER-SPECIFIC TIME CALIBRATION (use as evidence, not as a blind multiplier):\n${goal.timeCalibrationContext}` : '',
     '',
     'Planning horizon: ' + planningDays + ' calendar days, ' + practiceDays + ' practice days; maximum total effort ' + chunkBudgetMinutes + ' minutes.',
     goal.priorLearningContext ? 'PRIOR CHUNKS AND VERIFIED PROGRESS:\n' + goal.priorLearningContext : 'This is the first chunk; begin with the most useful starting activities.',
@@ -194,7 +175,8 @@ function buildPrompt(goal, outcomeBrief = '') {
 function buildReviewPrompt(goal, roadmap, learningBrief = null) {
   const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 7;
   const practiceDays = Math.ceil(goal.daysPerWeek * planningDays / 7);
-  const chunkBudgetMinutes = goal.minutesPerDay * practiceDays;
+  const sessionMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+  const chunkBudgetMinutes = sessionMinutes * practiceDays;
   return [
     'You are an independent, skeptical instructional-design auditor. Judge whether this is genuinely teachable and appropriately challenging for this exact learner, not whether the topic list sounds plausible.',
     'Reject a roadmap if it is vague, generic, repetitive, disconnected from the desired outcome, missing a requested capability, poorly sequenced, or unrealistic for the available time.',
@@ -204,12 +186,13 @@ function buildReviewPrompt(goal, roadmap, learningBrief = null) {
     'PREREQUISITE AUDIT: for every session, compare assumed knowledge and actions against the learner\'s stated experience, revision intent, clarifications, earlier sessions, and verified prior-chunk evidence. Flag only prerequisites that are genuinely missing; do not assume all learners are beginners or that every new plan starts at the beginning.',
     'TEACHING AUDIT: explain unfamiliar ideas at the depth the learner needs; use worked examples, guided modification, independent practice, and clear success criteria where appropriate. Do not force introductory explanations for concepts the learner already demonstrates. “Execute a snippet” alone is not sufficient instruction when the learner has not yet shown they can do so independently.',
     'FACTUAL CORRECTNESS AUDIT: verify domain-specific statements and syntax rather than trusting fluent wording. For Java, String is a reference type, not a primitive. Teach how to run a minimal program only when that capability is not already established or the goal requires a refresher.',
-    'TIME AUDIT: estimate realistic effort for this learner and the requested activity, including setup, practice, mistakes, and checks where relevant. Every session must fit the daily limit and the whole chunk must fit its total budget. Never approve an overlong session just because the total sum fits.',
+    'TIME AUDIT: estimate realistic effort for this learner and the requested activity, including setup, practice, mistakes, and checks where relevant. Every session must fit the buffered daily limit and the whole chunk must fit its total budget. Never approve an overlong session just because the total sum fits. Verify all five timeBreakdown fields, exact arithmetic, nonnegative integer minutes, and that at least three phases must be positive. Judge whether each phase allows realistic time for this learner.',
     'PROGRESSION AUDIT: each session must prepare the learner for the next or deliberately reinforce a target skill for revision. Do not introduce a task before its actual prerequisites are taught or evidenced. If the horizon is too short, narrow the scope instead of rushing.',
     'Approve only when there are no critical or major issues and score is at least 85. Be specific: each issue should explain the mismatch and give an actionable fix. Do not invent requirements not implied by the goal.',
     learningBrief ? `ENHANCED LEARNING BRIEF TO AUDIT AGAINST:\n${JSON.stringify(learningBrief)}` : '',
     goal.priorLearningContext ? `PRIOR CHUNKS AND VERIFIED PROGRESS:\n${goal.priorLearningContext}` : '',
-    'CHUNK BUDGET: ' + planningDays + ' calendar days, ' + practiceDays + ' practice sessions, no more than ' + chunkBudgetMinutes + ' focused minutes total; daily session limit is ' + goal.minutesPerDay + ' minutes.',
+    'CHUNK BUDGET: ' + planningDays + ' calendar days, ' + practiceDays + ' practice sessions, no more than ' + chunkBudgetMinutes + ' focused minutes total; daily session limit is ' + sessionMinutes + ' minutes after reserving roughly 20% of the learner\'s availability.',
+    goal.timeCalibrationContext ? `LEARNER-SPECIFIC TIME CALIBRATION:\n${goal.timeCalibrationContext}` : '',
     'Return JSON only matching this schema:',
     JSON.stringify(reviewSchema),
     '',
@@ -272,18 +255,14 @@ function applyChunkBudget(roadmap, budgetMinutes) {
   if (!roadmap || !Array.isArray(roadmap.topics) || roadmap.topics.length === 0) return roadmap;
   const budget = Math.max(10, Math.floor(budgetMinutes));
   const topics = roadmap.topics.map((topic) => ({ ...topic, estimatedMinutes: Math.max(5, Math.floor(topic.estimatedMinutes)) }));
-  while (topics.length > 2 && topics.length * 5 > budget) topics.pop();
-  const total = topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0);
-  if (total > budget) {
-    const extras = topics.map((topic) => Math.max(0, topic.estimatedMinutes - 5));
-    const extraTotal = extras.reduce((sum, value) => sum + value, 0) || topics.length;
-    const distributable = Math.max(0, budget - topics.length * 5);
-    topics.forEach((topic, index) => { topic.estimatedMinutes = 5 + Math.floor(distributable * (extras[index] || (extraTotal === topics.length ? 1 : 0)) / extraTotal); });
-    let remainder = budget - topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0);
-    for (let index = 0; remainder > 0; index = (index + 1) % topics.length) { topics[index].estimatedMinutes += 1; remainder -= 1; }
-    for (let index = topics.length - 1; remainder < 0 && index >= 0; index -= 1) { const reduction = Math.min(topics[index].estimatedMinutes - 5, -remainder); topics[index].estimatedMinutes -= reduction; remainder += reduction; }
-  }
-  return { ...roadmap, topics, estimatedTotalMinutes: topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0) };
+  const estimatedTotalMinutes = topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0);
+  return {
+    ...roadmap,
+    topics,
+    estimatedTotalMinutes,
+    budgetMinutes: budget,
+    fitsBudget: estimatedTotalMinutes <= budget,
+  };
 }
 
 function normalizeJavaBeginnerContent(roadmap, goal) {
@@ -367,6 +346,24 @@ function getOverlongSessions(roadmap, maxSessionMinutes) {
   return roadmap.topics.filter((topic) => topic.estimatedMinutes > maxSessionMinutes);
 }
 
+function getTimeBreakdownIssues(roadmap) {
+  if (!roadmap || !Array.isArray(roadmap.topics)) return [];
+  return roadmap.topics.flatMap((topic) => {
+    const breakdown = topic.timeBreakdown;
+    const phases = ['conceptMinutes', 'workedExampleMinutes', 'guidedPracticeMinutes', 'independentPracticeMinutes', 'reviewMinutes'];
+    if (!breakdown || typeof breakdown !== 'object'
+      || phases.some((phase) => !Number.isInteger(breakdown[phase]) || breakdown[phase] < 0)) {
+      return [{ severity: 'major', code: 'TIME_BREAKDOWN_INVALID', explanation: `“${topic.title}” is missing a valid nonnegative integer time breakdown for all five phases.`, suggestedFix: 'Provide integer minutes for every phase and make estimatedMinutes equal their sum.', relatedTopicKeys: topic.key ? [topic.key] : [] }];
+    }
+    const total = phases.reduce((sum, phase) => sum + breakdown[phase], 0);
+    const positivePhases = phases.filter((phase) => breakdown[phase] > 0).length;
+    if (total !== topic.estimatedMinutes || positivePhases < 3 || topic.estimatedMinutes < 5) {
+      return [{ severity: 'major', code: 'TIME_BREAKDOWN_INVALID', explanation: `“${topic.title}” has a time breakdown that does not match its estimate or has too few meaningful phases.`, suggestedFix: 'Make the five phase values sum exactly to estimatedMinutes, keep at least three phases positive, and use at least five minutes total.', relatedTopicKeys: topic.key ? [topic.key] : [] }];
+    }
+    return [];
+  });
+}
+
 function applyRealismFloor(roadmap, goal) {
   if (!roadmap || !Array.isArray(roadmap.topics) || roadmap.topics.length === 0) return roadmap;
   const profile = `${goal.title || ''} ${goal.targetOutcome || ''}`.toLowerCase();
@@ -428,11 +425,18 @@ function parseStructuredContent(payload, description) {
 }
 
 async function requestStructured({ endpoint, headers, model, schemaName, schema, messages, fetchImpl, retryInvalidJson = true }) {
+  const requestStartedAt = Date.now();
+  if (process.env.AI_DEBUG === 'true') console.log(`[roadmap-generator] ${schemaName} request started`);
   let response;
   const localOllama = isLocalOllama(endpoint);
   const contextLength = Number.parseInt(process.env.AI_CONTEXT_LENGTH || '16384', 10);
-  const reasoningEffort = process.env.AI_REASONING_EFFORT || 'medium';
-  const outputTokens = schemaName === 'personalised_learning_roadmap' ? 6144 : 4096;
+  const reasoningEffort = localOllama && schemaName !== 'learning_clarification_questions'
+    ? 'low'
+    : (process.env.AI_REASONING_EFFORT || 'low');
+  const topicCount = Number(schema?.properties?.topics?.maxItems) || 3;
+  const outputTokens = schemaName === 'personalised_learning_roadmap'
+    ? Math.min(6144, Math.max(3072, topicCount * 1024))
+    : 2048;
   const requestBody = localOllama
     ? {
       model,
@@ -458,7 +462,8 @@ async function requestStructured({ endpoint, headers, model, schemaName, schema,
       signal: AbortSignal.timeout(240000),
       body: JSON.stringify(requestBody),
     });
-  } catch {
+  } catch (error) {
+    if (process.env.AI_DEBUG === 'true') console.error(`[roadmap-generator] ${schemaName} request failed after ${Date.now() - requestStartedAt}ms: ${error.name || 'Error'} ${error.message || ''}`);
     throw new RoadmapGenerationError(
       502,
       'ROADMAP_PROVIDER_UNAVAILABLE',
@@ -466,6 +471,7 @@ async function requestStructured({ endpoint, headers, model, schemaName, schema,
     );
   }
 
+  if (process.env.AI_DEBUG === 'true') console.log(`[roadmap-generator] ${schemaName} HTTP ${response.status} after ${Date.now() - requestStartedAt}ms`);
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
       throw new RoadmapGenerationError(503, 'ROADMAP_PROVIDER_CONFIGURATION', 'The AI provider rejected its API key or permissions. Check AI_API_KEY and provider access.');
@@ -492,8 +498,13 @@ async function requestStructured({ endpoint, headers, model, schemaName, schema,
       ? 'enhanced learning brief'
       : 'roadmap';
   try {
-    return parseStructuredContent(payload, description);
+    const parsed = parseStructuredContent(payload, description);
+    if (process.env.AI_DEBUG === 'true') console.log(`[roadmap-generator] ${schemaName} parsed in ${Date.now() - requestStartedAt}ms; finish=${payload.choices?.[0]?.finish_reason || 'unknown'}; prompt=${payload.prompt_eval_count ?? payload.usage?.prompt_tokens ?? 'n/a'}; output=${payload.eval_count ?? payload.usage?.completion_tokens ?? 'n/a'}`);
+    return parsed;
   } catch (error) {
+    if (process.env.AI_DEBUG === 'true') {
+      console.error('[roadmap-generator] Structured response parsing failed:', JSON.stringify({ schemaName, code: error.code || 'UNKNOWN', message: error.message }));
+    }
     if (retryInvalidJson && error.code === 'ROADMAP_PROVIDER_INVALID_RESPONSE') {
       return requestStructured({
         endpoint, headers, model, schemaName, schema,
@@ -562,9 +573,10 @@ async function generateRoadmap(goal, {
   fetchImpl = globalThis.fetch,
 } = {}) {
   const endpoint = getProviderEndpoint(baseUrl);
-  const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 7;
+  const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 3;
   const practiceDays = Math.ceil(goal.daysPerWeek * planningDays / 7);
-  const chunkBudgetMinutes = goal.minutesPerDay * practiceDays;
+  const sessionMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+  const chunkBudgetMinutes = sessionMinutes * practiceDays;
   const sessionCount = Math.max(2, practiceDays);
   const chunkRoadmapSchema = { ...responseSchema, properties: { ...responseSchema.properties, topics: { ...responseSchema.properties.topics, minItems: sessionCount, maxItems: sessionCount } } };
   if (!apiKey && !isLocalOllama(baseUrl)) {
@@ -605,18 +617,19 @@ async function generateRoadmap(goal, {
     ],
   });
 
-  const boundedGoal = { ...goal, planningDays, chunkBudgetMinutes };
+  const boundedGoal = { ...goal, planningDays, chunkBudgetMinutes, sessionMinutes };
   const draft = await requestStructured({
     endpoint, headers, model, schemaName: 'personalised_learning_roadmap', schema: chunkRoadmapSchema, fetchImpl,
     messages: [
       {
         role: 'system',
-        content: 'You are a learning-path architect. Translate the learner’s exact desired outcome into a small sequence of concrete steps and a directly relevant final deliverable. No generic filler. Return only the requested JSON.',
+        content: 'You are a learning-path architect. Return compact, complete JSON only. Translate the exact outcome into concrete steps; keep descriptions concise, give 2–4 short measurable objectives per topic, and avoid long explanations, markdown, and repeated wording. Finish every required field before adding detail.',
       },
       { role: 'user', content: buildPrompt(boundedGoal, JSON.stringify(learningBrief)) },
     ],
   });
 
+  const draftTimeBreakdownIssues = getTimeBreakdownIssues(draft);
   const firstValidation = validateRoadmap(normalizeJavaBeginnerContent(guardUnverifiedSongDetails(normalizeRoadmapProposal(draft), boundedGoal), boundedGoal));
   if (!firstValidation.success) {
     if (process.env.AI_DEBUG === 'true') console.error('[roadmap-generator] Draft structural validation failed:', JSON.stringify(firstValidation.errors));
@@ -639,27 +652,28 @@ async function generateRoadmap(goal, {
   if (!validateReview(review)) {
     throw new RoadmapGenerationError(502, 'ROADMAP_REVIEW_INVALID', 'The roadmap reviewer returned an invalid review. Please try generating it again.');
   }
+  if (process.env.AI_DEBUG === 'true') console.log('[roadmap-generator] Review result:', JSON.stringify({ approved: review.approved, score: review.score, issueCodes: review.issues.map((issue) => issue.code), issueSeverities: review.issues.map((issue) => issue.severity) }));
 
-  const overlongBeforeRevision = getOverlongSessions(roadmap, goal.minutesPerDay);
-  const sessionBudgetIssues = overlongBeforeRevision.map((topic) => ({ severity: 'major', code: 'SESSION_OVER_BUDGET', explanation: `“${topic.title}” is estimated at ${topic.estimatedMinutes} minutes, exceeding the learner’s ${goal.minutesPerDay}-minute daily limit.`, suggestedFix: 'Narrow this session to one teachable objective, defer remaining work to a later chunk, and keep its estimate within the daily limit.', relatedTopicKeys: [topic.key] }));
+  const overlongBeforeRevision = getOverlongSessions(roadmap, sessionMinutes);
+  const sessionBudgetIssues = overlongBeforeRevision.map((topic) => ({ severity: 'major', code: 'SESSION_OVER_BUDGET', explanation: `“${topic.title}” is estimated at ${topic.estimatedMinutes} minutes, exceeding the ${sessionMinutes}-minute planned session limit, which reserves buffer within the learner’s ${goal.minutesPerDay}-minute availability.`, suggestedFix: 'Narrow this session to one teachable objective, defer remaining work to a later chunk, and keep its estimate within the daily limit.', relatedTopicKeys: [topic.key] }));
   const instructionalIssues = getJavaBeginnerInstructionIssues(roadmap, goal);
   const initialTotalMinutes = roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0);
   const totalBudgetIssues = initialTotalMinutes > chunkBudgetMinutes
     ? [{ severity: 'major', code: 'CHUNK_OVER_BUDGET', explanation: `The proposed chunk needs ${initialTotalMinutes} minutes, exceeding the available ${chunkBudgetMinutes}-minute chunk budget.`, suggestedFix: 'Reduce the scope or split work into later chunks; do not shrink estimates without reducing the activities.', relatedTopicKeys: roadmap.topics.map((topic) => topic.key) }]
     : [];
   const continuityIssues = getUnjustifiedRepeatedTopicIssues(roadmap, boundedGoal);
-  const requiredFixes = [...sessionBudgetIssues, ...instructionalIssues, ...totalBudgetIssues, ...continuityIssues];
+  const requiredFixes = [...draftTimeBreakdownIssues, ...sessionBudgetIssues, ...instructionalIssues, ...totalBudgetIssues, ...continuityIssues];
   const reviewForRevision = requiredFixes.length
     ? { ...review, approved: false, score: Math.min(review.score, 79), issues: [...review.issues, ...requiredFixes] }
     : review;
 
   if (!reviewForRevision.approved || reviewForRevision.score < 85 || reviewForRevision.issues.some((issue) => issue.severity === 'critical' || issue.severity === 'major')) {
-    const revision = await requestStructured({
+    let revision = await requestStructured({
       endpoint, headers, model, schemaName: 'personalised_learning_roadmap', schema: chunkRoadmapSchema, fetchImpl,
       messages: [
         {
           role: 'system',
-          content: 'You are revising a learning roadmap after an independent quality audit. Fix every critical and major issue, honour the learner’s exact desired outcome, keep each step actionable, and do not add unrelated material. Return only the revised roadmap JSON.',
+          content: 'Revise the roadmap to fix every critical and major issue while preserving the exact outcome. Return compact, complete JSON only. Keep descriptions concise, provide 2–4 short measurable objectives per topic, avoid repeated wording, and finish every required field. Do not add unrelated material.',
         },
         {
           role: 'user',
@@ -675,26 +689,78 @@ async function generateRoadmap(goal, {
         },
       ],
     });
-    const revisedValidation = validateRoadmap(normalizeJavaBeginnerContent(guardUnverifiedSongDetails(normalizeRoadmapProposal(revision), boundedGoal), boundedGoal));
-    if (!revisedValidation.success) {
-      if (process.env.AI_DEBUG === 'true') console.error('[roadmap-generator] Revised structural validation failed:', JSON.stringify(revisedValidation.errors));
+    let candidate = revision;
+    let accepted = false;
+    let lastIssues = [];
+    for (let repairAttempt = 0; repairAttempt < 2; repairAttempt += 1) {
+      const timeIssues = getTimeBreakdownIssues(candidate);
+      const candidateValidation = validateRoadmap(normalizeJavaBeginnerContent(guardUnverifiedSongDetails(normalizeRoadmapProposal(candidate), boundedGoal), boundedGoal));
+      const candidateRoadmap = candidateValidation.success ? candidateValidation.data : null;
+      const totalMinutes = candidateRoadmap
+        ? candidateRoadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0)
+        : 0;
+      const overlong = candidateRoadmap ? getOverlongSessions(candidateRoadmap, sessionMinutes) : [];
+      const continuity = candidateRoadmap ? getUnjustifiedRepeatedTopicIssues(candidateRoadmap, boundedGoal) : [];
+      const instructional = candidateRoadmap ? getJavaBeginnerInstructionIssues(candidateRoadmap, goal) : [];
+      lastIssues = [
+        ...timeIssues,
+        ...(!candidateValidation.success ? candidateValidation.errors.map((issue) => ({ severity: 'major', code: 'STRUCTURAL_VALIDATION', explanation: issue.message || 'The roadmap structure is invalid.', suggestedFix: 'Return a complete roadmap matching the schema.', relatedTopicKeys: [] })) : []),
+        ...(candidateRoadmap && totalMinutes > chunkBudgetMinutes ? [{ severity: 'major', code: 'CHUNK_OVER_BUDGET', explanation: `The chunk needs ${totalMinutes} minutes, exceeding the ${chunkBudgetMinutes}-minute budget.`, suggestedFix: 'Narrow the activities and reduce their scope; do not understate time.', relatedTopicKeys: candidateRoadmap.topics.map((topic) => topic.key) }] : []),
+        ...overlong.map((topic) => ({ severity: 'major', code: 'SESSION_OVER_BUDGET', explanation: `“${topic.title}” needs ${topic.estimatedMinutes} minutes, above the ${sessionMinutes}-minute session cap.`, suggestedFix: 'Narrow this session to one achievable objective and defer remaining work to a later chunk.', relatedTopicKeys: [topic.key] })),
+        ...continuity,
+        ...instructional,
+      ];
+
+      if (process.env.AI_DEBUG === 'true') console.log(`[roadmap-generator] Repair attempt ${repairAttempt + 1} validation:`, JSON.stringify({ structurallyValid: candidateValidation.success, issueCodes: lastIssues.map((issue) => issue.code), issueCount: lastIssues.length, totalMinutes, chunkBudgetMinutes, sessionMinutes }));
+      if (candidateValidation.success && lastIssues.length === 0) {
+        roadmap = candidateRoadmap;
+        accepted = true;
+        break;
+      }
+      if (repairAttempt === 1) break;
+
+      candidate = await requestStructured({
+        endpoint, headers, model, schemaName: 'personalised_learning_roadmap', schema: chunkRoadmapSchema, fetchImpl,
+        messages: [
+          {
+            role: 'system',
+            content: `Repair the roadmap to satisfy every deterministic constraint. Return compact, complete JSON only. Every topic must fit within ${sessionMinutes} minutes; the sum of all topics must not exceed ${chunkBudgetMinutes} minutes. Each estimatedMinutes must equal the sum of five nonnegative integer timeBreakdown fields, with at least three positive phases. Keep the exact topic count, preserve valid prerequisites, and narrow activities instead of understating time.`,
+          },
+          {
+            role: 'user',
+            content: [
+              buildPrompt(boundedGoal, JSON.stringify(learningBrief)),
+              '',
+              `ROADMAP TO REPAIR:\n${JSON.stringify(candidate)}`,
+              '',
+              `REMAINING VALIDATION ISSUES:\n${JSON.stringify(lastIssues)}`,
+              '',
+              'Return a complete replacement roadmap that fixes these issues, not an explanation.',
+            ].join('\n'),
+          },
+        ],
+      });
+    }
+
+    if (!accepted) {
+      if (process.env.AI_DEBUG === 'true') console.error('[roadmap-generator] Final roadmap repair failed:', JSON.stringify(lastIssues));
+      const codes = new Set(lastIssues.map((issue) => issue.code));
+      if (codes.has('TIME_BREAKDOWN_INVALID')) {
+        throw new RoadmapGenerationError(502, 'ROADMAP_TIME_ESTIMATE_INVALID', 'The AI could not produce a reliable phase-by-phase time estimate. Try a shorter chunk or generate it again.');
+      }
+      if (codes.has('CHUNK_OVER_BUDGET')) {
+        throw new RoadmapGenerationError(502, 'ROADMAP_CHUNK_OVER_BUDGET', 'The AI could not fit the revised learning chunk into your available time without underestimating the work. Try a shorter planning horizon or generate the chunk again.');
+      }
+      if (codes.has('UNJUSTIFIED_COMPLETED_TOPIC_REPEAT')) {
+        throw new RoadmapGenerationError(502, 'ROADMAP_CONTINUITY_FAILED', 'The revised roadmap still repeats mastered topics without a clear learning purpose. Please generate the next chunk again.');
+      }
+      if (codes.has('MISSING_FIRST_RUNNABLE_PROGRAM') || codes.has('COMBINED_NEW_ARRAYS_AND_LOOPS') || codes.has('JAVA_STRING_MISCLASSIFIED')) {
+        throw new RoadmapGenerationError(502, 'ROADMAP_INSTRUCTIONAL_QUALITY_FAILED', 'The AI could not produce a realistic beginner sequence after revision. Try a shorter planning horizon or generate the chunk again.');
+      }
+      if (codes.has('SESSION_OVER_BUDGET')) {
+        throw new RoadmapGenerationError(502, 'ROADMAP_SESSION_OVER_BUDGET', 'The AI could not fit every learning session into the planned time limit while preserving a buffer. Try a shorter planning horizon or generate the chunk again.');
+      }
       throw new RoadmapGenerationError(502, 'ROADMAP_REVISION_INVALID', 'The revised roadmap failed structural validation. Please try again.');
-    }
-    roadmap = revisedValidation.data;
-    const revisedTotalMinutes = roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0);
-    if (revisedTotalMinutes > chunkBudgetMinutes) {
-      throw new RoadmapGenerationError(502, 'ROADMAP_CHUNK_OVER_BUDGET', 'The AI could not fit the revised learning chunk into your available time without underestimating the work. Try a shorter planning horizon or generate the chunk again.');
-    }
-    const overlongAfterRevision = getOverlongSessions(roadmap, goal.minutesPerDay);
-    if (getUnjustifiedRepeatedTopicIssues(roadmap, boundedGoal).length > 0) {
-      throw new RoadmapGenerationError(502, 'ROADMAP_CONTINUITY_FAILED', 'The revised roadmap still repeats mastered topics without a clear learning purpose. Please generate the next chunk again.');
-    }
-    const instructionalIssuesAfterRevision = getJavaBeginnerInstructionIssues(roadmap, goal);
-    if (instructionalIssuesAfterRevision.length > 0) {
-      throw new RoadmapGenerationError(502, 'ROADMAP_INSTRUCTIONAL_QUALITY_FAILED', 'The AI could not produce a realistic beginner sequence after revision. Try a shorter planning horizon or generate the chunk again.');
-    }
-    if (overlongAfterRevision.length > 0) {
-      throw new RoadmapGenerationError(502, 'ROADMAP_SESSION_OVER_BUDGET', 'The AI could not fit every learning session into your daily time limit. Try a shorter planning horizon or generate the chunk again.');
     }
   }
 
@@ -716,6 +782,7 @@ module.exports = {
   applyRealismFloor,
   applyChunkBudget,
   getOverlongSessions,
+  getTimeBreakdownIssues,
   getJavaBeginnerInstructionIssues,
   getUnjustifiedRepeatedTopicIssues,
   normalizeJavaBeginnerContent,

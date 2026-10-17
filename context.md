@@ -1,4 +1,3 @@
-
 # Gamified Learning V2 — Context
 
 ## Product and principles
@@ -252,3 +251,34 @@ Do not update master/reference docs frequently; update this context only for mat
 - Incomplete topics and completed topics with weak recent assessment evidence remain eligible for repetition. The guard is included in the revision feedback and checked again after the revised proposal to prevent the model from reintroducing the same unjustified repeat.
 - Added unit coverage for mastered repeats, low-score gaps, incomplete topics, purposeful retrieval practice, unrelated topics, and missing prior context.
 - Validation: npm test passed 75/75 including PostgreSQL integration; npm run check, npm run build, and git diff --check passed. npm run test:e2e passed 9/9. All requested checks passed before commit.
+
+## Continuation smoke audit and test stability (2026-10-21)
+- Expanded `apps/api/continuity-smoke.js` to report prior and next chunk descriptions, learning objectives, time estimates, and prerequisites rather than only topic titles. This makes semantic progression auditable instead of treating distinct titles as proof.
+- Live Ollama continuation produced a coherent progression: the first chunk introduced Spring Boot setup, PostgreSQL entities, repositories, GET/POST endpoints, and validation; the next chunk advanced to updates/deletion, derived queries, JPQL search, and integration testing. No exact topic-title repeats appeared. Integration testing revisits validation/search deliberately to verify the full API, not to restart instruction.
+- The full smoke run produced the detailed output but exceeded the command runner's 240 second limit, so it is not recorded as a clean passing command despite the output being generated. The smoke remains relatively slow because it makes multiple local model requests.
+- The default Playwright run attempted nine workers and Chromium crashed/timeouts on this Windows environment. All nine tests passed with one worker, then all nine passed with two workers. Set `workers: 2` in `playwright.config.js` to keep local browser testing reliable without serializing the suite.
+- Validation after these changes: `npm run check` and `npm run build` passed; `npm run test:e2e` passed 9/9 with the new default of two workers; `git diff --check` passed. The earlier `npm test` passed 75/75 after database migrations were applied.
+
+## Roadmap estimate and capacity reliability (2026-10-21)
+- Roadmap generation now requires a per-session time breakdown for concept/explanation, worked example, guided practice, independent practice, and review/check. Deterministic validation requires non-negative integer phase values, at least three meaningful phases, and an exact match between their sum and `estimatedMinutes`; the independent reviewer also audits the breakdown.
+- The generator no longer has a budget helper that silently scales estimates down to fit. `applyChunkBudget` now preserves the estimates and reports whether the proposal fits, and generation revises or rejects over-budget work instead of falsifying time.
+- Planning reserves approximately 20% of stated daily availability as a buffer. The effective per-session and total chunk caps are computed from that reduced capacity, and the UI distinguishes calendar days, study sessions, planned workload, available capacity, and reserved buffer.
+- `learningBrief` now records planning days, estimated practice days, daily availability, planned daily minutes, total available capacity, planned workload cap, and buffer minutes.
+- The phase breakdown is validated during generation but is not persisted as a separate database field; only the verified total estimate is saved. Mission completion now optionally captures self-reported actual minutes in the existing JSON evidence field. The next chunk retrieves up to 30 recent completed sessions and, after at least three valid timing samples, passes the median actual/estimated ratio and examples to both planner and reviewer prompts. This is evidence-guided calibration, not yet a deterministic multiplier.
+- Added tests for breakdown arithmetic/shape, safety-buffer prompts, consistent session counts, and honest over-budget behavior.
+
+## Rolling roadmap generation
+- Goal creation asks for a target duration in days and stores the calculated date in the existing `LearningGoal.targetDate` field; the dashboard shows the saved target date.
+- The first generated roadmap chunk defaults to 3 calendar days. The learner's target date remains separate from the current chunk's `planningDays`.
+- Local Ollama structured roadmap generation defaults to low reasoning and a topic-count-based output-token budget (3,072 tokens for a 2–3-session chunk, capped at 6,144 for larger chunks) to reduce incomplete JSON/retry loops. Enable `AI_DEBUG=true` to log structured-JSON parse failures and the roadmap service error code without logging prompts or credentials.
+- Activating the initial roadmap calls `POST /api/v1/learning-goals/:goalId/missions/initial`, which schedules the first up to 3 study dates (not a full week) and enforces the 20% daily buffer.
+- After a mission completion, the frontend calls `POST /api/v1/learning-goals/:goalId/roadmaps/roll-forward?timeZone=...` with the mission's scheduled date. The API waits until all sessions for that date are complete and only generates when fewer than 3 upcoming study dates remain.
+- Rolling generation creates 1–2 study dates of continuation work, greedily packs topics within the buffered daily budget, preserves existing/completed missions, activates the continuation chunk, and schedules it after already-planned dates. A per-process goal lock avoids duplicate concurrent generation on a single API instance.
+- Rolling generation stops at the saved goal deadline and returns a no-op when the buffer is full, the day is unfinished, or no study date remains before the deadline. Cross-instance locking is not implemented yet.
+- Tests cover the rolling-window-full and unfinished-day no-op paths. Validate with API tests, web lint/build, Playwright, and `git diff --check`; do not commit unless requested.
+
+## Roadmap generation 502 investigation (2026-10-21)
+- Investigated the reported `POST /api/v1/learning-goals/:goalId/roadmaps/generate` 502 after approximately 108 seconds. The affected saved goal was `Java`, target outcome `Ge good in DSA`, beginner, 60 minutes/day, 7 days/week.
+- Replayed the generator directly with that goal and a 3-day chunk. The live Ollama run succeeded in approximately 102 seconds and produced three sessions totaling 128 minutes, within the 144-minute buffered chunk budget. It required five model requests (enhanced brief, draft, review, revision, and deterministic repair), so the earlier 502 was not reproduced; model output variability remains a likely contributor, not a confirmed root cause.
+- Added opt-in `AI_DEBUG=true` diagnostics for each structured provider request (start, HTTP latency/status, token counts, parse outcome), reviewer decision/issue codes, and each deterministic repair validation attempt. Logs deliberately omit prompts, goal text, API keys, and credentials. The roadmap service already logs the final generation error code and message in debug mode.
+- Validation after this diagnostic change: `npm test` passed 82/82 including PostgreSQL integration; `npm run check`, `npm run build`, `npm run test:e2e` (9/9), and `git diff --check` passed. The direct live Ollama reproduction passed. A 502 must be considered unresolved until a full authenticated API generation is observed succeeding or the newly logged failing error code is captured.

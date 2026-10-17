@@ -64,6 +64,7 @@ test('dashboard New learning goal reveals a visible form and keeps dark surfaces
   await expect(goalCreate).toHaveClass(/is-visible/);
   await expect(goalCreate.locator('input[name="skill"]')).toBeVisible();
   await expect(goalCreate.locator('textarea[name="outcome"]')).toBeVisible();
+  await expect(goalCreate.locator('input[name="targetDurationDays"]')).toBeVisible();
   await expect(goalCreate.locator('button[type="submit"]')).toContainText('Save my learning goal');
   expect(await goalCreate.evaluate((node) => getComputedStyle(node).opacity)).toBe('1');
   expect(await page.locator('#learning-goals .bg-white').evaluateAll((nodes) =>
@@ -155,10 +156,12 @@ test('mission player requires a reflection and persists it with completion evide
   const reflection = page.getByPlaceholder('What did you practise, what result did you get, or what can you now explain?');
   await expect(page.getByRole('button', { name: 'Complete session' })).toBeDisabled();
   await reflection.fill('I rejected invalid input and verified the expected status code.');
+  await page.locator('input[type="number"]').fill('35');
   await page.getByRole('button', { name: 'Complete session' }).click();
   await expect(page.getByText('Session completed · XP already recorded')).toBeVisible();
   expect(savedEvidence.reflection).toBe('I rejected invalid input and verified the expected status code.');
   expect(savedEvidence.missionType).toBe('PRACTICE');
+  expect(savedEvidence.actualMinutes).toBe(35);
 });
 test('project milestones require evidence and persist progress', async ({ page }) => {
   const goal = {

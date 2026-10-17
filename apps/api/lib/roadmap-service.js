@@ -1,11 +1,9 @@
-
-
-
-
-
 const { prisma } = require('./prisma');
 const { validateRoadmap } = require('./roadmap-validation');
 const { generateRoadmap, generateClarifyingQuestions } = require('./roadmap-generator');
+const { addDays, dateInTimeZone, sessionDayIndexes } = require('./mission-scheduler');
+
+const rollingGenerationLocks = new Set();
 
 class RoadmapServiceError extends Error {
   constructor(status, code, message) {
@@ -21,6 +19,54 @@ function getValidatedRoadmap(input) {
     throw new RoadmapServiceError(400, 'INVALID_ROADMAP', 'The proposed roadmap is invalid.');
   }
   return result.data;
+}
+
+function buildTimeCalibrationContext(completions) {
+  const samples = (Array.isArray(completions) ? completions : []).flatMap((item) => {
+    const actualMinutes = Number(item?.evidence?.actualMinutes);
+    const estimatedMinutes = Number(item?.mission?.estimatedMinutes);
+    if (!Number.isInteger(actualMinutes) || actualMinutes < 1 || actualMinutes > 480
+      || !Number.isFinite(estimatedMinutes) || estimatedMinutes < 1) return [];
+    return [{
+      title: item.mission.topic?.title || item.mission.title || 'Learning session',
+      estimatedMinutes,
+      actualMinutes,
+      ratio: actualMinutes / estimatedMinutes,
+    }];
+  });
+  const sortedRatios = samples.map((sample) => sample.ratio).sort((a, b) => a - b);
+  const middle = Math.floor(sortedRatios.length / 2);
+  const medianRatio = sortedRatios.length === 0 ? null
+    : sortedRatios.length % 2 === 0
+      ? (sortedRatios[middle - 1] + sortedRatios[middle]) / 2
+      : sortedRatios[middle];
+  const roundedMedianRatio = medianRatio === null ? null : Math.round(medianRatio * 100) / 100;
+  if (samples.length < 3) {
+    return { context: '', sampleCount: samples.length, medianRatio: roundedMedianRatio };
+  }
+
+  const examples = samples.slice(0, 8).map((sample) => ({
+    topic: sample.title,
+    estimatedMinutes: sample.estimatedMinutes,
+    actualMinutes: sample.actualMinutes,
+  }));
+  const differencePercent = Math.round((roundedMedianRatio - 1) * 100);
+  const trend = differencePercent > 0
+    ? `actual time is typically about ${differencePercent}% longer than estimated`
+    : differencePercent < 0
+      ? `actual time is typically about ${Math.abs(differencePercent)}% shorter than estimated`
+      : 'actual time is broadly matching estimates';
+  return {
+    context: JSON.stringify({
+      sampleCount: samples.length,
+      medianActualToEstimatedRatio: roundedMedianRatio,
+      observedPattern: trend,
+      recentExamples: examples,
+      instruction: 'Use this learner-specific evidence when estimating future work. Do not blindly multiply every task by the same ratio; account for task type and complexity, and keep the plan within the reserved daily and chunk budgets by narrowing scope when necessary.',
+    }),
+    sampleCount: samples.length,
+    medianRatio: roundedMedianRatio,
+  };
 }
 
 async function getRoadmapWithTopics(db, roadmapId) {
@@ -114,7 +160,7 @@ async function getClarifyingQuestions({ userId, goalId, db = prisma, questionGen
   catch (error) { if (error && Number.isInteger(error.status) && error.code) throw error; throw new RoadmapServiceError(502, 'CLARIFICATION_QUESTIONS_FAILED', 'Personalisation questions could not be generated. Please try again.'); }
 }
 
-async function generateRoadmapDraft({ userId, goalId, clarifications = '', planningDays = 7, answers = [], db = prisma, generator = generateRoadmap }) {
+async function generateRoadmapDraft({ userId, goalId, clarifications = '', planningDays = 3, answers = [], db = prisma, generator = generateRoadmap }) {
   const goal = await db.learningGoal.findFirst({
     where: { id: goalId, userId },
     select: {
@@ -132,7 +178,23 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
   if (!goal) {
     throw new RoadmapServiceError(404, 'GOAL_NOT_FOUND', 'Learning goal not found.');
   }
-  const normalizedPlanningDays = Number.isInteger(planningDays) ? Math.max(1, Math.min(28, planningDays)) : 7;
+  const normalizedPlanningDays = Number.isInteger(planningDays) ? Math.max(1, Math.min(28, planningDays)) : 3;
+  const timingHistory = await db.missionCompletion.findMany({
+    where: { userId, mission: { is: { learningGoalId: goalId } } },
+    orderBy: { completedAt: 'desc' },
+    take: 30,
+    select: {
+      evidence: true,
+      mission: {
+        select: {
+          title: true,
+          estimatedMinutes: true,
+          topic: { select: { title: true } },
+        },
+      },
+    },
+  });
+  const timeCalibration = buildTimeCalibrationContext(timingHistory);
   const activeRoadmap = await db.roadmap.findFirst({ where: { learningGoalId: goalId, generationState: 'ACTIVE' }, orderBy: { version: 'desc' }, include: { topics: { orderBy: { position: 'asc' }, select: { id: true, title: true, description: true, learningObjectives: true, estimatedMinutes: true, position: true, userProgress: { where: { userId }, select: { status: true, masteryScore: true, attempts: true } }, assessment: { include: { attempts: { where: { userId }, orderBy: { createdAt: 'desc' }, take: 2, select: { score: true, passed: true } } } } } }, missions: { where: { userId }, select: { title: true, estimatedMinutes: true, status: true, topic: { select: { title: true } } }, orderBy: { scheduledDate: 'desc' }, take: 50 } } });
   const chunkNumber = activeRoadmap ? Number(activeRoadmap.learningBrief?.chunkNumber || 1) + 1 : 1;
   const priorLearningContext = activeRoadmap ? JSON.stringify({
@@ -162,15 +224,162 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
 
   let proposed;
   try {
-    proposed = await generator({ ...goal, learnerClarifications: combinedClarifications, planningDays: normalizedPlanningDays, chunkNumber, priorLearningContext });
+    proposed = await generator({ ...goal, learnerClarifications: combinedClarifications, planningDays: normalizedPlanningDays, chunkNumber, priorLearningContext, timeCalibrationContext: timeCalibration.context });
   } catch (error) {
+    if (process.env.AI_DEBUG === 'true') {
+      console.error('[roadmap-service] Roadmap generation failed:', JSON.stringify({
+        status: error?.status || 502,
+        code: error?.code || 'ROADMAP_GENERATION_FAILED',
+        message: error?.message || 'Unknown generation error',
+      }));
+    }
     if (error && Number.isInteger(error.status) && error.code) throw error;
     throw new RoadmapServiceError(502, 'ROADMAP_GENERATION_FAILED', 'The roadmap could not be generated. Please try again.');
   }
 
   const brief = proposed.learningBrief && typeof proposed.learningBrief === 'object' ? proposed.learningBrief : {};
-  proposed.learningBrief = { ...brief, chunkNumber, planningDays: normalizedPlanningDays, chunkBudgetMinutes: goal.minutesPerDay * Math.ceil(goal.daysPerWeek * normalizedPlanningDays / 7), learnerAnswers: safeAnswers, priorChunkId: activeRoadmap?.id || null };
+  const practiceDays = Math.ceil(goal.daysPerWeek * normalizedPlanningDays / 7);
+  const plannedDailyMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+  proposed.learningBrief = {
+    ...brief,
+    chunkNumber,
+    planningDays: normalizedPlanningDays,
+    practiceDays,
+    dailyMinutes: goal.minutesPerDay,
+    plannedDailyMinutes,
+    daysPerWeek: goal.daysPerWeek,
+    availableCapacityMinutes: goal.minutesPerDay * practiceDays,
+    chunkBudgetMinutes: plannedDailyMinutes * practiceDays,
+    bufferMinutes: (goal.minutesPerDay - plannedDailyMinutes) * practiceDays,
+    timeCalibrationSampleCount: timeCalibration.sampleCount,
+    ...(timeCalibration.medianRatio === null ? {} : { medianActualToEstimatedRatio: timeCalibration.medianRatio }),
+    learnerAnswers: safeAnswers,
+    priorChunkId: activeRoadmap?.id || null,
+  };
   return createRoadmapDraft({ userId, goalId, input: proposed, db });
+}
+
+function utcDate(dateString) {
+  return new Date(`${dateString}T00:00:00.000Z`);
+}
+
+function dateDistanceInDays(from, to) {
+  return Math.round((utcDate(to).getTime() - utcDate(from).getTime()) / 86400000);
+}
+
+async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'UTC', now = new Date(), db = prisma }) {
+  if (rollingGenerationLocks.has(goalId)) {
+    return { generated: false, reason: 'GENERATION_IN_PROGRESS' };
+  }
+  rollingGenerationLocks.add(goalId);
+  try {
+    const goal = await db.learningGoal.findFirst({
+      where: { id: goalId, userId },
+      select: { id: true, title: true, targetOutcome: true, experienceLevel: true, minutesPerDay: true, daysPerWeek: true, targetDate: true, originalDescription: true },
+    });
+    if (!goal) throw new RoadmapServiceError(404, 'GOAL_NOT_FOUND', 'Learning goal not found.');
+    const currentActiveRoadmap = await db.roadmap.findFirst({
+      where: { learningGoalId: goalId, generationState: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (!currentActiveRoadmap) throw new RoadmapServiceError(409, 'ACTIVE_ROADMAP_REQUIRED', 'Activate the initial roadmap before generating continuation sessions.');
+
+    const today = dateInTimeZone(now, timeZone);
+    const deadline = goal.targetDate ? goal.targetDate.toISOString().slice(0, 10) : null;
+    if (deadline && deadline < today) return { generated: false, reason: 'DEADLINE_PASSED' };
+
+    if (completedDate) {
+      const unfinishedOnCompletedDate = await db.dailyMission.count({
+        where: { userId, learningGoalId: goalId, scheduledDate: utcDate(completedDate), status: { in: ['SCHEDULED', 'IN_PROGRESS'] } },
+      });
+      if (unfinishedOnCompletedDate > 0) return { generated: false, reason: 'DAY_NOT_COMPLETE' };
+    }
+
+    const pending = await db.dailyMission.findMany({
+      where: { userId, learningGoalId: goalId, scheduledDate: { gte: utcDate(today) }, status: { in: ['SCHEDULED', 'IN_PROGRESS'] } },
+      select: { scheduledDate: true },
+      orderBy: { scheduledDate: 'asc' },
+    });
+    const pendingDates = [...new Set(pending.map((item) => item.scheduledDate.toISOString().slice(0, 10)))];
+    if (pendingDates.length >= 3) return { generated: false, reason: 'ROLLING_WINDOW_FULL', pendingDays: pendingDates.length };
+
+    const planningDays = Math.min(2, 3 - pendingDates.length);
+    if (planningDays < 1) return { generated: false, reason: 'ROLLING_WINDOW_FULL', pendingDays: pendingDates.length };
+
+    const lastPendingDate = pendingDates[pendingDates.length - 1] || today;
+    const firstCandidateOffset = Math.max(1, dateDistanceInDays(today, lastPendingDate) + 1);
+    const studyDayIndexes = new Set(sessionDayIndexes(goal.daysPerWeek));
+    const dates = [];
+    for (let offset = firstCandidateOffset; offset <= 365 && dates.length < Math.ceil(goal.daysPerWeek * planningDays / 7); offset += 1) {
+      const candidate = addDays(today, offset);
+      if (deadline && candidate > deadline) break;
+      if (!studyDayIndexes.has(offset % 7)) continue;
+      if (pendingDates.includes(candidate)) continue;
+      dates.push(candidate);
+    }
+    if (dates.length === 0) return { generated: false, reason: 'NO_STUDY_DAYS_BEFORE_DEADLINE' };
+
+    const actualPlanningDays = Math.min(planningDays, deadline ? Math.max(1, dateDistanceInDays(today, deadline)) : planningDays);
+    const draft = await generateRoadmapDraft({ userId, goalId, planningDays: actualPlanningDays, db });
+    const topics = draft.topics || [];
+    const plannedDailyMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+    const topicGroups = dates.map(() => []);
+    let dateIndex = 0;
+    let usedMinutes = 0;
+    let budgetInvalid = false;
+    for (const topic of topics) {
+      if (!Number.isInteger(topic.estimatedMinutes) || topic.estimatedMinutes < 5 || topic.estimatedMinutes > plannedDailyMinutes) {
+        budgetInvalid = true;
+        break;
+      }
+      if (usedMinutes + topic.estimatedMinutes > plannedDailyMinutes) {
+        dateIndex += 1;
+        usedMinutes = 0;
+      }
+      if (dateIndex >= topicGroups.length) {
+        budgetInvalid = true;
+        break;
+      }
+      topicGroups[dateIndex].push(topic);
+      usedMinutes += topic.estimatedMinutes;
+    }
+    if (budgetInvalid || topics.length === 0) {
+      await deleteRoadmapDraft({ userId, goalId, roadmapId: draft.id, db });
+      throw new RoadmapServiceError(502, 'ROLLING_CHUNK_BUDGET_INVALID', 'The next learning chunk did not fit the daily time budget. Please retry.');
+    }
+
+    const activeRoadmap = await activateRoadmap({ userId, goalId, roadmapId: draft.id, confirmLearningBrief: true, db });
+    const missionRows = [];
+    for (let groupIndex = 0; groupIndex < topicGroups.length; groupIndex += 1) {
+      for (const topic of topicGroups[groupIndex]) {
+        missionRows.push({
+          userId,
+          learningGoalId: goalId,
+          roadmapId: activeRoadmap.id,
+          topicId: topic.id,
+          scheduledDate: utcDate(dates[groupIndex]),
+          segmentIndex: 0,
+          missionType: 'LEARN',
+          title: `Learn: ${topic.title}`,
+          description: topic.description,
+          estimatedMinutes: topic.estimatedMinutes,
+          completionCriteria: {
+            objectives: Array.isArray(topic.learningObjectives) ? topic.learningObjectives : [],
+            instruction: 'Work through the session, practise the topic, and check your result against the learning objectives.',
+          },
+        });
+      }
+    }
+    if (missionRows.length > 0) await db.dailyMission.createMany({ data: missionRows, skipDuplicates: true });
+    const missions = await db.dailyMission.findMany({
+      where: { userId, learningGoalId: goalId, roadmapId: activeRoadmap.id, scheduledDate: { in: dates.map(utcDate) } },
+      orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
+      include: { topic: { select: { id: true, title: true, position: true } } },
+    });
+    return { generated: true, roadmap: activeRoadmap, missions, planningDays: actualPlanningDays, scheduledDates: dates, pendingDays: pendingDates.length + dates.length };
+  } finally {
+    rollingGenerationLocks.delete(goalId);
+  }
 }
 
 async function listRoadmaps({ userId, goalId, db = prisma }) {
@@ -311,6 +520,8 @@ module.exports = {
   getClarifyingQuestions,
   createRoadmapDraft,
   generateRoadmapDraft,
+  rollForwardRoadmap,
+  buildTimeCalibrationContext,
   listRoadmaps,
   deleteRoadmapDraft,
   activateRoadmap,

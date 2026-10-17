@@ -6,6 +6,13 @@ const roadmapTopicSchema = z.object({
   description: z.string().trim().min(1).max(2000),
   learningObjectives: z.array(z.string().trim().min(1).max(300)).min(1).max(8),
   estimatedMinutes: z.number().int().min(5).max(10080),
+  timeBreakdown: z.object({
+    conceptMinutes: z.number().int().min(0),
+    workedExampleMinutes: z.number().int().min(0),
+    guidedPracticeMinutes: z.number().int().min(0),
+    independentPracticeMinutes: z.number().int().min(0),
+    reviewMinutes: z.number().int().min(0),
+  }).optional(),
   prerequisiteKeys: z.array(z.string().trim().min(1).max(80)).max(40).default([]),
 });
 

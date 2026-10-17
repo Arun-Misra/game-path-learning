@@ -7,7 +7,7 @@ import AssessmentTestPage from './AssessmentTestPage.jsx';
 
 const initialForm = {
   skill: '', experience: 'beginner', outcome: '',
-  minutesPerDay: '30', daysPerWeek: '5',
+  minutesPerDay: '30', daysPerWeek: '5', targetDurationDays: '30',
   name: '', email: '', password: '',
 };
 
@@ -46,6 +46,7 @@ function App() {
   const [missionBusyId, setMissionBusyId] = useState(null);
   const [expandedMissionId, setExpandedMissionId] = useState(null);
   const [missionEvidenceById, setMissionEvidenceById] = useState({});
+  const [missionActualMinutesById, setMissionActualMinutesById] = useState({});
   const [assessmentByTopic, setAssessmentByTopic] = useState({});
   const [assessmentBusyId, setAssessmentBusyId] = useState(null);
   const [assessmentAnswers, setAssessmentAnswers] = useState({});
@@ -230,6 +231,7 @@ function App() {
           outcome: form.outcome.trim(),
           minutesPerDay: Number(form.minutesPerDay),
           daysPerWeek: Number(form.daysPerWeek),
+          targetDate: (() => { const date = new Date(); date.setDate(date.getDate() + Number(form.targetDurationDays)); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; })(),
         }),
       });
       setGoals((current) => [result.data.goal, ...current]);
@@ -306,7 +308,7 @@ function App() {
     try {
       const result = await requestJson('/api/v1/learning-goals/' + goal.id + '/roadmaps/questions', { method: 'POST', body: JSON.stringify({}) });
       const questions = result.data.questions || [];
-      setPlanningByGoal((current) => ({ ...current, [goal.id]: current[goal.id] || 7 }));
+      setPlanningByGoal((current) => ({ ...current, [goal.id]: current[goal.id] || 3 }));
       setAnswersByGoal((current) => ({ ...current, [goal.id]: current[goal.id] || {} }));
       setQuestionsByGoal((current) => ({ ...current, [goal.id]: questions }));
       setNotice({ type: 'success', message: questions.length ? 'Answer these questions to personalise the next chunk.' : 'No extra questions are needed. Generate your learning chunk below.' });
@@ -323,7 +325,7 @@ function App() {
     }
     setRoadmapBusyGoal(goal.id); setNotice(null);
     try {
-      const result = await requestJson('/api/v1/learning-goals/' + goal.id + '/roadmaps/generate', { method: 'POST', body: JSON.stringify({ planningDays: planningByGoal[goal.id] || 7, answers, clarifications: clarificationByGoal[goal.id] || '' }) });
+      const result = await requestJson('/api/v1/learning-goals/' + goal.id + '/roadmaps/generate', { method: 'POST', body: JSON.stringify({ planningDays: planningByGoal[goal.id] || 3, answers, clarifications: clarificationByGoal[goal.id] || '' }) });
       setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [result.data.roadmap.id]: false }));
       setRoadmapsByGoal((current) => ({ ...current, [goal.id]: [result.data.roadmap, ...(current[goal.id] || [])] }));
       setQuestionFormGoal(null);
@@ -401,8 +403,14 @@ function App() {
         }),
       }));
       setGoals((current) => current.map((item) => item.id === goal.id ? { ...item, status: 'active' } : item));
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const missionResult = await requestJson(
+        `/api/v1/learning-goals/${goal.id}/missions/initial?timeZone=${encodeURIComponent(timeZone)}`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      setMissionsByGoal((current) => ({ ...current, [goal.id]: missionResult.data }));
       await Promise.all([refreshNextStep(goal.id), refreshProjectMilestones(goal.id), refreshMissionRecovery(goal.id)]);
-      setNotice({ type: 'success', message: `Roadmap activated for ${goal.skill}.` });
+      setNotice({ type: 'success', message: `Roadmap activated for ${goal.skill}; your first learning days are scheduled.` });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
     } finally {
@@ -519,10 +527,49 @@ function App() {
     }
   }
 
+  async function prepareNextChunkAfterCompletion(goal, mission, xpAwarded) {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    try {
+      const rollingResult = await requestJson(
+        `/api/v1/learning-goals/${goal.id}/roadmaps/roll-forward?timeZone=${encodeURIComponent(timeZone)}`,
+        { method: 'POST', body: JSON.stringify({ completedDate: String(mission.scheduledDate).slice(0, 10) }) },
+      );
+      if (!rollingResult.data.generated) {
+        if (rollingResult.data.reason === 'DAY_NOT_COMPLETE') {
+          setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Finish the remaining sessions for today and Pathwise will prepare the next days.` });
+        } else if (rollingResult.data.reason === 'ROLLING_WINDOW_FULL') {
+          setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Your next learning days are already scheduled.` });
+        }
+        return;
+      }
+
+      const nextRoadmap = rollingResult.data.roadmap;
+      setRoadmapsByGoal((current) => ({
+        ...current,
+        [goal.id]: [nextRoadmap, ...(current[goal.id] || []).map((item) => item.generationState === 'ACTIVE' ? { ...item, generationState: 'SUPERSEDED' } : item)],
+      }));
+      setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [nextRoadmap.id]: true }));
+      const missionRefresh = await requestJson(
+        `/api/v1/learning-goals/${goal.id}/missions?timeZone=${encodeURIComponent(timeZone)}`,
+      );
+      setMissionsByGoal((current) => ({ ...current, [goal.id]: missionRefresh.data }));
+      await refreshNextStep(goal.id);
+      setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Pathwise prepared the next ${rollingResult.data.planningDays} day(s).` });
+    } catch {
+      setNotice({ type: 'error', message: `Mission complete! You earned ${xpAwarded} XP. Your progress is saved, but the next chunk could not be prepared yet; Pathwise will try again after another completed day.` });
+    }
+  }
+
   async function handleCompleteMission(goal, mission) {
     const reflection = String(missionEvidenceById[mission.id] || '').trim();
     if (reflection.length < 10) {
       setNotice({ type: 'error', message: 'Add a short reflection (at least 10 characters) before completing this session.' });
+      return;
+    }
+    const rawActualMinutes = String(missionActualMinutesById[mission.id] || '').trim();
+    const actualMinutes = rawActualMinutes ? Number(rawActualMinutes) : null;
+    if (rawActualMinutes && (!Number.isInteger(actualMinutes) || actualMinutes < 1 || actualMinutes > 480)) {
+      setNotice({ type: 'error', message: 'Time spent must be a whole number between 1 and 480 minutes.' });
       return;
     }
     setMissionBusyId(mission.id);
@@ -535,6 +582,7 @@ function App() {
           body: JSON.stringify({
             evidence: {
               reflection,
+              ...(actualMinutes === null ? {} : { actualMinutes }),
               completionCriteria: mission.completionCriteria || {},
               missionType: mission.missionType || 'LEARN',
             },
@@ -557,7 +605,10 @@ function App() {
       await Promise.all([refreshGamification(), refreshNextStep(goal.id), refreshMissionRecovery(goal.id)]);
       setNotice({ type: 'success', message: result.data.alreadyCompleted
         ? 'This mission was already completed.'
-        : `Mission complete! You earned ${result.data.xpAwarded} XP.` });
+        : `Mission complete! You earned ${result.data.xpAwarded} XP. Checking the next learning days in the background…` });
+      if (!result.data.alreadyCompleted) {
+        void prepareNextChunkAfterCompletion(goal, mission, result.data.xpAwarded);
+      }
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
     } finally {
@@ -734,6 +785,7 @@ function App() {
                 <div className="schedule-fields grid grid-cols-2 gap-4">
                   <Field label="4. Your daily time"><select name="minutesPerDay" value={form.minutesPerDay} onChange={updateField} className="field"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option><option value="90">1.5 hours</option><option value="120">2 hours</option></select></Field>
                   <Field label="Your weekly rhythm"><select name="daysPerWeek" value={form.daysPerWeek} onChange={updateField} className="field">{[2, 3, 4, 5, 6, 7].map((days) => <option key={days} value={days}>{days} days</option>)}</select></Field>
+                  <Field label="5. In how many days do you want to achieve this goal?"><input name="targetDurationDays" type="number" min="1" max="365" step="1" required value={form.targetDurationDays} onChange={updateField} className="field" /><span className="block text-xs leading-5 text-[#737b70]">Set your target timeline. Pathwise will build a rolling 3-day plan and adapt it as you progress.</span></Field>
                 </div>
               </>}
               <button type="submit" disabled={busy || apiStatus !== 'online'} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#263f32] px-5 py-4 text-sm font-semibold text-white transition hover:bg-[#355640] focus:outline-none focus:ring-4 focus:ring-[#d8e5d3] disabled:cursor-not-allowed disabled:opacity-55">{busy ? (user ? 'Saving your goal…' : accountMode === 'login' ? 'Signing in…' : 'Creating account…') : user ? 'Save my learning goal' : accountMode === 'login' ? 'Sign in to Pathwise' : 'Create my account'} <ArrowRight size={17} className="transition group-hover:translate-x-1" /></button>
@@ -841,7 +893,7 @@ function App() {
 
 <p className="mt-1 text-sm text-[#737b70]">{goal.outcome}</p>
 
-<p className="mt-3 text-xs text-[#82917b]">{goal.minutesPerDay} min/day · {goal.daysPerWeek} days/week · {goal.status} · {missionsByGoal[goal.id]?.totalXp || 0} XP</p>
+<p className="mt-3 text-xs text-[#82917b]">{goal.minutesPerDay} min/day · {goal.daysPerWeek} days/week · {goal.targetDate ? `target ${String(goal.targetDate).slice(0, 10)}` : 'no deadline'} · {goal.status} · {missionsByGoal[goal.id]?.totalXp || 0} XP</p>
 {nextStepByGoal[goal.id] && <div className="mt-3 border-l-2 border-[#688663] pl-3" aria-label={`Next step for ${goal.skill}`}><p className="text-[10px] font-bold uppercase tracking-wide text-[#688663]">Recommended next step</p><p className="mt-1 text-sm font-semibold text-[#29263b]">{nextStepByGoal[goal.id].title}</p><p className="mt-1 text-xs leading-5 text-[#737b70]">{nextStepByGoal[goal.id].reason}</p></div>}
 {masterySummaryByGoal[goal.id] && <section className="mt-4 border border-[#343432] bg-[#191918] p-3" aria-label={`Mastery snapshot for ${goal.skill}`}>
   <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#ff5933]">Mastery snapshot</p><span className="text-[11px] text-[#a3a39f]">{masterySummaryByGoal[goal.id].totalTopics} topics</span></div>
@@ -869,7 +921,7 @@ function App() {
 </div>
 {questionFormGoal === goal.id && <div className="mt-4 rounded-2xl border border-[#dfe7d9] bg-[#fbfcf8] p-4">
 <p className="font-semibold">Personalise your next learning chunk</p><p className="mt-1 text-xs leading-5 text-[#737b70]">Plan only a short period. The next chunk will adapt to your progress.</p>
-<Field label="How far ahead should we plan?"><select className="field mt-2" value={planningByGoal[goal.id] || 7} onChange={(event) => setPlanningByGoal((current) => ({ ...current, [goal.id]: Number(event.target.value) }))}>{[3, 7, 14, 21, 28].map((days) => <option key={days} value={days}>{days} days</option>)}</select></Field>
+<p className="mt-2 text-xs leading-5 text-[#737b70]">Pathwise generates the first 3 days, then keeps the next 1–2 days ready as you complete sessions. Your target timeline is saved with this goal.</p>
 {(questionsByGoal[goal.id] || []).map((question) => <Field key={question.key} label={question.question}><p className="mt-1 text-xs text-[#737b70]">{question.reason}</p><select className="field mt-2" value={(answersByGoal[goal.id] || {})[question.key] || ""} onChange={(event) => setAnswersByGoal((current) => ({ ...current, [goal.id]: { ...(current[goal.id] || {}), [question.key]: event.target.value } }))}><option value="">Choose…</option>{question.options.map((option) => <option key={option} value={option}>{option}</option>)}</select></Field>)}
 <Field label="Anything else Pathwise should know?"><textarea className="field mt-2" rows={2} maxLength={1200} value={clarificationByGoal[goal.id] || ""} onChange={(event) => setClarificationByGoal((current) => ({ ...current, [goal.id]: event.target.value }))} placeholder="Optional: paste a trusted tutorial or chord chart link, mention tools you have, or explain a constraint." /></Field>
 <div className="mt-3 flex gap-2"><button type="button" onClick={() => handleGenerateChunk(goal)} disabled={roadmapBusyGoal !== null} className="rounded-xl bg-[#263f32] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{roadmapBusyGoal === goal.id ? "Generating chunk…" : "Generate this chunk"}</button><button type="button" onClick={() => setQuestionFormGoal(null)} className="rounded-xl border border-[#dfe7d9] px-4 py-2 text-xs font-semibold">Cancel</button></div></div>}
@@ -878,7 +930,7 @@ function App() {
 <div>
 <p className="font-semibold">{roadmap.title}</p>
 
-<p className="mt-1 text-xs text-[#737b70]">Chunk {roadmap.learningBrief?.chunkNumber || roadmap.version} · {roadmap.learningBrief?.planningDays || 7} days · {roadmap.generationState.toLowerCase()} · {roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0)} min planned</p>
+<p className="mt-1 text-xs text-[#737b70]">Chunk {roadmap.learningBrief?.chunkNumber || roadmap.version} · {roadmap.learningBrief?.planningDays || 7} calendar days · {roadmap.topics.length} study sessions · {roadmap.generationState.toLowerCase()} · {roadmap.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0)} min planned</p>
 
 </div>{roadmap.generationState === 'DRAFT' && <div className="flex flex-wrap gap-2">
 <button type="button" onClick={() => handleActivateRoadmap(goal, roadmap)} disabled={roadmapBusyGoal !== null || Boolean(roadmap.learningBrief && !learningBriefConfirmedByRoadmap[roadmap.id])} className="rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">Activate</button>
@@ -886,7 +938,7 @@ function App() {
 </div>
 }</div>
 
-<p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p>{roadmap.learningBrief?.chunkBudgetMinutes && <p className="mt-2 rounded-lg bg-[#edf3e9] p-2 text-xs text-[#355a39]">Chunk budget: {roadmap.learningBrief.chunkBudgetMinutes} minutes over {roadmap.learningBrief.planningDays} days. Future chunks adapt to progress.</p>}
+<p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p>{roadmap.learningBrief?.chunkBudgetMinutes && <p className="mt-2 rounded-lg bg-[#edf3e9] p-2 text-xs text-[#355a39]">Workload cap: {roadmap.learningBrief.chunkBudgetMinutes} minutes across {roadmap.learningBrief.practiceDays ?? roadmap.learningBrief.planningDays} planned study days ({roadmap.learningBrief.plannedDailyMinutes ?? roadmap.learningBrief.dailyMinutes} minutes/day). Your availability is {roadmap.learningBrief.availableCapacityMinutes ?? roadmap.learningBrief.chunkBudgetMinutes} minutes total, with {roadmap.learningBrief.bufferMinutes ?? 0} minutes reserved as a buffer. This chunk contains {roadmap.topics.length} study sessions across a {roadmap.learningBrief.planningDays}-calendar-day window. Estimates are checked against the daily and total limits; future chunks adapt to progress.</p>}{roadmap.learningBrief?.timeCalibrationSampleCount >= 3 && roadmap.learningBrief?.medianActualToEstimatedRatio && <p className="mt-2 rounded-lg border border-[#dfe7d9] p-2 text-xs text-[#737b70]">Personalized timing: your last {roadmap.learningBrief.timeCalibrationSampleCount} timed sessions typically took {roadmap.learningBrief.medianActualToEstimatedRatio.toFixed(2)}× the estimated time. Pathwise uses this evidence when planning future chunks.</p>}
 
 {roadmap.learningBrief && <section className="mt-4 rounded-xl border border-[#dfe7d9] bg-white p-4">
 <p className="text-xs font-bold uppercase tracking-wide text-[#688663]">Enhanced learning brief</p>
@@ -1043,7 +1095,8 @@ function App() {
           </li>)}
         </ul>
       </>}
-      {!completed && <label className="mt-4 block">
+      {!completed && <>
+      <label className="mt-4 block">
         <span className="text-xs font-semibold text-[#d1d1cd]">Learning reflection (saved with your completion)</span>
         <textarea
           value={missionEvidenceById[mission.id] || ''}
@@ -1054,7 +1107,23 @@ function App() {
           className="mt-2 w-full resize-y border border-[#41413d] bg-[#111110] p-3 text-sm leading-5 text-[#f2f2f0] placeholder:text-[#777773] focus:border-[#ff3300] focus:outline-none"
         />
         <span className="mt-1 block text-[11px] text-[#777773]">Write at least 10 characters. This records your reflection; it is not an automatic mastery score.</span>
-      </label>}
+      </label>
+      <label className="mt-3 block">
+        <span className="text-xs font-semibold text-[#d1d1cd]">Time spent (optional)</span>
+        <input
+          type="number"
+          min="1"
+          max="480"
+          step="1"
+          inputMode="numeric"
+          value={missionActualMinutesById[mission.id] || ''}
+          onChange={(event) => setMissionActualMinutesById((current) => ({ ...current, [mission.id]: event.target.value }))}
+          placeholder={String(mission.estimatedMinutes || '') + ' min estimated'}
+          className="mt-2 w-full border border-[#41413d] bg-[#111110] p-3 text-sm text-[#f2f2f0] placeholder:text-[#777773] focus:border-[#ff3300] focus:outline-none"
+        />
+        <span className="mt-1 block text-[11px] text-[#777773]">Entering your actual time helps Pathwise improve estimates for future chunks.</span>
+      </label>
+      </>}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         {completed
           ? <p className="text-xs font-semibold text-emerald-300">Session completed · XP already recorded</p>
