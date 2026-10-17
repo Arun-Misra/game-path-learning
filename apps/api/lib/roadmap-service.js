@@ -69,6 +69,51 @@ function buildTimeCalibrationContext(completions) {
   };
 }
 
+function buildDeadlineFeasibility({ goal, estimatedRemainingMinutes, estimateConfidence = 'low', now = new Date(), timeZone = 'UTC' }) {
+  const targetDate = goal?.targetDate ? new Date(goal.targetDate).toISOString().slice(0, 10) : null;
+  if (!targetDate) return { status: 'NO_DEADLINE', targetDate: null, estimateConfidence, recommendation: 'Set a target date if you want Pathwise to estimate schedule feasibility.' };
+
+  const today = dateInTimeZone(now, timeZone);
+  const daysRemaining = dateDistanceInDays(today, targetDate);
+  if (daysRemaining < 0) {
+    return { status: 'DEADLINE_PASSED', targetDate, daysRemaining: 0, availableStudyDays: 0, availableMinutes: 0, estimatedRemainingMinutes: Number.isInteger(estimatedRemainingMinutes) ? estimatedRemainingMinutes : null, estimateConfidence, recommendation: 'The target date has passed. Choose a new date or reduce the goal scope.' };
+  }
+  if (!Number.isInteger(estimatedRemainingMinutes) || estimatedRemainingMinutes < 1) {
+    return { status: 'ESTIMATING', targetDate, daysRemaining, availableStudyDays: 0, availableMinutes: 0, estimatedRemainingMinutes: null, estimateConfidence, recommendation: 'Pathwise does not yet have a reliable remaining-effort estimate for this goal.' };
+  }
+
+  const studyDayIndexes = new Set(sessionDayIndexes(goal.daysPerWeek));
+  let availableStudyDays = 0;
+  for (let offset = 0; offset <= daysRemaining; offset += 1) {
+    if (studyDayIndexes.has(offset % 7)) availableStudyDays += 1;
+  }
+  const plannedDailyMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+  const availableMinutes = availableStudyDays * plannedDailyMinutes;
+  const marginMinutes = availableMinutes - estimatedRemainingMinutes;
+  const status = marginMinutes < 0
+    ? 'OVER_CAPACITY'
+    : marginMinutes < estimatedRemainingMinutes * 0.15
+      ? 'AT_RISK'
+      : 'ON_TRACK';
+  const recommendation = status === 'OVER_CAPACITY'
+    ? 'The estimated remaining work exceeds buffered capacity. Reduce the outcome scope, increase realistic study time, or extend the deadline.'
+    : status === 'AT_RISK'
+      ? 'The goal may fit, but there is little room for delays. Keep the scope focused and review progress after the next chunk.'
+      : 'The current estimate fits within the available study time. Recheck after each chunk because estimates and pace can change.';
+  return {
+    status,
+    targetDate,
+    daysRemaining,
+    availableStudyDays,
+    plannedDailyMinutes,
+    availableMinutes,
+    estimatedRemainingMinutes,
+    marginMinutes,
+    estimateConfidence: ['low', 'medium', 'high'].includes(estimateConfidence) ? estimateConfidence : 'low',
+    recommendation,
+  };
+}
+
 async function getRoadmapWithTopics(db, roadmapId) {
   return db.roadmap.findUnique({
     where: { id: roadmapId },
@@ -160,7 +205,7 @@ async function getClarifyingQuestions({ userId, goalId, db = prisma, questionGen
   catch (error) { if (error && Number.isInteger(error.status) && error.code) throw error; throw new RoadmapServiceError(502, 'CLARIFICATION_QUESTIONS_FAILED', 'Personalisation questions could not be generated. Please try again.'); }
 }
 
-async function generateRoadmapDraft({ userId, goalId, clarifications = '', planningDays = 3, answers = [], db = prisma, generator = generateRoadmap }) {
+async function generateRoadmapDraft({ userId, goalId, clarifications = '', planningDays = 3, answers = [], timeZone = 'UTC', now = new Date(), db = prisma, generator = generateRoadmap }) {
   const goal = await db.learningGoal.findFirst({
     where: { id: goalId, userId },
     select: {
@@ -199,7 +244,7 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
   const chunkNumber = activeRoadmap ? Number(activeRoadmap.learningBrief?.chunkNumber || 1) + 1 : 1;
   const priorLearningContext = activeRoadmap ? JSON.stringify({
     nextChunkNumber: chunkNumber,
-    previousChunk: { id: activeRoadmap.id, title: activeRoadmap.title, summary: activeRoadmap.summary, chunkNumber: activeRoadmap.learningBrief?.chunkNumber || 1 },
+    previousChunk: { id: activeRoadmap.id, title: activeRoadmap.title, summary: activeRoadmap.summary, chunkNumber: activeRoadmap.learningBrief?.chunkNumber || 1, estimatedRemainingMinutes: activeRoadmap.learningBrief?.estimatedRemainingMinutes, estimateConfidence: activeRoadmap.learningBrief?.estimateConfidence },
     continuationRules: [
       'Continue from the latest chunk; do not restart from the beginning.',
       'Treat completed topics as taught; use mastery/assessment evidence to decide whether to advance or review.',
@@ -251,6 +296,7 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
     availableCapacityMinutes: goal.minutesPerDay * practiceDays,
     chunkBudgetMinutes: plannedDailyMinutes * practiceDays,
     bufferMinutes: (goal.minutesPerDay - plannedDailyMinutes) * practiceDays,
+    deadlineFeasibility: buildDeadlineFeasibility({ goal, estimatedRemainingMinutes: brief.estimatedRemainingMinutes, estimateConfidence: brief.estimateConfidence, now, timeZone }),
     timeCalibrationSampleCount: timeCalibration.sampleCount,
     ...(timeCalibration.medianRatio === null ? {} : { medianActualToEstimatedRatio: timeCalibration.medianRatio }),
     learnerAnswers: safeAnswers,
@@ -267,11 +313,27 @@ function dateDistanceInDays(from, to) {
   return Math.round((utcDate(to).getTime() - utcDate(from).getTime()) / 86400000);
 }
 
+async function getCompletedRollingGeneration({ db, run, goalId }) {
+  if (!run?.resultRoadmapId) return { generated: false, reason: 'ALREADY_GENERATED' };
+  const roadmap = await db.roadmap.findFirst({
+    where: { id: run.resultRoadmapId, learningGoalId: goalId },
+    include: { topics: { orderBy: { position: 'asc' } } },
+  });
+  const missions = await db.dailyMission.findMany({
+    where: { learningGoalId: goalId, roadmapId: run.resultRoadmapId },
+    orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
+    include: { topic: { select: { id: true, title: true, position: true } } },
+  });
+  return { generated: false, reason: 'ALREADY_GENERATED', roadmap, missions, pendingDays: new Set(missions.filter((item) => ['SCHEDULED', 'IN_PROGRESS'].includes(item.status)).map((item) => item.scheduledDate.toISOString().slice(0, 10))).size };
+}
+
 async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'UTC', now = new Date(), db = prisma }) {
-  if (rollingGenerationLocks.has(goalId)) {
+  const lockKey = `${userId}:${goalId}`;
+  if (rollingGenerationLocks.has(lockKey)) {
     return { generated: false, reason: 'GENERATION_IN_PROGRESS' };
   }
-  rollingGenerationLocks.add(goalId);
+  rollingGenerationLocks.add(lockKey);
+  let generationRunId = null;
   try {
     const goal = await db.learningGoal.findFirst({
       where: { id: goalId, userId },
@@ -287,6 +349,20 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
     const today = dateInTimeZone(now, timeZone);
     const deadline = goal.targetDate ? goal.targetDate.toISOString().slice(0, 10) : null;
     if (deadline && deadline < today) return { generated: false, reason: 'DEADLINE_PASSED' };
+
+    const triggerDate = utcDate(completedDate || today);
+    let existingGenerationRun = null;
+    if (db.roadmapGenerationRun) {
+      existingGenerationRun = await db.roadmapGenerationRun.findUnique({
+        where: { learningGoalId_triggerDate: { learningGoalId: goalId, triggerDate } },
+      });
+      if (existingGenerationRun?.status === 'COMPLETED') {
+        return getCompletedRollingGeneration({ db, run: existingGenerationRun, goalId });
+      }
+      if (existingGenerationRun?.status === 'GENERATING' && existingGenerationRun.leaseExpiresAt > now) {
+        return { generated: false, reason: 'GENERATION_IN_PROGRESS' };
+      }
+    }
 
     if (completedDate) {
       const unfinishedOnCompletedDate = await db.dailyMission.count({
@@ -319,8 +395,44 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
     }
     if (dates.length === 0) return { generated: false, reason: 'NO_STUDY_DAYS_BEFORE_DEADLINE' };
 
+    if (db.roadmapGenerationRun) {
+      const leaseExpiresAt = new Date(now.getTime() + 10 * 60 * 1000);
+      if (existingGenerationRun) {
+        const claimed = await db.roadmapGenerationRun.updateMany({
+          where: {
+            id: existingGenerationRun.id,
+            OR: [{ status: 'FAILED' }, { leaseExpiresAt: { lte: now } }],
+          },
+          data: { status: 'GENERATING', leaseExpiresAt, failureCode: null, resultRoadmapId: null },
+        });
+        if (claimed.count !== 1) {
+          const latestRun = await db.roadmapGenerationRun.findUnique({
+            where: { learningGoalId_triggerDate: { learningGoalId: goalId, triggerDate } },
+          });
+          if (latestRun?.status === 'COMPLETED') return getCompletedRollingGeneration({ db, run: latestRun, goalId });
+          return { generated: false, reason: 'GENERATION_IN_PROGRESS' };
+        }
+        generationRunId = existingGenerationRun.id;
+      } else {
+        try {
+          const run = await db.roadmapGenerationRun.create({
+            data: { learningGoalId: goalId, sourceRoadmapId: currentActiveRoadmap.id, triggerDate, status: 'GENERATING', leaseExpiresAt },
+            select: { id: true },
+          });
+          generationRunId = run.id;
+        } catch (error) {
+          if (error?.code !== 'P2002') throw error;
+          const latestRun = await db.roadmapGenerationRun.findUnique({
+            where: { learningGoalId_triggerDate: { learningGoalId: goalId, triggerDate } },
+          });
+          if (latestRun?.status === 'COMPLETED') return getCompletedRollingGeneration({ db, run: latestRun, goalId });
+          return { generated: false, reason: 'GENERATION_IN_PROGRESS' };
+        }
+      }
+    }
+
     const actualPlanningDays = Math.min(planningDays, deadline ? Math.max(1, dateDistanceInDays(today, deadline)) : planningDays);
-    const draft = await generateRoadmapDraft({ userId, goalId, planningDays: actualPlanningDays, db });
+    const draft = await generateRoadmapDraft({ userId, goalId, planningDays: actualPlanningDays, timeZone, now, db });
     const topics = draft.topics || [];
     const plannedDailyMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
     const topicGroups = dates.map(() => []);
@@ -376,9 +488,27 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
       orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
       include: { topic: { select: { id: true, title: true, position: true } } },
     });
+    if (generationRunId && db.roadmapGenerationRun) {
+      await db.roadmapGenerationRun.update({
+        where: { id: generationRunId },
+        data: { status: 'COMPLETED', resultRoadmapId: activeRoadmap.id, failureCode: null },
+      });
+    }
     return { generated: true, roadmap: activeRoadmap, missions, planningDays: actualPlanningDays, scheduledDates: dates, pendingDays: pendingDates.length + dates.length };
+  } catch (error) {
+    if (generationRunId && db.roadmapGenerationRun) {
+      try {
+        await db.roadmapGenerationRun.update({
+          where: { id: generationRunId },
+          data: { status: 'FAILED', failureCode: error?.code || 'ROLL_FORWARD_FAILED', leaseExpiresAt: now },
+        });
+      } catch {
+        // Keep the original generation error; an expired lease allows a later retry if the status write fails.
+      }
+    }
+    throw error;
   } finally {
-    rollingGenerationLocks.delete(goalId);
+    rollingGenerationLocks.delete(lockKey);
   }
 }
 
@@ -522,6 +652,7 @@ module.exports = {
   generateRoadmapDraft,
   rollForwardRoadmap,
   buildTimeCalibrationContext,
+  buildDeadlineFeasibility,
   listRoadmaps,
   deleteRoadmapDraft,
   activateRoadmap,

@@ -95,6 +95,7 @@ model LearningGoal {
   user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   roadmaps            Roadmap[]
   missions            DailyMission[]
+  roadmapGenerationRuns RoadmapGenerationRun[]
 
   @@index([userId, status])
   @@index([createdAt])
@@ -115,6 +116,8 @@ model Roadmap {
   topics                   RoadmapTopic[]
   missions                 DailyMission[]
   projectMilestones        ProjectMilestone[]
+  generationRuns           RoadmapGenerationRun[] @relation("RoadmapGenerationSource")
+  generatedRuns            RoadmapGenerationRun[] @relation("RoadmapGenerationResult")
 
   @@unique([learningGoalId, version])
   @@index([learningGoalId, generationState])
@@ -178,6 +181,25 @@ model DailyMission {
   @@index([roadmapId, status, recoveredAt])
   @@index([learningGoalId, scheduledDate])
   @@index([topicId, status])
+}
+
+model RoadmapGenerationRun {
+  id                String       @id @default(cuid())
+  learningGoalId    String
+  sourceRoadmapId   String
+  triggerDate       DateTime     @db.Date
+  status            String       @default("GENERATING")
+  leaseExpiresAt    DateTime
+  resultRoadmapId   String?
+  failureCode       String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  learningGoal      LearningGoal @relation(fields: [learningGoalId], references: [id], onDelete: Cascade)
+  sourceRoadmap     Roadmap      @relation("RoadmapGenerationSource", fields: [sourceRoadmapId], references: [id], onDelete: Cascade)
+  resultRoadmap     Roadmap?     @relation("RoadmapGenerationResult", fields: [resultRoadmapId], references: [id], onDelete: SetNull)
+
+  @@unique([learningGoalId, triggerDate])
+  @@index([status, leaseExpiresAt])
 }
 
 model ProjectMilestone {

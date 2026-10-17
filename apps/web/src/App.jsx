@@ -325,7 +325,8 @@ function App() {
     }
     setRoadmapBusyGoal(goal.id); setNotice(null);
     try {
-      const result = await requestJson('/api/v1/learning-goals/' + goal.id + '/roadmaps/generate', { method: 'POST', body: JSON.stringify({ planningDays: planningByGoal[goal.id] || 3, answers, clarifications: clarificationByGoal[goal.id] || '' }) });
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const result = await requestJson('/api/v1/learning-goals/' + goal.id + '/roadmaps/generate?timeZone=' + encodeURIComponent(timeZone), { method: 'POST', body: JSON.stringify({ planningDays: planningByGoal[goal.id] || 3, answers, clarifications: clarificationByGoal[goal.id] || '' }) });
       setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [result.data.roadmap.id]: false }));
       setRoadmapsByGoal((current) => ({ ...current, [goal.id]: [result.data.roadmap, ...(current[goal.id] || [])] }));
       setQuestionFormGoal(null);
@@ -535,7 +536,16 @@ function App() {
         { method: 'POST', body: JSON.stringify({ completedDate: String(mission.scheduledDate).slice(0, 10) }) },
       );
       if (!rollingResult.data.generated) {
-        if (rollingResult.data.reason === 'DAY_NOT_COMPLETE') {
+        if (rollingResult.data.reason === 'ALREADY_GENERATED') {
+          const [missionRefresh, roadmapRefresh] = await Promise.all([
+            requestJson(`/api/v1/learning-goals/${goal.id}/missions?timeZone=${encodeURIComponent(timeZone)}`),
+            requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps`),
+          ]);
+          setMissionsByGoal((current) => ({ ...current, [goal.id]: missionRefresh.data }));
+          setRoadmapsByGoal((current) => ({ ...current, [goal.id]: roadmapRefresh.data.roadmaps }));
+          await refreshNextStep(goal.id);
+          setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Your next learning days were already prepared and have been refreshed.` });
+        } else if (rollingResult.data.reason === 'DAY_NOT_COMPLETE') {
           setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Finish the remaining sessions for today and Pathwise will prepare the next days.` });
         } else if (rollingResult.data.reason === 'ROLLING_WINDOW_FULL') {
           setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Your next learning days are already scheduled.` });
@@ -938,7 +948,7 @@ function App() {
 </div>
 }</div>
 
-<p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p>{roadmap.learningBrief?.chunkBudgetMinutes && <p className="mt-2 rounded-lg bg-[#edf3e9] p-2 text-xs text-[#355a39]">Workload cap: {roadmap.learningBrief.chunkBudgetMinutes} minutes across {roadmap.learningBrief.practiceDays ?? roadmap.learningBrief.planningDays} planned study days ({roadmap.learningBrief.plannedDailyMinutes ?? roadmap.learningBrief.dailyMinutes} minutes/day). Your availability is {roadmap.learningBrief.availableCapacityMinutes ?? roadmap.learningBrief.chunkBudgetMinutes} minutes total, with {roadmap.learningBrief.bufferMinutes ?? 0} minutes reserved as a buffer. This chunk contains {roadmap.topics.length} study sessions across a {roadmap.learningBrief.planningDays}-calendar-day window. Estimates are checked against the daily and total limits; future chunks adapt to progress.</p>}{roadmap.learningBrief?.timeCalibrationSampleCount >= 3 && roadmap.learningBrief?.medianActualToEstimatedRatio && <p className="mt-2 rounded-lg border border-[#dfe7d9] p-2 text-xs text-[#737b70]">Personalized timing: your last {roadmap.learningBrief.timeCalibrationSampleCount} timed sessions typically took {roadmap.learningBrief.medianActualToEstimatedRatio.toFixed(2)}× the estimated time. Pathwise uses this evidence when planning future chunks.</p>}
+<p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p>{roadmap.learningBrief?.chunkBudgetMinutes && <p className="mt-2 rounded-lg bg-[#edf3e9] p-2 text-xs text-[#355a39]">Workload cap: {roadmap.learningBrief.chunkBudgetMinutes} minutes across {roadmap.learningBrief.practiceDays ?? roadmap.learningBrief.planningDays} planned study days ({roadmap.learningBrief.plannedDailyMinutes ?? roadmap.learningBrief.dailyMinutes} minutes/day). Your availability is {roadmap.learningBrief.availableCapacityMinutes ?? roadmap.learningBrief.chunkBudgetMinutes} minutes total, with {roadmap.learningBrief.bufferMinutes ?? 0} minutes reserved as a buffer. This chunk contains {roadmap.topics.length} study sessions across a {roadmap.learningBrief.planningDays}-calendar-day window. Estimates are checked against the daily and total limits; future chunks adapt to progress.</p>}{roadmap.learningBrief?.deadlineFeasibility && <p className={`mt-2 rounded-lg border p-2 text-xs leading-5 ${['OVER_CAPACITY', 'DEADLINE_PASSED'].includes(roadmap.learningBrief.deadlineFeasibility.status) ? 'border-rose-200 bg-rose-50 text-rose-800' : roadmap.learningBrief.deadlineFeasibility.status === 'AT_RISK' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-[#dfe7d9] bg-white text-[#737b70]'}`}><strong>Deadline outlook: {roadmap.learningBrief.deadlineFeasibility.status.replaceAll('_', ' ').toLowerCase()}.</strong> {roadmap.learningBrief.deadlineFeasibility.estimatedRemainingMinutes !== null && roadmap.learningBrief.deadlineFeasibility.estimatedRemainingMinutes !== undefined ? `Estimated remaining effort: ${roadmap.learningBrief.deadlineFeasibility.estimatedRemainingMinutes} min (${roadmap.learningBrief.deadlineFeasibility.estimateConfidence} confidence); buffered capacity: ${roadmap.learningBrief.deadlineFeasibility.availableMinutes} min across ${roadmap.learningBrief.deadlineFeasibility.availableStudyDays} study days. ` : ''}{roadmap.learningBrief.deadlineFeasibility.recommendation}</p>}{roadmap.learningBrief?.timeCalibrationSampleCount >= 3 && roadmap.learningBrief?.medianActualToEstimatedRatio && <p className="mt-2 rounded-lg border border-[#dfe7d9] p-2 text-xs text-[#737b70]">Personalized timing: your last {roadmap.learningBrief.timeCalibrationSampleCount} timed sessions typically took {roadmap.learningBrief.medianActualToEstimatedRatio.toFixed(2)}× the estimated time. Pathwise uses this evidence when planning future chunks.</p>}
 
 {roadmap.learningBrief && <section className="mt-4 rounded-xl border border-[#dfe7d9] bg-white p-4">
 <p className="text-xs font-bold uppercase tracking-wide text-[#688663]">Enhanced learning brief</p>

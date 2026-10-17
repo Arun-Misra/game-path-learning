@@ -44,6 +44,8 @@ function summarize(goal, roadmap) {
     goal: goal.targetOutcome,
     roadmapTitle: roadmap.title,
     topicCount: roadmap.topics.length,
+    estimatedRemainingMinutes: roadmap.learningBrief?.estimatedRemainingMinutes ?? null,
+    estimateConfidence: roadmap.learningBrief?.estimateConfidence ?? 'missing',
     estimatedTotalMinutes: roadmap.estimatedTotalMinutes,
     weeklyAvailableMinutes: weeklyMinutes,
     estimatedWeeks: Math.ceil(roadmap.estimatedTotalMinutes / weeklyMinutes),

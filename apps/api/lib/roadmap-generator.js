@@ -53,6 +53,8 @@ const learningBriefSchema = {
   additionalProperties: false,
   properties: {
     outcomeRestatement: { type: 'string' },
+    estimatedRemainingMinutes: { type: 'integer', minimum: 30, maximum: 100000 },
+    estimateConfidence: { type: 'string', enum: ['low', 'medium', 'high'] },
     capabilities: {
       type: 'array',
       items: {
@@ -71,7 +73,7 @@ const learningBriefSchema = {
     finalDeliverable: { type: 'string' },
     outOfScope: { type: 'array', items: { type: 'string' } },
   },
-  required: ['outcomeRestatement', 'capabilities', 'prerequisiteKnowledge', 'assumptions', 'finalDeliverable', 'outOfScope'],
+  required: ['outcomeRestatement', 'estimatedRemainingMinutes', 'estimateConfidence', 'capabilities', 'prerequisiteKnowledge', 'assumptions', 'finalDeliverable', 'outOfScope'],
 };
 
 const reviewSchema = {
@@ -113,7 +115,7 @@ function buildPrompt(goal, outcomeBrief = '') {
 
   return [
     'Design only the next small learning chunk. The desired outcome remains the long-term destination, but this chunk covers only the requested period.',
-    'Do not design the entire curriculum or estimate all work needed to reach the final outcome. Later chunks must use observed progress to decide what comes next.',
+    'Do not design the entire curriculum in this chunk. Separately estimate the remaining total effort in minutes to reach the exact final outcome, including learning, hands-on practice, debugging, review, and final integration. Return a conservative estimate and confidence level; do not confuse this estimate with the small chunk being generated.',
     hasPriorChunk
       ? 'CONTINUATION MODE (MANDATORY): This is a later chunk, not a fresh start. Continue from the previous chunk and the verified learner evidence below. Do not restart with introductions, setup, or beginner concepts already taught. Do not repeat a previous topic or activity unless the evidence shows it was incomplete, misunderstood, or needs deliberate spaced practice. Begin at the next sensible step after the learner\'s demonstrated progress, and explicitly build on prior work.'
       : 'FIRST-CHUNK MODE: This is the learner\'s first chunk. Start from their stated experience level, teach genuinely missing prerequisites, and establish a useful first win.',
@@ -596,18 +598,19 @@ async function generateRoadmap(goal, {
     messages: [
       {
         role: 'system',
-        content: 'You are a learning-request enhancement specialist. Preserve the learner’s original intent and scope while making the request precise enough for a roadmap architect. Convert it into a structured brief with measurable success evidence, genuinely required capabilities, prerequisites, assumptions, and a final deliverable. Do not invent preferences, technologies, or commitments. State unresolved choices as assumptions and keep choices open where possible. Explicit learner clarifications override any inference or prior assumption; remove or update assumptions that the learner has clarified. When prior chunk evidence is supplied, preserve the same long-term destination and do not reframe the learner as starting from zero; use the evidence only to inform current readiness and next steps. Return only the structured brief JSON.',
+        content: 'You are a learning-request enhancement specialist. Preserve the learner’s original intent and scope while making the request precise enough for a roadmap architect. Convert it into a structured brief with measurable success evidence, genuinely required capabilities, prerequisites, assumptions, and a final deliverable. Estimate the remaining total effort in minutes, including practice, debugging, review, and integration; include a confidence level and use a conservative estimate. Do not invent preferences, technologies, or commitments. State unresolved choices as assumptions and keep choices open where possible. Explicit learner clarifications override any inference or prior assumption; remove or update assumptions that the learner has clarified. When prior chunk evidence is supplied, estimate only remaining work from current evidence, not completed mastered material; use prior estimate, completed/incomplete activities, assessments, and actual time evidence to adjust it. Return only the structured brief JSON.',
       },
       {
         role: 'user',
         content: [
-          'Enhance and clarify this learning request before any roadmap is written. Preserve its intent; do not add requirements that the learner did not ask for.',
+          'Enhance and clarify this learning request before any roadmap is written. Preserve its intent; do not add requirements that the learner did not ask for. Estimate the total remaining minutes to reach the goal and state confidence as low, medium, or high. If the learner has prior chunks, estimate only the remaining effort from evidence.',
           `Skill/domain: ${goal.title}`,
           `Current experience: ${goal.experienceLevel}`,
           `Desired outcome: ${goal.targetOutcome}`,
           goal.learnerClarifications ? `Learner clarification (takes precedence over inferred assumptions): ${goal.learnerClarifications}` : '',
           `Availability: ${goal.minutesPerDay} minutes/day, ${goal.daysPerWeek} days/week`,
           `Target date: ${goal.targetDate || 'None'}`,
+          goal.timeCalibrationContext ? `ACTUAL VERSUS ESTIMATED TIME EVIDENCE:\n${goal.timeCalibrationContext}` : '',
           goal.priorLearningContext ? `PREVIOUS CHUNK AND VERIFIED LEARNER PROGRESS (preserve continuity; do not restart):\n${goal.priorLearningContext}` : 'This is the first chunk; no prior learning evidence exists yet.',
           'Break a multi-part outcome into distinct required capabilities. Describe observable evidence of success for each. List only prerequisites genuinely needed. If a tool/framework is unspecified, keep it open or state it as an assumption rather than treating it as a user requirement.',
           'Return JSON only matching this schema:',

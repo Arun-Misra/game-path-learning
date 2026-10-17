@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { buildTimeCalibrationContext, rollForwardRoadmap } = require('../lib/roadmap-service');
+const { buildTimeCalibrationContext, buildDeadlineFeasibility, rollForwardRoadmap } = require('../lib/roadmap-service');
 const { generateInitialRollingMissions } = require('../lib/mission-service');
 const {
   applyChunkBudget,
@@ -236,4 +236,97 @@ test('initial mission scheduling prepares at most three study dates within the b
   assert.equal(created.reduce((sum, mission) => sum + mission.estimatedMinutes, 0), 60);
   assert.equal(result.availableMinutes, 72);
   assert.ok(created.every((mission) => mission.estimatedMinutes <= 24));
+});
+
+test('deadline feasibility compares remaining effort with buffered study capacity', () => {
+  const goal = {
+    minutesPerDay: 60,
+    daysPerWeek: 7,
+    targetDate: new Date('2026-10-24T00:00:00.000Z'),
+  };
+  const now = new Date('2026-10-21T10:00:00.000Z');
+  const onTrack = buildDeadlineFeasibility({ goal, estimatedRemainingMinutes: 100, estimateConfidence: 'high', now, timeZone: 'UTC' });
+  assert.equal(onTrack.status, 'ON_TRACK');
+  assert.equal(onTrack.availableStudyDays, 4);
+  assert.equal(onTrack.availableMinutes, 192);
+  assert.equal(onTrack.marginMinutes, 92);
+
+  const atRisk = buildDeadlineFeasibility({ goal, estimatedRemainingMinutes: 180, estimateConfidence: 'medium', now, timeZone: 'UTC' });
+  assert.equal(atRisk.status, 'AT_RISK');
+
+  const overCapacity = buildDeadlineFeasibility({ goal, estimatedRemainingMinutes: 500, estimateConfidence: 'low', now, timeZone: 'UTC' });
+  assert.equal(overCapacity.status, 'OVER_CAPACITY');
+  assert.match(overCapacity.recommendation, /Reduce the outcome scope/);
+});
+
+test('deadline feasibility is explicit when there is no deadline or the estimate is unavailable', () => {
+  const now = new Date('2026-10-21T10:00:00.000Z');
+  assert.equal(buildDeadlineFeasibility({ goal: { targetDate: null }, estimatedRemainingMinutes: 100, now }).status, 'NO_DEADLINE');
+  assert.equal(buildDeadlineFeasibility({ goal: { targetDate: new Date('2026-10-24T00:00:00.000Z'), daysPerWeek: 5, minutesPerDay: 60 }, now }).status, 'ESTIMATING');
+  assert.equal(buildDeadlineFeasibility({ goal: { targetDate: new Date('2026-10-20T00:00:00.000Z'), daysPerWeek: 5, minutesPerDay: 60 }, estimatedRemainingMinutes: 100, now }).status, 'DEADLINE_PASSED');
+});
+
+test('a completed rolling generation is returned idempotently for the same goal and trigger date', async () => {
+  const generatedRoadmap = { id: 'roadmap-next', title: 'Next chunk', topics: [] };
+  const existingMissions = [{ id: 'mission-next', scheduledDate: new Date('2026-10-22T00:00:00.000Z'), status: 'SCHEDULED' }];
+  let missionCountCalled = false;
+  const db = {
+    learningGoal: {
+      findFirst: async () => ({
+        id: 'goal-1', title: 'Learn React', targetOutcome: 'Build an app',
+        experienceLevel: 'BEGINNER', minutesPerDay: 60, daysPerWeek: 7,
+        targetDate: null, originalDescription: 'Learn React',
+      }),
+    },
+    roadmap: {
+      findFirst: async ({ where }) => where.id === 'roadmap-next' ? generatedRoadmap : { id: 'active-roadmap-2' },
+    },
+    roadmapGenerationRun: {
+      findUnique: async () => ({
+        id: 'run-1', status: 'COMPLETED', resultRoadmapId: 'roadmap-next',
+        leaseExpiresAt: new Date('2026-10-21T12:00:00.000Z'),
+      }),
+    },
+    dailyMission: {
+      count: async () => { missionCountCalled = true; throw new Error('should return the saved generation first'); },
+      findMany: async () => existingMissions,
+    },
+  };
+
+  const result = await rollForwardRoadmap({
+    userId: 'user-1', goalId: 'goal-1', completedDate: '2026-10-21',
+    now: new Date('2026-10-21T10:00:00.000Z'), db,
+  });
+  assert.equal(result.generated, false);
+  assert.equal(result.reason, 'ALREADY_GENERATED');
+  assert.equal(result.roadmap.id, 'roadmap-next');
+  assert.equal(result.missions[0].id, 'mission-next');
+  assert.equal(missionCountCalled, false);
+});
+
+test('a live rolling-generation lease prevents a duplicate cross-instance generation attempt', async () => {
+  const db = {
+    learningGoal: {
+      findFirst: async () => ({
+        id: 'goal-1', title: 'Learn React', targetOutcome: 'Build an app',
+        experienceLevel: 'BEGINNER', minutesPerDay: 60, daysPerWeek: 7,
+        targetDate: null, originalDescription: 'Learn React',
+      }),
+    },
+    roadmap: { findFirst: async () => ({ id: 'active-roadmap-1' }) },
+    roadmapGenerationRun: {
+      findUnique: async () => ({
+        id: 'run-1', status: 'GENERATING',
+        leaseExpiresAt: new Date('2026-10-21T11:00:00.000Z'),
+      }),
+    },
+    dailyMission: { count: async () => { throw new Error('should not count sessions while another worker owns the lease'); } },
+  };
+
+  const result = await rollForwardRoadmap({
+    userId: 'user-1', goalId: 'goal-1', completedDate: '2026-10-21',
+    now: new Date('2026-10-21T10:00:00.000Z'), db,
+  });
+  assert.equal(result.generated, false);
+  assert.equal(result.reason, 'GENERATION_IN_PROGRESS');
 });

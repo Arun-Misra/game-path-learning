@@ -30,6 +30,8 @@ function validProposal() {
 function validLearningBrief() {
   return {
     outcomeRestatement: 'Build a tested Java service that finds shortest paths in a graph and exposes them through a client-server API.',
+    estimatedRemainingMinutes: 2400,
+    estimateConfidence: 'medium',
     capabilities: [
       { capability: 'Represent a weighted graph', importance: 'required', evidenceOfSuccess: 'Graph data structure passes tests.' },
       { capability: 'Implement Dijkstra shortest paths', importance: 'required', evidenceOfSuccess: 'Known graphs return correct paths and distances.' },
@@ -277,6 +279,8 @@ test('E4B handles the enhanced brief, planning, and independent review without l
   assert.equal(requests[2].body.model, 'gemma4:e4b');
   assert.equal(requests[0].headers.Authorization, undefined);
   assert.ok(requests[0].body.format && requests[0].body.format.type === 'object');
+  assert.equal(requests[0].body.format.required.includes('estimatedRemainingMinutes'), true);
+  assert.equal(requests[0].body.format.required.includes('estimateConfidence'), true);
   assert.ok(requests[1].body.format.properties.topics.items.properties.timeBreakdown);
   assert.equal(requests[1].body.format.properties.topics.items.required.includes('timeBreakdown'), true);
   assert.match(requests[2].body.messages[1].content, /Create a polished character illustration/);
@@ -284,6 +288,8 @@ test('E4B handles the enhanced brief, planning, and independent review without l
   assert.equal(result.topics[1].position, 1);
   assert.equal(result.estimatedTotalMinutes, 44);
   assert.equal(result.learningBrief.finalDeliverable, validLearningBrief().finalDeliverable);
+  assert.equal(result.learningBrief.estimatedRemainingMinutes, 2400);
+  assert.equal(result.learningBrief.estimateConfidence, 'medium');
 });
 
 test('learner clarifications override inferred assumptions and reach both models', async () => {
