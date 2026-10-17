@@ -27,6 +27,15 @@ const scenarios = [
     targetDate: null,
   },
   {
+    domain: 'language learning',
+    title: 'Spanish for travel',
+    targetOutcome: 'Hold a five-minute beginner conversation in Spanish to introduce myself, ask for directions, order food politely, and understand common replies without reading a script.',
+    experienceLevel: 'BEGINNER',
+    minutesPerDay: 20,
+    daysPerWeek: 5,
+    targetDate: null,
+  },
+  {
     domain: 'physical computing and robotics',
     title: 'ESP32 obstacle avoiding robot',
     targetOutcome: 'Build an ESP32-powered two-wheel robot that detects obstacles with an ultrasonic sensor, controls its motors to avoid collisions, and demonstrates reliable behaviour in a repeatable test course.',
@@ -48,7 +57,10 @@ function summarize(goal, roadmap) {
     estimateConfidence: roadmap.learningBrief?.estimateConfidence ?? 'missing',
     estimatedTotalMinutes: roadmap.estimatedTotalMinutes,
     weeklyAvailableMinutes: weeklyMinutes,
-    estimatedWeeks: Math.ceil(roadmap.estimatedTotalMinutes / weeklyMinutes),
+    estimatedChunkWeeks: Math.ceil(roadmap.estimatedTotalMinutes / weeklyMinutes),
+    estimatedGoalWeeks: Number.isInteger(roadmap.learningBrief?.estimatedRemainingMinutes)
+      ? Math.ceil(roadmap.learningBrief.estimatedRemainingMinutes / weeklyMinutes)
+      : null,
     topics: roadmap.topics.map((topic) => ({
       title: topic.title,
       description: topic.description,

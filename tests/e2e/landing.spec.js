@@ -181,6 +181,7 @@ test('project milestones require evidence and persist progress', async ({ page }
     generationState: 'ACTIVE',
     learningBrief: {
       finalDeliverable: 'A tested API with request validation.',
+      continuationSummary: { heading: 'How this chunk builds on your progress', evidence: ['Recent assessment scores below 85%: Request validation.'], nextFocus: ['Write validation tests'] },
       capabilities: [{ capability: 'Implement request validation', evidenceOfSuccess: 'Invalid requests return clear errors.' }],
     },
     topics: [{
@@ -262,6 +263,8 @@ test('project milestones require evidence and persist progress', async ({ page }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/');
   await expect(page.getByText('Mastery snapshot')).toBeVisible();
+  await expect(page.getByText('How this chunk builds on your progress')).toBeVisible();
+  await expect(page.getByText('Write validation tests')).toBeVisible();
   await expect(page.getByText('Reviews due')).toBeVisible();
   await expect(page.getByText('HTTP basics', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Project milestones' })).toBeVisible();

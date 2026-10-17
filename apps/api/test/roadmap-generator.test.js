@@ -3,8 +3,8 @@ const test = require('node:test');
 const {
   RoadmapGenerationError,
   buildPrompt,
+  buildCumulativePracticeGuidance,
   buildReviewPrompt,
-  applyRealismFloor,
   generateRoadmap,
   getTimeBreakdownIssues,
   getJavaBeginnerInstructionIssues,
@@ -63,23 +63,25 @@ test('planner prompt prioritises the exact outcome, steps, deliverable, and week
   assert.match(prompt, /teach the prerequisite first or remove the activity/i);
   assert.match(prompt, /do not force a capstone for the long-term outcome into an introductory chunk/i);
   assert.match(prompt, /“I do not know where to start” means assume no practical ability/i);
-  assert.match(prompt, /No topic may exceed 24 minutes/i);
-  assert.match(prompt, /estimatedMinutes MUST equal the exact sum of all five timeBreakdown fields/i);
-  assert.match(prompt, /concept\/explanation, worked example, guided practice, independent practice, and review\/check/i);
-  assert.match(prompt, /worked example, to a partially completed example with guidance/i);
+  assert.match(prompt, /Use the learner’s stated daily availability as the practical time limit/i);
+  assert.match(prompt, /optional timeBreakdown/i);
+  assert.doesNotMatch(prompt, /Produce exactly \d+ topics\/sessions/i);
+  assert.match(prompt, /optional timeBreakdown/i);
+  assert.match(prompt, /Choose the teaching approach that fits the learner and skill/i);
   assert.match(prompt, /"prerequisiteKeys"/);
   assert.match(prompt, /valid JSON only/i);
 });
 
-test('planner prompt includes weekly time budget, a safety buffer, and consistent session counts', () => {
+test('planner prompt uses learner availability without a fixed session quota', () => {
   const prompt = buildPrompt({ ...goal, title: 'Java', minutesPerDay: 45, daysPerWeek: 5, targetOutcome: 'Build a client-server app and implement Dijkstra routing' });
   assert.match(prompt, /225 minutes\/week/);
   assert.match(prompt, /Build a client-server app and implement Dijkstra routing/);
   assert.match(prompt, /Avoid duplicate topics, filler/i);
   assert.match(prompt, /do not force a capstone for the long-term outcome into an introductory chunk/i);
-  assert.match(prompt, /No topic may exceed 36 minutes/i);
-  assert.match(prompt, /180 minutes across 5 practice sessions/i);
-  assert.match(prompt, /Reserve roughly 20%/i);
+  assert.match(prompt, /225 minutes\/week/i);
+  assert.match(prompt, /225 available minutes across 5 study days/i);
+  assert.doesNotMatch(prompt, /Reserve roughly 20%/i);
+  assert.doesNotMatch(prompt, /Produce exactly 5 topics\/sessions/i);
 });
 
 test('planner and reviewer use self-reported timing history when enough evidence exists', () => {
@@ -150,6 +152,15 @@ test('deterministic continuity guard blocks unjustified repeats of mastered topi
   assert.deepEqual(getUnjustifiedRepeatedTopicIssues(candidate('Variables and Types'), {}), []);
 });
 
+test('latest weak retake prevents an older mastered score from blocking purposeful recovery', () => {
+  const goal = { priorLearningContext: JSON.stringify({ topics: [
+    { title: 'Binary Search', sourceChunkNumber: 4, progress: [{ status: 'COMPLETED', masteryScore: 62 }], assessments: [{ score: 62, passed: false }, { score: 96, passed: true }] },
+    { title: 'Binary Search', sourceChunkNumber: 2, progress: [{ status: 'MASTERED', masteryScore: 96 }], assessments: [{ score: 96, passed: true }] },
+  ] }) };
+  const candidate = { topics: [{ key: 'review', title: 'Binary Search', description: 'Rebuild the search loop after a weak retake.', learningObjectives: ['Implement a correct loop'] }] };
+  assert.deepEqual(getUnjustifiedRepeatedTopicIssues(candidate, goal), []);
+});
+
 test('planner adapts to experience and revision intent without forcing a difficulty level', () => {
   const experiencedRevision = buildPrompt({
     ...goal,
@@ -203,10 +214,9 @@ test('review prompt checks the roadmap against the learner outcome rather than a
   assert.match(prompt, /independent, skeptical instructional-design auditor/i);
   assert.match(prompt, /DESIRED OUTCOME: Create a polished character illustration/);
   assert.match(prompt, /TIME AUDIT/i);
-  assert.match(prompt, /at least three phases must be positive/i);
-  assert.match(prompt, /Judge whether each phase allows realistic time for this learner/i);
+  assert.match(prompt, /Optional phase breakdowns are not mandatory/i);
   assert.match(prompt, /TEACHING AUDIT/i);
-  assert.match(prompt, /Approve only when there are no critical or major issues/i);
+  assert.match(prompt, /free of critical problems/i);
 });
 
 test('normalizes empty prerequisite markers and removes invalid edges emitted by local models', () => {
@@ -218,27 +228,30 @@ test('normalizes empty prerequisite markers and removes invalid edges emitted by
   assert.deepEqual(normalized.topics[1].prerequisiteKeys, ['shapes']);
 });
 
-test('realism floor stretches a beginner guitar song roadmap to at least 12 weeks at 150 minutes/week', () => {
-  const goal = {
+test('practice guidance makes guitar sessions cumulative instead of replacing yesterday’s skill', () => {
+  const prompt = buildPrompt({
     title: 'Guitar',
-    targetOutcome: 'Able to play Neele Neele Ambar Par from start to finish',
+    targetOutcome: 'Play a song from start to finish with clean chord changes',
     experienceLevel: 'BEGINNER',
     minutesPerDay: 30,
     daysPerWeek: 5,
-  };
-  const shortRoadmap = {
-    title: 'Song roadmap',
-    summary: 'Play the song.',
-    topics: [
-      { key: 'basics', title: 'Basics', description: 'Learn the basics.', learningObjectives: ['Hold the guitar'], estimatedMinutes: 30, prerequisiteKeys: [] },
-      { key: 'song', title: 'Play song', description: 'Play the song.', learningObjectives: ['Play the song'], estimatedMinutes: 360, prerequisiteKeys: ['basics'] },
-    ],
-  };
-  const realistic = applyRealismFloor(shortRoadmap, goal);
-  assert.equal(realistic.topics.reduce((sum, topic) => sum + topic.estimatedMinutes, 0), 1800);
-  assert.equal(realistic.estimatedTotalMinutes, 1800);
-  assert.ok(realistic.topics.every((topic) => topic.estimatedMinutes >= 5));
-  assert.equal(applyRealismFloor(shortRoadmap, { ...goal, experienceLevel: 'ADVANCED' }), shortRoadmap);
+  });
+  assert.match(prompt, /move forward when the learner is ready; spend longer on a specific difficulty when useful/i);
+  assert.doesNotMatch(prompt, /Day 1 learn two chords/i);
+  assert.match(prompt, /Every session should include a musical use/i);
+  assert.match(prompt, /do not demand perfection before moving forward/i);
+  assert.match(buildReviewPrompt(goal, validProposal()), /CUMULATIVE PRACTICE AUDIT/i);
+});
+
+test('practice guidance provides relevant cumulative routines for language, coding, and robotics', () => {
+  const language = buildCumulativePracticeGuidance({ title: 'Spanish language learning', targetOutcome: 'Hold a conversation' }).join(' ');
+  const coding = buildCumulativePracticeGuidance({ title: 'DSA in Java', targetOutcome: 'Solve coding problems' }).join(' ');
+  const robotics = buildCumulativePracticeGuidance({ title: 'ESP32 robotics', targetOutcome: 'Build an obstacle avoiding robot' }).join(' ');
+  assert.match(language, /no-notes recall/i);
+  assert.match(language, /listening comprehension and spoken\/written production/i);
+  assert.match(coding, /changed input, edge case, debugging task/i);
+  assert.match(robotics, /rerunning the last known-good component test/i);
+  assert.match(robotics, /expected versus observed result/i);
 });
 
 test('recognises local Ollama endpoints so they do not require an API key', () => {
@@ -271,10 +284,10 @@ test('E4B handles the enhanced brief, planning, and independent review without l
   assert.equal(requestSchemaName(requests[0].body), 'enhanced_learning_brief');
   assert.equal(requests[1].body.model, 'gemma4:e4b');
   assert.equal(requestSchemaName(requests[1].body), 'personalised_learning_roadmap');
-  assert.equal(requests[1].body.options.num_predict, 3072);
+  assert.equal(requests[1].body.options.num_predict, 4096);
   assert.equal(requests[1].body.options.num_ctx, 16384);
   assert.equal(requests[1].body.options.temperature, 0.2);
-  assert.equal(requests[1].body.think, 'low');
+  assert.equal(requests[1].body.think, process.env.AI_REASONING_EFFORT || 'low');
   assert.equal(requests[1].url, 'http://127.0.0.1:11434/api/chat');
   assert.equal(requests[2].body.model, 'gemma4:e4b');
   assert.equal(requests[0].headers.Authorization, undefined);
@@ -282,7 +295,7 @@ test('E4B handles the enhanced brief, planning, and independent review without l
   assert.equal(requests[0].body.format.required.includes('estimatedRemainingMinutes'), true);
   assert.equal(requests[0].body.format.required.includes('estimateConfidence'), true);
   assert.ok(requests[1].body.format.properties.topics.items.properties.timeBreakdown);
-  assert.equal(requests[1].body.format.properties.topics.items.required.includes('timeBreakdown'), true);
+  assert.equal(requests[1].body.format.properties.topics.items.required.includes('timeBreakdown'), false);
   assert.match(requests[2].body.messages[1].content, /Create a polished character illustration/);
   assert.equal(result.topics.length, 2);
   assert.equal(result.topics[1].position, 1);
@@ -290,6 +303,53 @@ test('E4B handles the enhanced brief, planning, and independent review without l
   assert.equal(result.learningBrief.finalDeliverable, validLearningBrief().finalDeliverable);
   assert.equal(result.learningBrief.estimatedRemainingMinutes, 2400);
   assert.equal(result.learningBrief.estimateConfidence, 'medium');
+});
+
+test('local Ollama honors the configured reasoning effort instead of forcing low', async () => {
+  const previous = process.env.AI_REASONING_EFFORT;
+  process.env.AI_REASONING_EFFORT = 'medium';
+  const requests = [];
+  try {
+    await generateRoadmap(goal, {
+      apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1', model: 'gemma4:e4b',
+      fetchImpl: async (url, options) => {
+        const body = JSON.parse(options.body);
+        requests.push(body);
+        if (requestSchemaName(body) === 'enhanced_learning_brief') return responseFor(validLearningBrief());
+        return responseFor(requestSchemaName(body) === 'roadmap_review' ? approvedReview() : validProposal());
+      },
+    });
+  } finally {
+    if (previous === undefined) delete process.env.AI_REASONING_EFFORT;
+    else process.env.AI_REASONING_EFFORT = previous;
+  }
+  assert.equal(requests.length, 3);
+  assert.ok(requests.every((request) => request.think === 'medium'));
+});
+
+test('local Ollama retries with low thinking when configured reasoning produces no structured content', async () => {
+  const previous = process.env.AI_REASONING_EFFORT;
+  process.env.AI_REASONING_EFFORT = 'medium';
+  const requests = [];
+  try {
+    await generateRoadmap(goal, {
+      apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1', model: 'gemma4:e4b',
+      fetchImpl: async (url, options) => {
+        const body = JSON.parse(options.body);
+        requests.push(body);
+        if (requestSchemaName(body) === 'enhanced_learning_brief' && body.think === 'medium') {
+          return { ok: true, status: 200, json: async () => ({ message: { content: '' }, choices: [{ message: { content: '' } }] }) };
+        }
+        if (requestSchemaName(body) === 'enhanced_learning_brief') return responseFor(validLearningBrief());
+        return responseFor(requestSchemaName(body) === 'roadmap_review' ? approvedReview() : validProposal());
+      },
+    });
+  } finally {
+    if (previous === undefined) delete process.env.AI_REASONING_EFFORT;
+    else process.env.AI_REASONING_EFFORT = previous;
+  }
+  assert.equal(requests[0].think, 'medium');
+  assert.equal(requests[1].think, 'low');
 });
 
 test('learner clarifications override inferred assumptions and reach both models', async () => {

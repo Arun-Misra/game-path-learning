@@ -87,7 +87,7 @@ function buildDeadlineFeasibility({ goal, estimatedRemainingMinutes, estimateCon
   for (let offset = 0; offset <= daysRemaining; offset += 1) {
     if (studyDayIndexes.has(offset % 7)) availableStudyDays += 1;
   }
-  const plannedDailyMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+  const plannedDailyMinutes = Math.max(5, Math.floor(goal.minutesPerDay));
   const availableMinutes = availableStudyDays * plannedDailyMinutes;
   const marginMinutes = availableMinutes - estimatedRemainingMinutes;
   const shortfallMinutes = Math.max(0, estimatedRemainingMinutes - availableMinutes);
@@ -222,6 +222,72 @@ async function getClarifyingQuestions({ userId, goalId, db = prisma, questionGen
   catch (error) { if (error && Number.isInteger(error.status) && error.code) throw error; throw new RoadmapServiceError(502, 'CLARIFICATION_QUESTIONS_FAILED', 'Personalisation questions could not be generated. Please try again.'); }
 }
 
+function buildPriorLearningContext(activeRoadmap, priorRoadmaps = [], chunkNumber = 1) {
+  if (!activeRoadmap) return '';
+  const history = (Array.isArray(priorRoadmaps) && priorRoadmaps.length ? priorRoadmaps : [activeRoadmap]).slice(0, 4);
+  const chunks = history.map((roadmap) => {
+    const currentChunkNumber = Number(roadmap.learningBrief?.chunkNumber || roadmap.version || 1);
+    const topics = (roadmap.topics || []).map((topic) => ({
+      title: topic.title, description: topic.description, learningObjectives: topic.learningObjectives,
+      estimatedMinutes: topic.estimatedMinutes, position: topic.position, sourceChunkNumber: currentChunkNumber,
+      progress: topic.userProgress || [],
+      assessments: (topic.assessment?.attempts || []).map((attempt) => ({ score: attempt.score, passed: attempt.passed, ...(attempt.createdAt ? { assessedAt: attempt.createdAt } : {}) })),
+    }));
+    const missions = roadmap.missions || [];
+    return {
+      chunkNumber: currentChunkNumber, title: roadmap.title, summary: roadmap.summary, topics,
+      completedActivities: missions.filter((item) => item.status === 'COMPLETED').map((item) => ({ title: item.title, topic: item.topic?.title, minutes: item.estimatedMinutes })),
+      incompleteActivities: missions.filter((item) => item.status !== 'COMPLETED').map((item) => ({ title: item.title, topic: item.topic?.title, status: item.status })),
+    };
+  });
+  const latest = chunks[0];
+  return JSON.stringify({
+    nextChunkNumber: chunkNumber,
+    previousChunk: { id: activeRoadmap.id, title: activeRoadmap.title, summary: activeRoadmap.summary, chunkNumber: Number(activeRoadmap.learningBrief?.chunkNumber || activeRoadmap.version || 1), estimatedRemainingMinutes: activeRoadmap.learningBrief?.estimatedRemainingMinutes, estimateConfidence: activeRoadmap.learningBrief?.estimateConfidence },
+    continuationRules: [
+      'Continue from the latest chunk; do not restart from the beginning.',
+      'Use the most recent assessment attempt for each topic; older high scores must not hide a weak retake.',
+      'Treat completion as evidence that an activity was finished, not proof that the skill was mastered.',
+      'A score below 70% requires targeted retrieval/reteaching before advancing through dependent material; a score from 70% to 84% calls for brief reinforcement and a fresh transfer attempt.',
+      'A score of 85% or higher is evidence only for the concepts that assessment tested. Hands-on skills still require independent performance or an authentic artifact before mastery is assumed.',
+      'Carry unfinished work forward when it still serves the goal; otherwise explain why the next step should change.',
+      'Repeat prior material only for a demonstrated gap, purposeful retrieval, fluency practice, or transfer to a more complex task.',
+      'Use older chunks to maintain long-term continuity and schedule useful review; do not repeat their full curriculum.',
+    ],
+    completedActivities: latest.completedActivities, incompleteActivities: latest.incompleteActivities,
+    priorChunks: chunks.map(({ chunkNumber: number, title, summary, completedActivities, incompleteActivities }) => ({ chunkNumber: number, title, summary, completedActivities, incompleteActivities })),
+    topics: chunks.flatMap((chunk) => chunk.topics),
+  });
+}
+
+function buildContinuationSummary(priorLearningContext, nextTopics = []) {
+  if (!priorLearningContext) return null;
+  let prior;
+  try { prior = JSON.parse(priorLearningContext); } catch { return null; }
+  const topics = Array.isArray(prior.topics) ? prior.topics : [];
+  const weak = []; const strong = []; const masteredWithoutAssessment = [];
+  const seenTopics = new Set();
+  for (const topic of topics) {
+    const normalizedTitle = String(topic.title || '').trim().toLowerCase();
+    if (normalizedTitle && seenTopics.has(normalizedTitle)) continue;
+    if (normalizedTitle) seenTopics.add(normalizedTitle);
+    const attempts = Array.isArray(topic.assessments) ? topic.assessments : [];
+    const score = attempts.length && Number.isFinite(Number(attempts[0].score)) ? Number(attempts[0].score) : null;
+    const progress = Array.isArray(topic.progress) ? topic.progress : [];
+    if (score !== null && score < 85) weak.push(topic.title);
+    else if (score !== null && score >= 85) strong.push(topic.title);
+    else if (progress.some((item) => String(item.status || '').toUpperCase() === 'MASTERED')) masteredWithoutAssessment.push(topic.title);
+  }
+  const unique = (items) => [...new Set(items)].slice(0, 4);
+  const evidence = [];
+  if (unique(weak).length) evidence.push('Recent assessment scores below 85%: ' + unique(weak).join(', ') + '. These are signals to reinforce, even if an older attempt was stronger.');
+  if (unique(strong).length) evidence.push('Recent assessment scores at or above 85%: ' + unique(strong).join(', ') + '. This supports progression on the tested concepts, not automatic mastery of every practical skill.');
+  if (unique(masteredWithoutAssessment).length) evidence.push('Previously marked mastered without a recent assessment: ' + unique(masteredWithoutAssessment).join(', ') + '. A short retrieval check can confirm what remains accessible.');
+  const unfinished = unique((prior.incompleteActivities || []).map((item) => item.topic || item.title).filter(Boolean));
+  if (unfinished.length) evidence.push('Unfinished prior sessions: ' + unfinished.join(', ') + '. Continue them when still relevant rather than restarting the whole chunk.');
+  if (!evidence.length) evidence.push('Evidence is limited. Start with a brief retrieval or diagnostic attempt before assuming earlier material is mastered.');
+  return { heading: 'How this chunk builds on your progress', evidence, nextFocus: (Array.isArray(nextTopics) ? nextTopics : []).slice(0, 3).map((topic) => topic.title).filter(Boolean) };
+}
 async function generateRoadmapDraft({ userId, goalId, clarifications = '', planningDays = 3, answers = [], timeZone = 'UTC', now = new Date(), db = prisma, generator = generateRoadmap }) {
   const goal = await db.learningGoal.findFirst({
     where: { id: goalId, userId },
@@ -259,27 +325,28 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
   const timeCalibration = buildTimeCalibrationContext(timingHistory);
   const activeRoadmap = await db.roadmap.findFirst({ where: { learningGoalId: goalId, generationState: 'ACTIVE' }, orderBy: { version: 'desc' }, include: { topics: { orderBy: { position: 'asc' }, select: { id: true, title: true, description: true, learningObjectives: true, estimatedMinutes: true, position: true, userProgress: { where: { userId }, select: { status: true, masteryScore: true, attempts: true } }, assessment: { include: { attempts: { where: { userId }, orderBy: { createdAt: 'desc' }, take: 2, select: { score: true, passed: true } } } } } }, missions: { where: { userId }, select: { title: true, estimatedMinutes: true, status: true, topic: { select: { title: true } } }, orderBy: { scheduledDate: 'desc' }, take: 50 } } });
   const chunkNumber = activeRoadmap ? Number(activeRoadmap.learningBrief?.chunkNumber || 1) + 1 : 1;
-  const priorLearningContext = activeRoadmap ? JSON.stringify({
-    nextChunkNumber: chunkNumber,
-    previousChunk: { id: activeRoadmap.id, title: activeRoadmap.title, summary: activeRoadmap.summary, chunkNumber: activeRoadmap.learningBrief?.chunkNumber || 1, estimatedRemainingMinutes: activeRoadmap.learningBrief?.estimatedRemainingMinutes, estimateConfidence: activeRoadmap.learningBrief?.estimateConfidence },
-    continuationRules: [
-      'Continue from the latest chunk; do not restart from the beginning.',
-      'Treat completed topics as taught; use mastery/assessment evidence to decide whether to advance or review.',
-      'Continue incomplete activities where appropriate instead of repeating the whole chunk.',
-      'Repeat prior material only for a demonstrated gap or purposeful spaced practice.',
-    ],
-    completedActivities: activeRoadmap.missions.filter((item) => item.status === 'COMPLETED').map((item) => ({ title: item.title, topic: item.topic.title, minutes: item.estimatedMinutes })),
-    incompleteActivities: activeRoadmap.missions.filter((item) => item.status !== 'COMPLETED').map((item) => ({ title: item.title, topic: item.topic.title, status: item.status })),
-    topics: activeRoadmap.topics.map((topic) => ({
-      title: topic.title,
-      description: topic.description,
-      learningObjectives: topic.learningObjectives,
-      estimatedMinutes: topic.estimatedMinutes,
-      position: topic.position,
-      progress: topic.userProgress,
-      assessments: topic.assessment?.attempts || [],
-    })),
-  }) : '';
+  let priorRoadmaps = [activeRoadmap].filter(Boolean);
+  if (activeRoadmap && typeof db.roadmap.findMany === 'function') {
+    priorRoadmaps = await db.roadmap.findMany({
+      where: { learningGoalId: goalId, generationState: { in: ['ACTIVE', 'SUPERSEDED'] } },
+      orderBy: { version: 'desc' },
+      take: 4,
+      include: {
+        topics: {
+          orderBy: { position: 'asc' },
+          select: {
+            id: true, title: true, description: true, learningObjectives: true, estimatedMinutes: true, position: true,
+            userProgress: { where: { userId }, select: { status: true, masteryScore: true, attempts: true } },
+            assessment: { include: { attempts: { where: { userId }, orderBy: { createdAt: 'desc' }, take: 2, select: { score: true, passed: true, createdAt: true } } } },
+          },
+        },
+        missions: { where: { userId }, select: { title: true, estimatedMinutes: true, status: true, topic: { select: { title: true } } }, orderBy: { scheduledDate: 'desc' }, take: 20 },
+      },
+    });
+    if (!priorRoadmaps.some((roadmap) => roadmap.id === activeRoadmap.id)) priorRoadmaps.unshift(activeRoadmap);
+    priorRoadmaps = priorRoadmaps.slice(0, 4);
+  }
+  const priorLearningContext = buildPriorLearningContext(activeRoadmap, priorRoadmaps, chunkNumber);
   const safeAnswers = Array.isArray(answers) ? answers.filter((item) => item && typeof item.question === 'string' && typeof item.answer === 'string').slice(0, 4) : [];
   const answerText = safeAnswers.map((item) => item.question + ': ' + item.answer).join('\n');
   const combinedClarifications = [typeof clarifications === 'string' ? clarifications.trim() : '', answerText].filter(Boolean).join('\n');
@@ -301,7 +368,7 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
 
   const brief = proposed.learningBrief && typeof proposed.learningBrief === 'object' ? proposed.learningBrief : {};
   const practiceDays = Math.ceil(goal.daysPerWeek * normalizedPlanningDays / 7);
-  const plannedDailyMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+  const plannedDailyMinutes = Math.max(5, Math.floor(goal.minutesPerDay));
   proposed.learningBrief = {
     ...brief,
     chunkNumber,
@@ -312,12 +379,13 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
     daysPerWeek: goal.daysPerWeek,
     availableCapacityMinutes: goal.minutesPerDay * practiceDays,
     chunkBudgetMinutes: plannedDailyMinutes * practiceDays,
-    bufferMinutes: (goal.minutesPerDay - plannedDailyMinutes) * practiceDays,
+    bufferMinutes: 0,
     deadlineFeasibility: buildDeadlineFeasibility({ goal, estimatedRemainingMinutes: brief.estimatedRemainingMinutes, estimateConfidence: brief.estimateConfidence, now, timeZone }),
     timeCalibrationSampleCount: timeCalibration.sampleCount,
     ...(timeCalibration.medianRatio === null ? {} : { medianActualToEstimatedRatio: timeCalibration.medianRatio }),
     learnerAnswers: safeAnswers,
     priorChunkId: activeRoadmap?.id || null,
+    ...(activeRoadmap ? { continuationSummary: buildContinuationSummary(priorLearningContext, proposed.topics) } : {}),
   };
   return createRoadmapDraft({ userId, goalId, input: proposed, db });
 }
@@ -451,7 +519,7 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
     const actualPlanningDays = Math.min(planningDays, deadline ? Math.max(1, dateDistanceInDays(today, deadline)) : planningDays);
     const draft = await generateRoadmapDraft({ userId, goalId, planningDays: actualPlanningDays, timeZone, now, db });
     const topics = draft.topics || [];
-    const plannedDailyMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+    const plannedDailyMinutes = Math.max(5, Math.floor(goal.minutesPerDay));
     const topicGroups = dates.map(() => []);
     let dateIndex = 0;
     let usedMinutes = 0;
@@ -670,6 +738,8 @@ module.exports = {
   rollForwardRoadmap,
   buildTimeCalibrationContext,
   buildDeadlineFeasibility,
+  buildPriorLearningContext,
+  buildContinuationSummary,
   listRoadmaps,
   deleteRoadmapDraft,
   activateRoadmap,

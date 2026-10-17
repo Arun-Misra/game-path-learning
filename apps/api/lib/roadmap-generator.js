@@ -41,7 +41,7 @@ const responseSchema = {
           },
           prerequisiteKeys: { type: 'array', maxItems: 12, items: { type: 'string', maxLength: 80 } },
         },
-        required: ['key', 'title', 'description', 'learningObjectives', 'estimatedMinutes', 'timeBreakdown', 'prerequisiteKeys'],
+        required: ['key', 'title', 'description', 'learningObjectives', 'estimatedMinutes', 'prerequisiteKeys'],
       },
     },
   },
@@ -101,13 +101,44 @@ const reviewSchema = {
   required: ['approved', 'score', 'issues'],
 };
 
+function buildCumulativePracticeGuidance(goal = {}) {
+  const profile = `${goal.title || ''} ${goal.targetOutcome || ''} ${goal.learningMode || ''}`.toLowerCase();
+  const base = [
+    'CUMULATIVE PRACTICE (MANDATORY): learning is not a sequence of disposable daily lessons. Each new session must deliberately reconnect to relevant earlier skills, then add a manageable new step, then use old and new skills together where possible.',
+    'At the start of a session, include a short attempt from memory or a quick performance check before showing the answer. If the learner struggles, give a targeted cue or easier variation, then retry; do not blindly repeat the whole lesson.',
+    'Maintain a small rolling practice set: keep recently introduced skills active, rotate older skills back at sensible intervals, and reduce practice time for skills the learner can perform reliably. Do not repeat every old item every day or block all progression until perfection.',
+    'For every repeated activity, state what is being retrieved, why it is returning, how the learner should attempt it, and what success looks like. Distinguish deliberate practice from filler repetition.',
+  ];
+  if (/(guitar|piano|keyboard|drum|violin|instrument|sing|singing|music|song|chord|strumming|rhythm)/.test(profile)) return [...base,
+    'MUSIC / INSTRUMENT ROUTINE: begin with a brief warm-up and play previously learned chords, notes, rhythm, or a short section from memory. Keep the most recent material in frequent rotation and bring older material back periodically.',
+    'When introducing a new chord or technique, decide how much new material fits the learner’s current fluency and available time. Bring recent skills back into practice, combine old and new material, and move forward when the learner is ready; spend longer on a specific difficulty when useful. Any day-by-day example is illustrative, not a fixed sequence.',
+    'Every session should include a musical use: combine the current skills into a short phrase, riff, chord progression, or song section. Use a slower tempo and isolate a difficult transition when needed, then reintegrate it into the phrase. Increase tempo or complexity only when accuracy and rhythm remain stable; do not demand perfection before moving forward.',
+    'Track observable evidence such as clean notes/chords, transition accuracy, steady tempo, a section played without stopping, or a short recording. A recognition quiz alone is not evidence of performance.',
+  ];
+  if (/(language|spanish|french|english|japanese|korean|mandarin|german|italian|vocabulary|conversation|pronunciation|grammar|speaking|listening)/.test(profile)) return [...base,
+    'LANGUAGE ROUTINE: start with brief no-notes recall of useful words or phrases from recent sessions. Recycle them in new sentences and a short listening or dialogue task instead of only re-reading a vocabulary list.',
+    'Introduce a small amount of new language, model natural usage and pronunciation, then require the learner to produce their own response. Mix older and new vocabulary in a realistic exchange; gradually remove prompts as recall improves.',
+    'Bring missed words and constructions back soon, and successful items back after longer gaps. Include listening comprehension and spoken/written production appropriate to the goal; multiple-choice recognition must not be the only activity.',
+  ];
+  if (/(programming|software|coding|developer|javascript|typescript|python|java|rust|c\+\+|dsa|data structure|algorithm|machine learning|\bml\b|sql|database|api|computer science|networking)/.test(profile)) return [...base,
+    'CODING / TECHNICAL ROUTINE: open with a short recall question, trace, command, or tiny change using a concept from an earlier session. Then teach one new concept or technique, demonstrate it, guide a variation, and ask for an independent attempt.',
+    'Revisit earlier code or problems through a changed input, edge case, debugging task, or explanation rather than copying the same solution. Mix previously learned problem patterns after the learner has learned how to distinguish them.',
+    'For project-based goals, repeatedly run or inspect the existing artifact before adding one small capability. Preserve working functionality, test the new change, and occasionally integrate the whole feature path.',
+  ];
+  if (/(robot|robotics|esp32|arduino|electronics|hardware|sensor|motor|circuit|embedded)/.test(profile)) return [...base,
+    'ROBOTICS / HANDS-ON ROUTINE: begin by rerunning the last known-good component test and recording the expected versus observed result. Add or change one subsystem at a time, then test its integration with the earlier subsystem.',
+    'Carry forward a simple test log with setup, observation, failure and fix. If integration fails, isolate the last changed variable and restore the last known-good state before adding more complexity. Check board, power and voltage assumptions before instructing wiring.',
+  ];
+  return [...base,
+    'GENERAL SKILL ROUTINE: revisit one recent skill through a short recall or performance attempt, practise the current target with feedback, and combine it with an earlier skill in a realistic task. Choose the review item based on relevance, elapsed time and evidence rather than repeating everything.',
+  ];
+}
 function buildPrompt(goal, outcomeBrief = '') {
   const weeklyMinutes = goal.minutesPerDay * goal.daysPerWeek;
   const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 7;
   const practiceDays = Math.ceil(goal.daysPerWeek * planningDays / 7);
-  const sessionMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+  const sessionMinutes = Math.max(5, Math.floor(goal.minutesPerDay));
   const chunkBudgetMinutes = sessionMinutes * practiceDays;
-  const sessionCount = Math.max(2, practiceDays);
   const target = goal.targetDate
     ? new Date(goal.targetDate).toISOString().slice(0, 10)
     : 'No fixed deadline';
@@ -115,7 +146,7 @@ function buildPrompt(goal, outcomeBrief = '') {
 
   return [
     'Design only the next small learning chunk. The desired outcome remains the long-term destination, but this chunk covers only the requested period.',
-    'Do not design the entire curriculum in this chunk. Separately estimate the remaining total effort in minutes to reach the exact final outcome, including learning, hands-on practice, debugging, review, and final integration. Return a conservative estimate and confidence level; do not confuse this estimate with the small chunk being generated.',
+    'Do not design the entire curriculum in this chunk. Estimate remaining effort by considering the unmet capabilities, likely practice, feedback, and integration; account for overlap rather than adding the same practice twice. Avoid arbitrary multipliers and implausibly large placeholder numbers. The estimate is a revisable planning hypothesis, not a promise; use low confidence when evidence is thin, and keep it separate from this small chunk.',
     hasPriorChunk
       ? 'CONTINUATION MODE (MANDATORY): This is a later chunk, not a fresh start. Continue from the previous chunk and the verified learner evidence below. Do not restart with introductions, setup, or beginner concepts already taught. Do not repeat a previous topic or activity unless the evidence shows it was incomplete, misunderstood, or needs deliberate spaced practice. Begin at the next sensible step after the learner\'s demonstrated progress, and explicitly build on prior work.'
       : 'FIRST-CHUNK MODE: This is the learner\'s first chunk. Start from their stated experience level, teach genuinely missing prerequisites, and establish a useful first win.',
@@ -128,23 +159,28 @@ function buildPrompt(goal, outcomeBrief = '') {
     '- Java factual correctness is mandatory: int and boolean are primitive types; String is a reference type. Never describe String as a primitive type. Do not introduce syntax or APIs inaccurately.',
     '- For Java arrays, loops, and other related concepts, choose the sequence and depth from the learner\'s current capability and desired outcome. Avoid combining concepts only when the learner has not yet learned the prerequisites or the available session time makes it unrealistic.',
     '- A topic is not teachable just because it says “execute a provided snippet”. Explain where the snippet goes, how to run it, what each unfamiliar syntax element means, what output to expect, and how to change it safely.',
-    '- Sequence from a worked example, to a partially completed example with guidance, to a small independent attempt. Independent work must use only concepts already introduced.',
+    '- Choose the teaching approach that fits the learner and skill: demonstration, example, coached attempt, exploration, retrieval, independent practice, feedback, or a combination. Scaffold unfamiliar work, but do not force the same sequence into every session.',
     '- Do not assign debugging before showing how to read the relevant error or what correct syntax looks like. Do not ask learners to write code from scratch before they have seen and modified a complete working example.',
     '- Explicitly distinguish recognition, guided practice, and independent demonstration. Do not claim mastery from reading an explanation or copying code.',
     '',
+    ...buildCumulativePracticeGuidance(goal),
+    '',
     'INSTRUCTIONAL DESIGN AND SCOPE:',
-    '- Plan the chunk as a sequence of individual practice sessions. Each topic is one session, not a bundle of several days. Produce exactly ' + sessionCount + ' topics/sessions for this chunk; do not collapse a multi-day chunk into one topic. If a single day must contain two tiny sessions to satisfy the minimum plan structure, keep their combined time within that day’s total budget.',
-    '- No topic may exceed ' + sessionMinutes + ' minutes. Reserve roughly 20% of the learner\'s stated daily availability for breaks, context switching, and overruns.',
-    '- Every topic MUST include timeBreakdown with integer minutes for conceptMinutes, workedExampleMinutes, guidedPracticeMinutes, independentPracticeMinutes, and reviewMinutes. estimatedMinutes MUST equal the exact sum of all five timeBreakdown fields. At least three phases must be positive, and every phase must be nonnegative.',
-    '- Use realistic time for each phase: concept/explanation, worked example, guided practice, independent practice, and review/check. Do not count the same activity twice or hide unestimated work.',
+    '- Plan a useful sequence of sessions for the next planning window. The number of sessions is your instructional decision, not a quota: do not add filler to match the number of days, and do not force one topic per day when a different grouping would help the learner.',
+    '- Use the learner’s stated daily availability as the practical time limit. Prefer sessions that fit a study day; split a genuinely larger activity when useful, but do not impose an arbitrary percentage buffer or shrink estimates to fit.',
+    '- Estimate the total time for the actual activity. Add an optional timeBreakdown only when it genuinely helps explain the session; do not force every skill into the same five-phase lesson template.',
     '- Never silently compress work to make it fit. If the useful work exceeds the available time, teach fewer concepts and defer the rest to a later chunk.',
-    '- The total effort must fit within ' + chunkBudgetMinutes + ' minutes across ' + practiceDays + ' practice sessions. Prefer one coherent objective per session over a list of disconnected topics.',
-    '- For each topic, describe a concrete teaching sequence: (1) explain the idea and unfamiliar syntax, (2) walk through a complete worked example, (3) guide the learner through a small variation, (4) ask for a tiny independent task, and (5) state how success will be checked. Adapt these steps to non-programming skills where appropriate.',
+    '- Keep the planned work realistic for ' + chunkBudgetMinutes + ' available minutes across ' + practiceDays + ' study days. If the goal needs more work, select the most useful next steps and leave the rest for later rather than pretending the whole goal fits.',
+    '- Make each session actionable: say what to try, what support or example is useful, and how the learner can tell whether it worked. Use a full worked example or guided variation when the learner needs it; keep sessions focused and avoid padding them with phases that do not fit the task.',
     '- Adapt depth and difficulty to the learner\'s stated experience, requested mode (learning, revision, practice, or mastery), clarifications, and demonstrated capability. Do not impose a preset beginner/intermediate/advanced sequence.',
     hasPriorChunk
       ? '- Continue from the learner\'s latest evidenced capability. Use completion, progress, and assessment evidence to decide whether to advance, review briefly, or reteach a specific gap. A new chunk is not a reset of the learner\'s skill level.'
       : '- For a first chunk, identify the learner\'s actual starting point from their stated experience and clarifications. Include setup or foundational instruction only when it is needed for this learner and outcome.',
     '- Use previous-chunk evidence to adapt: repeat or simplify only where evidence shows a need; otherwise progress to the next capability. If the goal is revision, prioritize retrieval practice, diagnosis of gaps, and targeted reinforcement rather than automatically teaching topics from scratch.',
+    '- Treat evidence types separately: completion means the activity was finished, confidence is self-report, quiz scores cover only tested concepts, and independent performance/artifacts are stronger evidence for practical skills.',
+    '- Interpret the most recent assessment attempt in context, not as a universal pass/fail rule. Use the score, the kinds of mistakes, task difficulty, prior evidence, and learner confidence together to decide whether to reinforce, reteach a specific gap, or advance. A high quiz score supports only the concepts it actually tested.',
+    '- For language, music, robotics, design, and other hands-on skills, do not infer practical mastery from multiple-choice scores alone. Require domain-appropriate evidence such as production, performance, a working artifact, a recorded result, or a novel independent attempt.',
+    '- When prior chunks exist, use up to the four most recent chunks to avoid losing long-term continuity. The immediately previous chunk sets the next step; older chunks help avoid needless restarts and identify useful delayed review.',
     '- Do not invent song-specific chords, tabs, lyrics, or exact strumming patterns. If a named arrangement has not been supplied or verified, clearly ask the learner to provide a tutorial, chord chart, or other trusted reference; use generic technique practice until then.',
     '- Avoid duplicate topics, filler, generic motivation, and unrealistic mastery claims.',
     '- Give every topic 2–4 short assessable learning objectives and a concise actionable description. Each objective must be achievable within this session, not merely describe a long-term aspiration.',
@@ -177,7 +213,7 @@ function buildPrompt(goal, outcomeBrief = '') {
 function buildReviewPrompt(goal, roadmap, learningBrief = null) {
   const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 7;
   const practiceDays = Math.ceil(goal.daysPerWeek * planningDays / 7);
-  const sessionMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+  const sessionMinutes = Math.max(5, Math.floor(goal.minutesPerDay));
   const chunkBudgetMinutes = sessionMinutes * practiceDays;
   return [
     'You are an independent, skeptical instructional-design auditor. Judge whether this is genuinely teachable and appropriately challenging for this exact learner, not whether the topic list sounds plausible.',
@@ -188,12 +224,15 @@ function buildReviewPrompt(goal, roadmap, learningBrief = null) {
     'PREREQUISITE AUDIT: for every session, compare assumed knowledge and actions against the learner\'s stated experience, revision intent, clarifications, earlier sessions, and verified prior-chunk evidence. Flag only prerequisites that are genuinely missing; do not assume all learners are beginners or that every new plan starts at the beginning.',
     'TEACHING AUDIT: explain unfamiliar ideas at the depth the learner needs; use worked examples, guided modification, independent practice, and clear success criteria where appropriate. Do not force introductory explanations for concepts the learner already demonstrates. “Execute a snippet” alone is not sufficient instruction when the learner has not yet shown they can do so independently.',
     'FACTUAL CORRECTNESS AUDIT: verify domain-specific statements and syntax rather than trusting fluent wording. For Java, String is a reference type, not a primitive. Teach how to run a minimal program only when that capability is not already established or the goal requires a refresher.',
-    'TIME AUDIT: estimate realistic effort for this learner and the requested activity, including setup, practice, mistakes, and checks where relevant. Every session must fit the buffered daily limit and the whole chunk must fit its total budget. Never approve an overlong session just because the total sum fits. Verify all five timeBreakdown fields, exact arithmetic, nonnegative integer minutes, and that at least three phases must be positive. Judge whether each phase allows realistic time for this learner.',
+    'TIME AUDIT: estimate realistic effort for this learner and the requested activity, including setup, practice, mistakes, and checks where relevant. Keep activities realistic for the learner’s stated availability. Optional phase breakdowns are not mandatory; if work exceeds the available window, narrow the next steps and carry the rest forward.',
     'PROGRESSION AUDIT: each session must prepare the learner for the next or deliberately reinforce a target skill for revision. Do not introduce a task before its actual prerequisites are taught or evidenced. If the horizon is too short, narrow the scope instead of rushing.',
-    'Approve only when there are no critical or major issues and score is at least 85. Be specific: each issue should explain the mismatch and give an actionable fix. Do not invent requirements not implied by the goal.',
+    'CUMULATIVE PRACTICE AUDIT: verify that sessions intentionally retrieve recent prior skills, introduce new material gradually, and integrate old and new skills. For instruments, check that yesterday’s chords/techniques remain in practice when a new one is introduced; for languages, recycle old vocabulary in production; for coding, use changed examples and tests; for hands-on builds, retest known-good components before integration. Reject both zero-review progression and pointless repetition of everything every day.',
+    'EVIDENCE AUDIT: completion is not mastery; use the most recent attempt rather than the best historical score. Interpret scores alongside the errors made, task difficulty, confidence and prior evidence; choose targeted practice or progression from the actual gap instead of applying a universal percentage threshold. Practical skills need independent performance or an authentic artifact.',
+    'LONGITUDINAL CONTINUITY AUDIT: use the previous chunk to select the immediate next capability and older chunks to avoid restarting or losing important review opportunities. Do not mechanically repeat every old topic; justify review by evidence, spacing, transfer, or a prerequisite need.',
+    'Approve when the plan is credible, teachable, aligned with the learner and free of critical problems. Raise only meaningful issues that warrant a change; do not request revisions for stylistic preferences or harmless differences in teaching approach. Be specific and actionable; do not invent requirements not implied by the goal.',
     learningBrief ? `ENHANCED LEARNING BRIEF TO AUDIT AGAINST:\n${JSON.stringify(learningBrief)}` : '',
     goal.priorLearningContext ? `PRIOR CHUNKS AND VERIFIED PROGRESS:\n${goal.priorLearningContext}` : '',
-    'CHUNK BUDGET: ' + planningDays + ' calendar days, ' + practiceDays + ' practice sessions, no more than ' + chunkBudgetMinutes + ' focused minutes total; daily session limit is ' + sessionMinutes + ' minutes after reserving roughly 20% of the learner\'s availability.',
+    'AVAILABLE TIME: ' + planningDays + ' calendar days and ' + practiceDays + ' study days, with about ' + chunkBudgetMinutes + ' minutes available in total and ' + sessionMinutes + ' minutes on a typical study day. Use this as a practical constraint, not a reason to force an identical session structure.',
     goal.timeCalibrationContext ? `LEARNER-SPECIFIC TIME CALIBRATION:\n${goal.timeCalibrationContext}` : '',
     'Return JSON only matching this schema:',
     JSON.stringify(reviewSchema),
@@ -318,7 +357,9 @@ function getUnjustifiedRepeatedTopicIssues(roadmap, goal) {
   const evidence = new Map();
   for (const topic of Array.isArray(prior.topics) ? prior.topics : []) {
     const title = normalize(topic.title);
-    if (!title) continue;
+    // The continuation context is ordered newest chunk first. Keep the newest evidence,
+    // including a weak retake, so an older high score cannot override current difficulty.
+    if (!title || evidence.has(title)) continue;
     const progress = Array.isArray(topic.progress) ? topic.progress : [];
     const assessments = Array.isArray(topic.assessments) ? topic.assessments : [];
     const latestScore = assessments.length && Number.isFinite(Number(assessments[0].score))
@@ -327,12 +368,12 @@ function getUnjustifiedRepeatedTopicIssues(roadmap, goal) {
     const demonstrated = latestScore !== null ? latestScore >= 85
       : progress.some((item) => String(item.status || '').toUpperCase() === 'MASTERED'
         || (String(item.status || '').toUpperCase() === 'COMPLETED' && Number(item.masteryScore) >= 85));
-    if (completed && demonstrated && (latestScore === null || latestScore >= 85)) evidence.set(title, true);
+    evidence.set(title, { completed, demonstrated });
   }
   const purposefulReview = /\b(review|retrieval|diagnostic|revision|revise|reinforce|reinforcement|refresh|spaced practice|practice gap)\b/i;
   return roadmap.topics.flatMap((topic) => {
     const priorTopic = evidence.get(normalize(topic.title));
-    if (!priorTopic || purposefulReview.test([topic.title, topic.description, ...(topic.learningObjectives || [])].join(' '))) return [];
+    if (!priorTopic?.completed || !priorTopic?.demonstrated || purposefulReview.test([topic.title, topic.description, ...(topic.learningObjectives || [])].join(' '))) return [];
     return [{
       severity: 'major',
       code: 'UNJUSTIFIED_COMPLETED_TOPIC_REPEAT',
@@ -366,41 +407,6 @@ function getTimeBreakdownIssues(roadmap) {
   });
 }
 
-function applyRealismFloor(roadmap, goal) {
-  if (!roadmap || !Array.isArray(roadmap.topics) || roadmap.topics.length === 0) return roadmap;
-  const profile = `${goal.title || ''} ${goal.targetOutcome || ''}`.toLowerCase();
-  const isBeginner = String(goal.experienceLevel || '').toUpperCase() === 'BEGINNER';
-  const isGuitarSongPerformance = isBeginner
-    && /guitar/.test(profile)
-    && /(play|perform|learn|record|rendition|song|piece|arrangement)/.test(profile)
-    && /(song|play|perform|record|rendition|arrangement|from start to finish|complete)/.test(profile);
-  if (!isGuitarSongPerformance) return roadmap;
-
-  // Conservative planning floor for a complete named song when starting guitar from scratch.
-  const minimumMinutes = 1800;
-  const currentMinutes = roadmap.topics.reduce((total, topic) => total + topic.estimatedMinutes, 0);
-  if (currentMinutes >= minimumMinutes) return roadmap;
-
-  const scale = minimumMinutes / currentMinutes;
-  const scaledTopics = roadmap.topics.map((topic) => ({
-    ...topic,
-    estimatedMinutes: Math.max(5, Math.round(topic.estimatedMinutes * scale)),
-  }));
-  let difference = minimumMinutes - scaledTopics.reduce((total, topic) => total + topic.estimatedMinutes, 0);
-  for (let index = scaledTopics.length - 1; difference !== 0; index = (index - 1 + scaledTopics.length) % scaledTopics.length) {
-    const delta = difference > 0 ? 1 : -1;
-    if (scaledTopics[index].estimatedMinutes + delta >= 5) {
-      scaledTopics[index].estimatedMinutes += delta;
-      difference -= delta;
-    }
-  }
-  return {
-    ...roadmap,
-    topics: scaledTopics,
-    estimatedTotalMinutes: scaledTopics.reduce((total, topic) => total + topic.estimatedMinutes, 0),
-  };
-}
-
 function isLocalOllama(baseUrl) {
   try {
     const url = new URL(baseUrl);
@@ -426,19 +432,14 @@ function parseStructuredContent(payload, description) {
   }
 }
 
-async function requestStructured({ endpoint, headers, model, schemaName, schema, messages, fetchImpl, retryInvalidJson = true }) {
+async function requestStructured({ endpoint, headers, model, schemaName, schema, messages, fetchImpl, retryInvalidJson = true, reasoningEffortOverride = null }) {
   const requestStartedAt = Date.now();
   if (process.env.AI_DEBUG === 'true') console.log(`[roadmap-generator] ${schemaName} request started`);
   let response;
   const localOllama = isLocalOllama(endpoint);
   const contextLength = Number.parseInt(process.env.AI_CONTEXT_LENGTH || '16384', 10);
-  const reasoningEffort = localOllama && schemaName !== 'learning_clarification_questions'
-    ? 'low'
-    : (process.env.AI_REASONING_EFFORT || 'low');
-  const topicCount = Number(schema?.properties?.topics?.maxItems) || 3;
-  const outputTokens = schemaName === 'personalised_learning_roadmap'
-    ? Math.min(6144, Math.max(3072, topicCount * 1024))
-    : 2048;
+  const reasoningEffort = reasoningEffortOverride !== null ? reasoningEffortOverride : (process.env.AI_REASONING_EFFORT || 'low');
+  const outputTokens = schemaName === 'personalised_learning_roadmap' ? 4096 : 2048;
   const requestBody = localOllama
     ? {
       model,
@@ -507,6 +508,17 @@ async function requestStructured({ endpoint, headers, model, schemaName, schema,
     if (process.env.AI_DEBUG === 'true') {
       console.error('[roadmap-generator] Structured response parsing failed:', JSON.stringify({ schemaName, code: error.code || 'UNKNOWN', message: error.message }));
     }
+    if (localOllama && error.code === 'ROADMAP_PROVIDER_INVALID_RESPONSE' && (error.message.startsWith('The AI provider returned no ') || !retryInvalidJson)) {
+      const fallbackEffort = ['high', 'medium'].includes(reasoningEffort) ? 'low' : reasoningEffort === 'low' ? false : null;
+      if (fallbackEffort !== null) {
+        if (process.env.AI_DEBUG === 'true') console.warn(`[roadmap-generator] ${schemaName} returned no usable JSON with think=${reasoningEffort}; retrying with think=${fallbackEffort}`);
+        return requestStructured({
+          endpoint, headers, model, schemaName, schema, messages, fetchImpl,
+          retryInvalidJson,
+          reasoningEffortOverride: fallbackEffort,
+        });
+      }
+    }
     if (retryInvalidJson && error.code === 'ROADMAP_PROVIDER_INVALID_RESPONSE') {
       return requestStructured({
         endpoint, headers, model, schemaName, schema,
@@ -519,6 +531,7 @@ async function requestStructured({ endpoint, headers, model, schemaName, schema,
         ],
         fetchImpl,
         retryInvalidJson: false,
+        reasoningEffortOverride,
       });
     }
     throw error;
@@ -577,10 +590,9 @@ async function generateRoadmap(goal, {
   const endpoint = getProviderEndpoint(baseUrl);
   const planningDays = Number.isInteger(goal.planningDays) ? Math.max(1, Math.min(28, goal.planningDays)) : 3;
   const practiceDays = Math.ceil(goal.daysPerWeek * planningDays / 7);
-  const sessionMinutes = Math.max(10, Math.floor(goal.minutesPerDay * 0.8));
+  const sessionMinutes = Math.max(5, Math.floor(goal.minutesPerDay));
   const chunkBudgetMinutes = sessionMinutes * practiceDays;
-  const sessionCount = Math.max(2, practiceDays);
-  const chunkRoadmapSchema = { ...responseSchema, properties: { ...responseSchema.properties, topics: { ...responseSchema.properties.topics, minItems: sessionCount, maxItems: sessionCount } } };
+  const chunkRoadmapSchema = responseSchema;
   if (!apiKey && !isLocalOllama(baseUrl)) {
     throw new RoadmapGenerationError(
       503,
@@ -632,7 +644,7 @@ async function generateRoadmap(goal, {
     ],
   });
 
-  const draftTimeBreakdownIssues = getTimeBreakdownIssues(draft);
+  // Phase breakdowns are optional guidance, not a hard gate on otherwise teachable plans.
   const firstValidation = validateRoadmap(normalizeJavaBeginnerContent(guardUnverifiedSongDetails(normalizeRoadmapProposal(draft), boundedGoal), boundedGoal));
   if (!firstValidation.success) {
     if (process.env.AI_DEBUG === 'true') console.error('[roadmap-generator] Draft structural validation failed:', JSON.stringify(firstValidation.errors));
@@ -665,12 +677,12 @@ async function generateRoadmap(goal, {
     ? [{ severity: 'major', code: 'CHUNK_OVER_BUDGET', explanation: `The proposed chunk needs ${initialTotalMinutes} minutes, exceeding the available ${chunkBudgetMinutes}-minute chunk budget.`, suggestedFix: 'Reduce the scope or split work into later chunks; do not shrink estimates without reducing the activities.', relatedTopicKeys: roadmap.topics.map((topic) => topic.key) }]
     : [];
   const continuityIssues = getUnjustifiedRepeatedTopicIssues(roadmap, boundedGoal);
-  const requiredFixes = [...draftTimeBreakdownIssues, ...sessionBudgetIssues, ...instructionalIssues, ...totalBudgetIssues, ...continuityIssues];
+  const requiredFixes = [...sessionBudgetIssues, ...instructionalIssues, ...totalBudgetIssues, ...continuityIssues];
   const reviewForRevision = requiredFixes.length
     ? { ...review, approved: false, score: Math.min(review.score, 79), issues: [...review.issues, ...requiredFixes] }
     : review;
 
-  if (!reviewForRevision.approved || reviewForRevision.score < 85 || reviewForRevision.issues.some((issue) => issue.severity === 'critical' || issue.severity === 'major')) {
+  if (!reviewForRevision.approved || reviewForRevision.issues.some((issue) => issue.severity === 'critical' || issue.severity === 'major')) {
     let revision = await requestStructured({
       endpoint, headers, model, schemaName: 'personalised_learning_roadmap', schema: chunkRoadmapSchema, fetchImpl,
       messages: [
@@ -696,7 +708,7 @@ async function generateRoadmap(goal, {
     let accepted = false;
     let lastIssues = [];
     for (let repairAttempt = 0; repairAttempt < 2; repairAttempt += 1) {
-      const timeIssues = getTimeBreakdownIssues(candidate);
+      const timeIssues = []; // Optional phase estimates must not force an otherwise good plan through repair.
       const candidateValidation = validateRoadmap(normalizeJavaBeginnerContent(guardUnverifiedSongDetails(normalizeRoadmapProposal(candidate), boundedGoal), boundedGoal));
       const candidateRoadmap = candidateValidation.success ? candidateValidation.data : null;
       const totalMinutes = candidateRoadmap
@@ -767,11 +779,21 @@ async function generateRoadmap(goal, {
     }
   }
 
-  return {
+  const result = {
     ...roadmap,
+    estimatedRemainingMinutes: Number.isFinite(Number(learningBrief.estimatedRemainingMinutes)) ? Number(learningBrief.estimatedRemainingMinutes) : learningBrief.estimatedRemainingMinutes,
+    estimateConfidence: learningBrief.estimateConfidence,
     learningBrief: {
       ...learningBrief,
       ...(goal.learnerClarifications ? { learnerClarifications: goal.learnerClarifications } : {}),
+    },
+  };
+  return {
+    ...result,
+    learningBrief: {
+      ...result.learningBrief,
+      estimatedRemainingMinutes: result.estimatedRemainingMinutes ?? result.learningBrief?.estimatedRemainingMinutes,
+      estimateConfidence: result.estimateConfidence ?? result.learningBrief?.estimateConfidence,
     },
   };
 }
@@ -779,10 +801,10 @@ async function generateRoadmap(goal, {
 module.exports = {
   RoadmapGenerationError,
   buildPrompt,
+  buildCumulativePracticeGuidance,
   getProviderEndpoint,
   generateClarifyingQuestions,
   buildReviewPrompt,
-  applyRealismFloor,
   applyChunkBudget,
   getOverlongSessions,
   getTimeBreakdownIssues,

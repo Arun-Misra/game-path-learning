@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { buildTimeCalibrationContext, buildDeadlineFeasibility, rollForwardRoadmap } = require('../lib/roadmap-service');
+const { buildTimeCalibrationContext, buildDeadlineFeasibility, rollForwardRoadmap, buildPriorLearningContext, buildContinuationSummary } = require('../lib/roadmap-service');
 const { generateInitialRollingMissions } = require('../lib/mission-service');
 const {
   applyChunkBudget,
@@ -15,6 +15,47 @@ function responseFor(value) {
   const content = JSON.stringify(value);
   return { ok: true, status: 200, json: async () => ({ message: { content }, choices: [{ message: { content } }] }) };
 }
+
+test('follow-up context preserves four-chunk continuity and uses the latest assessment attempt', () => {
+  const active = {
+    id: 'roadmap-4', version: 4, title: 'Chunk four', summary: 'Recent work',
+    learningBrief: { chunkNumber: 4, estimatedRemainingMinutes: 600, estimateConfidence: 'medium' },
+    topics: [{
+      title: 'Binary Search', description: 'Search a sorted array.', learningObjectives: ['Implement binary search'],
+      estimatedMinutes: 25, position: 0, userProgress: [{ status: 'MASTERED', masteryScore: 94 }],
+      assessment: { attempts: [{ score: 62, passed: false, createdAt: new Date('2026-10-21T10:00:00Z') }, { score: 96, passed: true, createdAt: new Date('2026-10-20T10:00:00Z') }] },
+    }],
+    missions: [{ title: 'Learn: Binary Search', estimatedMinutes: 25, status: 'COMPLETED', topic: { title: 'Binary Search' } }],
+  };
+  const previous = {
+    id: 'roadmap-3', version: 3, title: 'Chunk three', summary: 'Earlier work', learningBrief: { chunkNumber: 3 },
+    topics: [{ title: 'Arrays', description: 'Array operations.', learningObjectives: ['Index arrays'], estimatedMinutes: 20, position: 0, userProgress: [{ status: 'MASTERED', masteryScore: 90 }], assessment: { attempts: [{ score: 91, passed: true }] } }],
+    missions: [{ title: 'Learn: Arrays', estimatedMinutes: 20, status: 'COMPLETED', topic: { title: 'Arrays' } }],
+  };
+  const context = JSON.parse(buildPriorLearningContext(active, [active, previous], 5));
+  assert.equal(context.priorChunks.length, 2);
+  assert.equal(context.topics.length, 2);
+  assert.equal(context.topics[0].assessments[0].score, 62);
+  assert.equal(context.topics[1].sourceChunkNumber, 3);
+  assert.match(context.continuationRules.join(' '), /completion as evidence that an activity was finished, not proof/i);
+});
+
+test('continuation summary separates recent weak checks from the new chunk focus', () => {
+  const prior = JSON.stringify({
+    topics: [
+      { title: 'Binary Search', assessments: [{ score: 62 }, { score: 96 }], progress: [{ status: 'MASTERED' }] },
+      { title: 'Arrays', assessments: [{ score: 91 }], progress: [{ status: 'MASTERED' }] },
+      { title: 'Binary Search', assessments: [{ score: 96 }], progress: [{ status: 'MASTERED' }] },
+    ],
+    incompleteActivities: [{ topic: 'Recursion', status: 'IN_PROGRESS' }],
+  });
+  const summary = buildContinuationSummary(prior, [{ title: 'Recursive search' }, { title: 'Tree traversal' }]);
+  assert.match(summary.heading, /builds on your progress/i);
+  assert.match(summary.evidence.join(' '), /Binary Search/);
+  assert.doesNotMatch(summary.evidence.join(' '), /at or above 85%: Binary Search/);
+  assert.match(summary.evidence.join(' '), /unfinished prior sessions: Recursion/i);
+  assert.deepEqual(summary.nextFocus, ['Recursive search', 'Tree traversal']);
+});
 
 test('budget check preserves honest estimates and reports an over-budget plan instead of compressing it', () => {
   const roadmap = {
@@ -201,7 +242,7 @@ test('rolling generation waits until every session for the completed date is fin
   assert.equal(pendingDaysQueried, false);
 });
 
-test('initial mission scheduling prepares at most three study dates within the buffered daily budget', async () => {
+test('initial mission scheduling prepares at most three study dates within learner availability', async () => {
   const created = [];
   let listCalls = 0;
   const topics = [
@@ -234,11 +275,11 @@ test('initial mission scheduling prepares at most three study dates within the b
   assert.equal(result.missions.length, 3);
   assert.equal(new Set(created.map((mission) => mission.scheduledDate.toISOString().slice(0, 10))).size, 3);
   assert.equal(created.reduce((sum, mission) => sum + mission.estimatedMinutes, 0), 60);
-  assert.equal(result.availableMinutes, 72);
-  assert.ok(created.every((mission) => mission.estimatedMinutes <= 24));
+  assert.equal(result.availableMinutes, 90);
+  assert.ok(created.every((mission) => mission.estimatedMinutes <= 30));
 });
 
-test('deadline feasibility compares remaining effort with buffered study capacity', () => {
+test('deadline feasibility compares remaining effort with learner study availability', () => {
   const goal = {
     minutesPerDay: 60,
     daysPerWeek: 7,
@@ -248,20 +289,20 @@ test('deadline feasibility compares remaining effort with buffered study capacit
   const onTrack = buildDeadlineFeasibility({ goal, estimatedRemainingMinutes: 100, estimateConfidence: 'high', now, timeZone: 'UTC' });
   assert.equal(onTrack.status, 'ON_TRACK');
   assert.equal(onTrack.availableStudyDays, 4);
-  assert.equal(onTrack.availableMinutes, 192);
-  assert.equal(onTrack.marginMinutes, 92);
+  assert.equal(onTrack.availableMinutes, 240);
+  assert.equal(onTrack.marginMinutes, 140);
 
-  const atRisk = buildDeadlineFeasibility({ goal, estimatedRemainingMinutes: 180, estimateConfidence: 'medium', now, timeZone: 'UTC' });
+  const atRisk = buildDeadlineFeasibility({ goal, estimatedRemainingMinutes: 225, estimateConfidence: 'medium', now, timeZone: 'UTC' });
   assert.equal(atRisk.status, 'AT_RISK');
 
   const overCapacity = buildDeadlineFeasibility({ goal, estimatedRemainingMinutes: 500, estimateConfidence: 'low', now, timeZone: 'UTC' });
   assert.equal(overCapacity.status, 'OVER_CAPACITY');
-  assert.equal(overCapacity.shortfallMinutes, 308);
+  assert.equal(overCapacity.shortfallMinutes, 260);
   assert.equal(overCapacity.requiredMinutesPerStudyDay, 125);
-  assert.equal(overCapacity.additionalMinutesPerStudyDay, 77);
-  assert.equal(overCapacity.additionalStudyDaysRequired, 7);
-  assert.equal(overCapacity.estimatedExtensionCalendarDays, 7);
-  assert.match(overCapacity.recommendation, /308 minutes over buffered capacity/);
+  assert.equal(overCapacity.additionalMinutesPerStudyDay, 65);
+  assert.equal(overCapacity.additionalStudyDaysRequired, 5);
+  assert.equal(overCapacity.estimatedExtensionCalendarDays, 5);
+  assert.match(overCapacity.recommendation, /260 minutes over buffered capacity/);
   assert.match(overCapacity.recommendation, /125 minutes per study day/);
   assert.match(overCapacity.recommendation, /reduce the outcome scope/i);
 });
