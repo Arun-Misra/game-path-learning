@@ -152,6 +152,7 @@ test('mission player requires a reflection and persists it with completion evide
   await page.getByRole('button', { name: 'Open session' }).click();
   await expect(page.getByText('Success checklist')).toBeVisible();
   await expect(page.getByText('Reject malformed input')).toBeVisible();
+  await page.getByRole('button', { name: 'I got stuck' }).click();
 
   const reflection = page.getByPlaceholder('What did you practise, what result did you get, or what can you now explain?');
   await expect(page.getByRole('button', { name: 'Complete session' })).toBeDisabled();
@@ -161,6 +162,7 @@ test('mission player requires a reflection and persists it with completion evide
   await expect(page.getByText('Session completed · XP already recorded')).toBeVisible();
   expect(savedEvidence.reflection).toBe('I rejected invalid input and verified the expected status code.');
   expect(savedEvidence.missionType).toBe('PRACTICE');
+  expect(savedEvidence.sessionFeeling).toBe('STUCK');
   expect(savedEvidence.actualMinutes).toBe(35);
 });
 test('project milestones require evidence and persist progress', async ({ page }) => {

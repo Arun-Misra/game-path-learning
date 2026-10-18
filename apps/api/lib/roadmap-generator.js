@@ -177,7 +177,8 @@ function buildPrompt(goal, outcomeBrief = '') {
       ? '- Continue from the learner\'s latest evidenced capability. Use completion, progress, and assessment evidence to decide whether to advance, review briefly, or reteach a specific gap. A new chunk is not a reset of the learner\'s skill level.'
       : '- For a first chunk, identify the learner\'s actual starting point from their stated experience and clarifications. Include setup or foundational instruction only when it is needed for this learner and outcome.',
     '- Use previous-chunk evidence to adapt: repeat or simplify only where evidence shows a need; otherwise progress to the next capability. If the goal is revision, prioritize retrieval practice, diagnosis of gaps, and targeted reinforcement rather than automatically teaching topics from scratch.',
-    '- Treat evidence types separately: completion means the activity was finished, confidence is self-report, quiz scores cover only tested concepts, and independent performance/artifacts are stronger evidence for practical skills.',
+    '- Treat evidence types separately: completion means the activity was finished, confidence and session-feeling are self-report, quiz scores cover only tested concepts, and independent performance/artifacts are stronger evidence for practical skills.',
+    '- Coach from learner feedback: if the learner reports being stuck, identify one likely obstacle, add a hint or smaller coached attempt, and offer a retry. If it felt too easy, offer a meaningful transfer or stretch rather than padding the session. If it felt about right, preserve the challenge level and move forward when evidence supports it. Do not turn a feeling into a mastery verdict.',
     '- Interpret the most recent assessment attempt in context, not as a universal pass/fail rule. Use the score, the kinds of mistakes, task difficulty, prior evidence, and learner confidence together to decide whether to reinforce, reteach a specific gap, or advance. A high quiz score supports only the concepts it actually tested.',
     '- For language, music, robotics, design, and other hands-on skills, do not infer practical mastery from multiple-choice scores alone. Require domain-appropriate evidence such as production, performance, a working artifact, a recorded result, or a novel independent attempt.',
     '- When prior chunks exist, use up to the four most recent chunks to avoid losing long-term continuity. The immediately previous chunk sets the next step; older chunks help avoid needless restarts and identify useful delayed review.',
@@ -227,7 +228,7 @@ function buildReviewPrompt(goal, roadmap, learningBrief = null) {
     'TIME AUDIT: estimate realistic effort for this learner and the requested activity, including setup, practice, mistakes, and checks where relevant. Keep activities realistic for the learner’s stated availability. Optional phase breakdowns are not mandatory; if work exceeds the available window, narrow the next steps and carry the rest forward.',
     'PROGRESSION AUDIT: each session must prepare the learner for the next or deliberately reinforce a target skill for revision. Do not introduce a task before its actual prerequisites are taught or evidenced. If the horizon is too short, narrow the scope instead of rushing.',
     'CUMULATIVE PRACTICE AUDIT: verify that sessions intentionally retrieve recent prior skills, introduce new material gradually, and integrate old and new skills. For instruments, check that yesterday’s chords/techniques remain in practice when a new one is introduced; for languages, recycle old vocabulary in production; for coding, use changed examples and tests; for hands-on builds, retest known-good components before integration. Reject both zero-review progression and pointless repetition of everything every day.',
-    'EVIDENCE AUDIT: completion is not mastery; use the most recent attempt rather than the best historical score. Interpret scores alongside the errors made, task difficulty, confidence and prior evidence; choose targeted practice or progression from the actual gap instead of applying a universal percentage threshold. Practical skills need independent performance or an authentic artifact.',
+    'EVIDENCE AUDIT: completion is not mastery; use the most recent attempt rather than the best historical score. Interpret scores, session-feeling, reflections, errors, task difficulty, confidence and prior evidence together; choose targeted practice or progression from the actual gap instead of applying a universal percentage threshold. Practical skills need independent performance or an authentic artifact.',
     'LONGITUDINAL CONTINUITY AUDIT: use the previous chunk to select the immediate next capability and older chunks to avoid restarting or losing important review opportunities. Do not mechanically repeat every old topic; justify review by evidence, spacing, transfer, or a prerequisite need.',
     'Approve when the plan is credible, teachable, aligned with the learner and free of critical problems. Raise only meaningful issues that warrant a change; do not request revisions for stylistic preferences or harmless differences in teaching approach. Be specific and actionable; do not invent requirements not implied by the goal.',
     learningBrief ? `ENHANCED LEARNING BRIEF TO AUDIT AGAINST:\n${JSON.stringify(learningBrief)}` : '',
@@ -282,7 +283,10 @@ function guardUnverifiedSongDetails(proposal, goal) {
   let replacedReferenceTask = false;
   const topics = proposal.topics.map((topic) => {
     const text = String((topic.title || '') + ' ' + (topic.description || ''));
-    if (!/(song chords?|chord sequence|chord progression|strumming pattern associated with (the )?song|known chord progression|exact chords|song.?specific rhythm)/i.test(text)) return topic;
+    const mentionsSong = /\b(song|arrangement)\b/i.test(text);
+    const mentionsArrangementDetail = /\b(chord|progression|strumming|rhythm|phrase|riff|tablature|tabs?|melody|key)\b/i.test(text);
+    const namesUnverifiedSongDetail = mentionsSong && mentionsArrangementDetail;
+    if (!namesUnverifiedSongDetail && !/(chord sequence|chord progression|known chord progression|exact chords|song.?specific rhythm|strumming pattern associated with (the )?song)/i.test(text)) return topic;
     if (!replacedReferenceTask) {
       replacedReferenceTask = true;
       return { ...topic, title: 'Find and verify a trusted song reference', description: 'Choose a trusted tutorial or chord chart for the exact arrangement you want to play. Record the chord names and rhythm instructions from that source; do not assume song-specific details before checking the reference.', learningObjectives: ['Choose a trusted reference for the intended arrangement.', 'Record the chord and rhythm information from the reference without guessing.'] };
@@ -420,6 +424,10 @@ function isLocalOllama(baseUrl) {
 function parseStructuredContent(payload, description) {
   const content = payload.choices?.[0]?.message?.content ?? payload.message?.content;
   if (typeof content !== 'string' || !content.trim()) {
+    if (process.env.AI_DEBUG === 'true') {
+      const message = payload.choices?.[0]?.message || payload.message || {};
+      console.warn(`[roadmap-generator] Empty structured content for ${description}; messageKeys=${JSON.stringify(Object.keys(message))}; thinkingChars=${typeof message.thinking === 'string' ? message.thinking.length : 0}; finish=${payload.choices?.[0]?.finish_reason || payload.done_reason || 'unknown'}; output=${payload.eval_count ?? 'n/a'}`);
+    }
     throw new RoadmapGenerationError(502, 'ROADMAP_PROVIDER_INVALID_RESPONSE', `The AI provider returned no ${description}.`);
   }
   try {
@@ -508,16 +516,15 @@ async function requestStructured({ endpoint, headers, model, schemaName, schema,
     if (process.env.AI_DEBUG === 'true') {
       console.error('[roadmap-generator] Structured response parsing failed:', JSON.stringify({ schemaName, code: error.code || 'UNKNOWN', message: error.message }));
     }
-    if (localOllama && error.code === 'ROADMAP_PROVIDER_INVALID_RESPONSE' && (error.message.startsWith('The AI provider returned no ') || !retryInvalidJson)) {
-      const fallbackEffort = ['high', 'medium'].includes(reasoningEffort) ? 'low' : reasoningEffort === 'low' ? false : null;
-      if (fallbackEffort !== null) {
-        if (process.env.AI_DEBUG === 'true') console.warn(`[roadmap-generator] ${schemaName} returned no usable JSON with think=${reasoningEffort}; retrying with think=${fallbackEffort}`);
-        return requestStructured({
-          endpoint, headers, model, schemaName, schema, messages, fetchImpl,
-          retryInvalidJson,
-          reasoningEffortOverride: fallbackEffort,
-        });
-      }
+    if (localOllama && reasoningEffort !== false && error.code === 'ROADMAP_PROVIDER_INVALID_RESPONSE' && error.message.startsWith('The AI provider returned no ')) {
+      // Thinking can consume the output budget without emitting the JSON payload on some local models.
+      // Preserve the user's configured effort unless it prevents a structured answer, then retry once without thinking.
+      if (process.env.AI_DEBUG === 'true') console.warn(`[roadmap-generator] ${schemaName} returned no usable JSON with think=${reasoningEffort}; retrying with thinking disabled`);
+      return requestStructured({
+        endpoint, headers, model, schemaName, schema, messages, fetchImpl,
+        retryInvalidJson,
+        reasoningEffortOverride: false,
+      });
     }
     if (retryInvalidJson && error.code === 'ROADMAP_PROVIDER_INVALID_RESPONSE') {
       return requestStructured({
@@ -638,7 +645,7 @@ async function generateRoadmap(goal, {
     messages: [
       {
         role: 'system',
-        content: 'You are a learning-path architect. Return compact, complete JSON only. Translate the exact outcome into concrete steps; keep descriptions concise, give 2–4 short measurable objectives per topic, and avoid long explanations, markdown, and repeated wording. Finish every required field before adding detail.',
+        content: 'You are an adaptive learning coach. Help the learner make the next useful step toward their own goal; do not lock them into a rigid syllabus or pretend the route is known in advance. Return compact, complete JSON only. Give 2–4 short measurable objectives per topic, avoid filler and repeated wording, and leave room for the next chunk to adapt to real evidence.',
       },
       { role: 'user', content: buildPrompt(boundedGoal, JSON.stringify(learningBrief)) },
     ],
@@ -658,7 +665,7 @@ async function generateRoadmap(goal, {
     messages: [
       {
         role: 'system',
-        content: 'Audit learning roadmaps rigorously. Be skeptical of vague, generic, repetitive, or outcome-mismatched plans. Approve only if the learner can see a credible step-by-step path to the exact requested result. Return only the review JSON.',
+        content: 'You are an independent learning coach reviewing only the next chunk. Check that it helps this learner move toward their own outcome, is accurate and doable, and responds to prior evidence. Do not demand a fixed curriculum, identical session structure, or unnecessary repair for harmless stylistic choices. Return only the review JSON.',
       },
       { role: 'user', content: buildReviewPrompt(boundedGoal, roadmap, learningBrief) },
     ],
@@ -688,7 +695,7 @@ async function generateRoadmap(goal, {
       messages: [
         {
           role: 'system',
-          content: 'Revise the roadmap to fix every critical and major issue while preserving the exact outcome. Return compact, complete JSON only. Keep descriptions concise, provide 2–4 short measurable objectives per topic, avoid repeated wording, and finish every required field. Do not add unrelated material.',
+          content: 'Improve the next-step coaching plan only where the review identifies a real problem. Preserve the learner’s outcome and autonomy; do not turn the revision into a rigid syllabus. Return compact, complete JSON only, with 2–4 short measurable objectives per topic and no filler.',
         },
         {
           role: 'user',
@@ -739,7 +746,7 @@ async function generateRoadmap(goal, {
         messages: [
           {
             role: 'system',
-            content: `Repair the roadmap to satisfy every deterministic constraint. Return compact, complete JSON only. Every topic must fit within ${sessionMinutes} minutes; the sum of all topics must not exceed ${chunkBudgetMinutes} minutes. Each estimatedMinutes must equal the sum of five nonnegative integer timeBreakdown fields, with at least three positive phases. Keep the exact topic count, preserve valid prerequisites, and narrow activities instead of understating time.`,
+            content: `Fix the remaining structural, time-budget, prerequisite, or continuity issues. Return compact, complete JSON only. Each session must fit within ${sessionMinutes} available minutes and the chunk total must not exceed ${chunkBudgetMinutes} minutes. Phase breakdowns are optional; do not force a five-phase template or an exact topic count. Preserve the learner’s goal, keep valid prerequisites, and narrow activities instead of understating time.`,
           },
           {
             role: 'user',

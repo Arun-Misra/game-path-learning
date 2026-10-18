@@ -46,6 +46,7 @@ function App() {
   const [missionBusyId, setMissionBusyId] = useState(null);
   const [expandedMissionId, setExpandedMissionId] = useState(null);
   const [missionEvidenceById, setMissionEvidenceById] = useState({});
+  const [missionFeelingById, setMissionFeelingById] = useState({});
   const [missionActualMinutesById, setMissionActualMinutesById] = useState({});
   const [assessmentByTopic, setAssessmentByTopic] = useState({});
   const [assessmentBusyId, setAssessmentBusyId] = useState(null);
@@ -592,6 +593,7 @@ function App() {
           body: JSON.stringify({
             evidence: {
               reflection,
+              ...(missionFeelingById[mission.id] ? { sessionFeeling: missionFeelingById[mission.id] } : {}),
               ...(actualMinutes === null ? {} : { actualMinutes }),
               completionCriteria: mission.completionCriteria || {},
               missionType: mission.missionType || 'LEARN',
@@ -1106,6 +1108,22 @@ function App() {
         </ul>
       </>}
       {!completed && <>
+      <fieldset className="mt-4">
+        <legend className="text-xs font-semibold text-[#d1d1cd]">How did this feel? <span className="font-normal text-[#777773]">(helps me coach you better)</span></legend>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {[
+            { value: 'STUCK', label: 'I got stuck' },
+            { value: 'ABOUT_RIGHT', label: 'About right' },
+            { value: 'TOO_EASY', label: 'Too easy' },
+          ].map((feeling) => <button
+            key={feeling.value}
+            type="button"
+            aria-pressed={missionFeelingById[mission.id] === feeling.value}
+            onClick={() => setMissionFeelingById((current) => ({ ...current, [mission.id]: feeling.value }))}
+            className={`min-h-9 border px-3 py-2 text-xs font-semibold transition-colors ${missionFeelingById[mission.id] === feeling.value ? 'border-[#ff5933] bg-[#ff3300]/10 text-[#ff5933]' : 'border-[#41413d] text-[#a3a39f] hover:border-[#777773]'}`}
+          >{feeling.label}</button>)}
+        </div>
+      </fieldset>
       <label className="mt-4 block">
         <span className="text-xs font-semibold text-[#d1d1cd]">Learning reflection (saved with your completion)</span>
         <textarea

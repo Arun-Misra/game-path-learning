@@ -40,6 +40,28 @@ test('follow-up context preserves four-chunk continuity and uses the latest asse
   assert.match(context.continuationRules.join(' '), /completion as evidence that an activity was finished, not proof/i);
 });
 
+test('follow-up context carries the learner’s session feeling and reflection into the coaching loop', () => {
+  const roadmap = {
+    id: 'roadmap-1', version: 1, title: 'First chunk', summary: 'Initial practice',
+    learningBrief: { chunkNumber: 1 },
+    topics: [],
+    missions: [{
+      title: 'Practice: Chord changes',
+      estimatedMinutes: 20,
+      status: 'COMPLETED',
+      topic: { title: 'Chord changes' },
+      completion: {
+        evidence: { sessionFeeling: 'STUCK', reflection: 'I can form both chords, but the transition is slow.' },
+        completedAt: new Date('2026-10-21T10:00:00Z'),
+      },
+    }],
+  };
+  const context = JSON.parse(buildPriorLearningContext(roadmap, [roadmap], 2));
+  assert.equal(context.completedActivities[0].sessionFeeling, 'STUCK');
+  assert.match(context.completedActivities[0].learnerReflection, /transition is slow/);
+  assert.match(context.continuationRules.join(' '), /stuck means isolate the obstacle and scaffold a retry/i);
+});
+
 test('continuation summary separates recent weak checks from the new chunk focus', () => {
   const prior = JSON.stringify({
     topics: [
@@ -152,6 +174,8 @@ test('unverified song-specific details are replaced until a trusted reference is
     topics: [
       { key: 'song-chords', title: 'Identify song chords', description: 'Use C G Am F for the song progression.', learningObjectives: ['Learn song chords'] },
       { key: 'song-rhythm', title: 'Song strumming', description: 'Learn the strumming pattern associated with the song.', learningObjectives: ['Play song pattern'] },
+      { key: 'first-chord', title: "Mastering the Song's First Chord", description: "Form the song's first chord (e.g., G) and strum it cleanly.", learningObjectives: ['Play the first chord'] },
+      { key: 'song-phrase', title: 'Play a phrase from the song', description: 'Combine two chords into a short musical phrase from the song.', learningObjectives: ['Play the phrase'] },
     ],
   };
   const guarded = guardUnverifiedSongDetails(proposal, {
@@ -161,6 +185,8 @@ test('unverified song-specific details are replaced until a trusted reference is
   });
   assert.equal(guarded.topics[0].title, 'Find and verify a trusted song reference');
   assert.doesNotMatch(guarded.topics[1].description, /C G Am F|song progression/i);
+  assert.equal(guarded.topics[2].title, 'Practise general chord and rhythm control');
+  assert.doesNotMatch(guarded.topics[3].description, /musical phrase from the song/i);
   const referenced = guardUnverifiedSongDetails(proposal, {
     title: 'Guitar',
     targetOutcome: 'Play a named song from beginning to end',

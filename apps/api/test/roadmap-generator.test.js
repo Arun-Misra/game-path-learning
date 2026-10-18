@@ -327,7 +327,7 @@ test('local Ollama honors the configured reasoning effort instead of forcing low
   assert.ok(requests.every((request) => request.think === 'medium'));
 });
 
-test('local Ollama retries with low thinking when configured reasoning produces no structured content', async () => {
+test('local Ollama disables thinking when configured reasoning produces no structured content', async () => {
   const previous = process.env.AI_REASONING_EFFORT;
   process.env.AI_REASONING_EFFORT = 'medium';
   const requests = [];
@@ -349,7 +349,7 @@ test('local Ollama retries with low thinking when configured reasoning produces 
     else process.env.AI_REASONING_EFFORT = previous;
   }
   assert.equal(requests[0].think, 'medium');
-  assert.equal(requests[1].think, 'low');
+  assert.equal(requests[1].think, false);
 });
 
 test('learner clarifications override inferred assumptions and reach both models', async () => {
