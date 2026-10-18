@@ -1,10 +1,11 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
-  ExperimentalRoadmapGenerationError,
   buildLearnerBrief,
   buildMessages,
+  parseDecision,
   generateRoadmap,
+  ExperimentalRoadmapGenerationError,
 } = require('../lib/roadmap-generator-experimental');
 
 function mockResponse(value) {
@@ -27,28 +28,36 @@ test('learner brief contains the goal, starting level, available time, and targe
   assert.equal(brief.experienceLevel, 'BEGINNER');
   assert.equal(brief.minutesPerDay, 30);
   assert.equal(brief.daysPerWeek, 5);
+  assert.equal(brief.planningDays, 3);
   assert.equal(brief.minutesAvailablePerWeek, 150);
   assert.equal(brief.daysUntilTarget, 40);
 });
 
-test('prompt directly asks the skill coach to plan within the learner time budget and return JSON', () => {
+test('prompt asks for a concise, single JSON response within the rolling chunk', () => {
   const messages = buildMessages(buildLearnerBrief(goal, new Date('2026-10-22T00:00:00.000Z')));
   const prompt = messages.map((message) => message.content).join('\\n');
   assert.match(prompt, /best Guitar coach and planner/i);
   assert.match(prompt, /40 days/i);
   assert.match(prompt, /30 minutes per day/i);
-  assert.match(prompt, /decide honestly whether the goal is viable/i);
-  assert.match(prompt, /Return only valid JSON/i);
-  assert.match(prompt, /day-by-day basis/i);
-  assert.match(prompt, /Each topic must represent one practice day/i);
+  assert.match(prompt, /exactly one valid JSON object/i);
+  assert.match(prompt, /estimatedRemainingMinutes/i);
+  assert.match(prompt, /not a viability decision/i);
+  assert.match(prompt, /next 3 study days/i);
+  assert.match(prompt, /not the entire curriculum/i);
+  assert.match(prompt, /overall goal.*not the length of this chunk/i);
+  assert.doesNotMatch(prompt, /generate the plan over 40 days/i);
   assert.doesNotMatch(prompt, /Java|Spanish|robotics|Guitar Fundamentals/i);
   assert.doesNotMatch(prompt, /five phases|exactly three sessions|worked example/i);
 });
 
-test('viable model response is passed through as the roadmap content', async () => {
+test('parses valid JSON wrapped in markdown fences or surrounding text', () => {
+  const expected = { viable: false, reason: 'Not enough time.' };
+  assert.deepEqual(parseDecision('```json\\n' + JSON.stringify(expected) + '\\n```'), expected);
+  assert.deepEqual(parseDecision('Here is the decision:\\n' + JSON.stringify(expected)), expected);
+});
+
+test('single model request returns a complete roadmap and remaining-effort estimate', async () => {
   const modelOutput = {
-    viable: true,
-    reason: 'The target is achievable with consistent practice and a realistic progression.',
     estimatedRemainingMinutes: 900,
     estimateConfidence: 'medium',
     roadmap: {
@@ -64,20 +73,24 @@ test('viable model response is passed through as the roadmap content', async () 
       }],
     },
   };
+  let calls = 0;
   let request;
   const result = await generateRoadmap(goal, {
     baseUrl: 'http://127.0.0.1:11434/v1',
     model: 'gemma4:e4b',
     now: new Date('2026-10-22T00:00:00.000Z'),
     fetchImpl: async (url, options) => {
+      calls += 1;
       request = { url, body: JSON.parse(options.body) };
       return mockResponse(modelOutput);
     },
   });
+  assert.equal(calls, 1);
   assert.equal(request.url, 'http://127.0.0.1:11434/api/chat');
   assert.equal(request.body.model, 'gemma4:e4b');
   assert.equal(request.body.format, 'json');
-  assert.equal(request.body.options.num_ctx, 16384);
+  assert.equal(request.body.options.num_ctx, Number.parseInt(process.env.AI_CONTEXT_LENGTH || '16384', 10));
+  assert.equal(request.body.options.num_predict, 3072);
   assert.equal(request.body.think, process.env.AI_REASONING_EFFORT || 'medium');
   assert.deepEqual(result.topics, modelOutput.roadmap.topics);
   assert.equal(result.title, modelOutput.roadmap.title);
@@ -86,31 +99,169 @@ test('viable model response is passed through as the roadmap content', async () 
   assert.deepEqual(result.learningBrief.modelOutput, modelOutput);
 });
 
-test('model-declared non-viability stops generation and preserves its reason', async () => {
-  await assert.rejects(
-    generateRoadmap(goal, {
-      baseUrl: 'http://127.0.0.1:11434/v1',
-      fetchImpl: async () => mockResponse({
-        viable: false,
-        reason: 'The requested outcome needs substantially more practice time than the deadline allows.',
-      }),
-    }),
-    (error) => {
-      assert.ok(error instanceof ExperimentalRoadmapGenerationError);
-      assert.equal(error.status, 422);
-      assert.equal(error.code, 'ROADMAP_NOT_VIABLE');
-      assert.match(error.message, /substantially more practice time/i);
-      return true;
+test('uses JSON-only mode for Gemma 4 and schema-constrained format for other local models', async () => {
+  let gemmaFormat;
+  await generateRoadmap(goal, {
+    model: 'gemma4:e4b',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    fetchImpl: async (_url, options) => {
+      gemmaFormat = JSON.parse(options.body).format;
+      return mockResponse({
+        estimatedRemainingMinutes: 20, estimateConfidence: 'high',
+        roadmap: { title: 'Guitar start', summary: 'Start here.', topics: [] },
+      });
     },
-  );
+  });
+  assert.equal(gemmaFormat, 'json');
+
+  let otherFormat;
+  await generateRoadmap(goal, {
+    model: 'llama3.1',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    fetchImpl: async (_url, options) => {
+      otherFormat = JSON.parse(options.body).format;
+      return mockResponse({ title: 'Guitar start', summary: 'Start here.', topics: [] });
+    },
+  });
+  assert.equal(typeof otherFormat, 'object');
+  assert.deepEqual(otherFormat.required, ['title', 'summary', 'topics']);
+  assert.equal(Object.hasOwn(otherFormat.properties, 'viable'), false);
 });
 
-test('model response without an explicit viability decision is not silently treated as viable', async () => {
+test('does not make a second request when the model returns malformed JSON', async () => {
+  let calls = 0;
   await assert.rejects(
     generateRoadmap(goal, {
       baseUrl: 'http://127.0.0.1:11434/v1',
-      fetchImpl: async () => mockResponse({ title: 'Roadmap', summary: 'No viability field', topics: [] }),
+      fetchImpl: async () => {
+        calls += 1;
+        return { ok: true, json: async () => ({ message: { content: 'Here is the plan: {"title":' } }) };
+      },
     }),
-    (error) => error.code === 'ROADMAP_MISSING_VIABILITY_DECISION',
+    (error) => error instanceof ExperimentalRoadmapGenerationError && error.code === 'ROADMAP_INVALID_MODEL_JSON',
   );
+  assert.equal(calls, 1);
+});
+
+test('does not make a second request when valid JSON omits roadmap content', async () => {
+  let calls = 0;
+  await assert.rejects(
+    generateRoadmap(goal, {
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      fetchImpl: async () => {
+        calls += 1;
+        return mockResponse({ reason: 'This goal is achievable.' });
+      },
+    }),
+    (error) => error instanceof ExperimentalRoadmapGenerationError
+      && error.code === 'ROADMAP_MISSING_CONTENT'
+      && /One model request was used/.test(error.message),
+  );
+  assert.equal(calls, 1);
+});
+
+test('roadmap generation does not require or act on a viability decision', async () => {
+  const result = await generateRoadmap(goal, {
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    fetchImpl: async () => mockResponse({
+      title: 'A realistic roadmap',
+      summary: 'A useful plan for the available time.',
+      topics: [{
+        key: 'start',
+        title: 'Start with the fundamentals',
+        description: 'Build the first useful skill.',
+        learningObjectives: ['Demonstrate the skill.'],
+        estimatedMinutes: 25,
+        prerequisiteKeys: [],
+      }],
+    }),
+  });
+  assert.equal(result.title, 'A realistic roadmap');
+  assert.equal(result.topics.length, 1);
+  assert.equal(Object.hasOwn(result.learningBrief.modelOutput, 'viable'), false);
+});
+
+test('limits generation to the requested rolling chunk and scales the output budget', async () => {
+  let requestBody;
+  const result = await generateRoadmap({ ...goal, planningDays: 2 }, {
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    fetchImpl: async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return mockResponse({
+        title: 'Next two study days',
+        summary: 'A focused chunk, not the full goal plan.',
+        topics: [{
+          key: 'first-session',
+          title: 'First session',
+          description: 'Practise one useful skill.',
+          learningObjectives: ['Demonstrate the skill.'],
+          estimatedMinutes: 25,
+          prerequisiteKeys: [],
+        }],
+      });
+    },
+  });
+  assert.equal(requestBody.options.num_predict, 3072);
+  assert.match(requestBody.messages[0].content, /next 2 study days/i);
+  assert.match(requestBody.messages[0].content, /not the entire curriculum/i);
+  assert.equal(result.topics.length, 1);
+});
+
+
+test('unrestricted initial generation removes prompt and output-token ceilings', async () => {
+  const unrestrictedGoal = { ...goal, planningDays: 3, unrestrictedGeneration: true };
+  const messages = buildMessages(buildLearnerBrief(unrestrictedGoal, new Date('2026-10-22T00:00:00.000Z')));
+  const prompt = messages.map((message) => message.content).join('\\n');
+  assert.match(prompt, /complete learning journey/i);
+  assert.match(prompt, /not a generation limit/i);
+  assert.doesNotMatch(prompt, /Generate only the next 3 study days/i);
+  assert.doesNotMatch(prompt, /at most 3 topics/i);
+
+  let localBody;
+  await generateRoadmap(unrestrictedGoal, {
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    model: 'gemma4:e4b',
+    fetchImpl: async (_url, options) => {
+      localBody = JSON.parse(options.body);
+      return mockResponse({ title: 'Full plan', summary: 'Whole journey.', topics: [
+        { key: 'one', title: 'One', description: 'Learn.', learningObjectives: ['Do it.'], estimatedMinutes: 20, prerequisiteKeys: [] },
+        { key: 'two', title: 'Two', description: 'Practise.', learningObjectives: ['Do it well.'], estimatedMinutes: 20, prerequisiteKeys: ['one'] },
+      ] });
+    },
+  });
+  assert.equal(localBody.options.num_predict, -1);
+
+  let hostedBody;
+  await generateRoadmap(unrestrictedGoal, {
+    baseUrl: 'https://example.test/v1',
+    apiKey: 'test-key',
+    model: 'test-model',
+    fetchImpl: async (_url, options) => {
+      hostedBody = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({
+        title: 'Full plan', summary: 'Whole journey.', topics: [
+          { key: 'one', title: 'One', description: 'Learn.', learningObjectives: ['Do it.'], estimatedMinutes: 20, prerequisiteKeys: [] },
+          { key: 'two', title: 'Two', description: 'Practise.', learningObjectives: ['Do it well.'], estimatedMinutes: 20, prerequisiteKeys: ['one'] },
+        ],
+      }) } }] }) };
+    },
+  });
+  assert.equal(Object.hasOwn(hostedBody, 'max_tokens'), false);
+});
+test('prompt includes prior learning and timing evidence and requires actionable session instructions', () => {
+  const priorLearningContext = JSON.stringify({
+    nextChunkNumber: 2,
+    completedActivities: [{ topic: 'Open chords', sessionFeeling: 'STUCK', learnerReflection: 'Switching is slow.' }],
+  });
+  const timeCalibrationContext = JSON.stringify({ sampleCount: 3, observedPattern: 'actual time is typically about 20% longer than estimated' });
+  const brief = buildLearnerBrief({ ...goal, chunkNumber: 2, priorLearningContext, timeCalibrationContext });
+  const prompt = buildMessages(brief).map((message) => message.content).join('\\n');
+  assert.equal(brief.chunkNumber, 2);
+  assert.equal(brief.priorLearningContext, priorLearningContext);
+  assert.equal(brief.timeCalibrationContext, timeCalibrationContext);
+  assert.match(prompt, /Switching is slow/);
+  assert.match(prompt, /actual time is typically about 20% longer/i);
+  assert.match(prompt, /concrete session/i);
+  assert.match(prompt, /observable and testable/i);
+  assert.match(prompt, /Do not restart the course/i);
 });
