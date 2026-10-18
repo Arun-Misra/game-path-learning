@@ -671,3 +671,92 @@ test('assessment retake refreshes topic mastery and the next recommendation', as
   await expect(page.getByText('Demonstrated understanding', { exact: true }).first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440);
 });
+test('Generate learning plan skips clarification questions and displays the saved AI roadmap', async ({ page }) => {
+  const goal = {
+    id: 'goal-gen',
+    skill: 'Guitar',
+    experience: 'beginner',
+    outcome: 'Play songs with clean chord changes',
+    minutesPerDay: 30,
+    daysPerWeek: 5,
+    targetDate: '2026-12-01',
+    status: 'active',
+  };
+  let questionEndpointCalled = false;
+  let generationRequestBody;
+  const roadmap = {
+    id: 'roadmap-generated',
+    version: 1,
+    title: 'Guitar day-by-day plan',
+    summary: 'Build and combine the skills needed to play songs.',
+    generationState: 'DRAFT',
+    learningBrief: {
+      chunkNumber: 1,
+      planningDays: 3,
+      estimatedRemainingMinutes: 480,
+      estimateConfidence: 'medium',
+    },
+    topics: [
+      {
+        id: 'topic-guitar-day-1',
+        title: 'Day 1: Tune up and learn two chords',
+        description: 'Tune the guitar and practise two open chords.',
+        learningObjectives: ['Tune each string', 'Play both chords cleanly'],
+        estimatedMinutes: 30,
+        position: 0,
+        prerequisites: [],
+      },
+      {
+        id: 'topic-guitar-day-2',
+        title: 'Day 2: Recall both chords and add a third',
+        description: 'Recall yesterday’s chords, practise changing between them, and add one new chord.',
+        learningObjectives: ['Recall yesterday’s chords', 'Change between three chords'],
+        estimatedMinutes: 30,
+        position: 1,
+        prerequisites: [],
+      },
+    ],
+  };
+
+  await page.route('**/api/v1/ready', (route) => route.fulfill({ json: { data: { ready: true } } }));
+  await page.route('**/api/v1/auth/me', (route) => route.fulfill({
+    json: { data: { user: { id: 'user-gen', name: 'Learner', email: 'learner@example.com' } } },
+  }));
+  await page.route('**/api/v1/learning-goals', (route) => route.fulfill({ json: { data: { goals: [goal] } } }));
+  await page.route(/\/api\/v1\/learning-goals\/goal-gen\/roadmaps(?:\\?.*)?$/, (route) => route.fulfill({
+    json: { data: { roadmaps: [] } },
+  }));
+  await page.route(/\/api\/v1\/learning-goals\/goal-gen\/roadmaps\/questions(?:\\?.*)?$/, async (route) => {
+    questionEndpointCalled = true;
+    await route.fulfill({ json: { data: { questions: [{ key: 'extra', question: 'Extra question?', options: ['A'] }] } } });
+  });
+  await page.route(/\/api\/v1\/learning-goals\/goal-gen\/roadmaps\/generate(?:\\?.*)?$/, async (route) => {
+    generationRequestBody = route.request().postDataJSON();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await route.fulfill({ status: 201, json: { data: { roadmap } } });
+  });
+  await page.route('**/api/v1/learning-goals/goal-gen/next-step**', (route) => route.fulfill({
+    json: { data: { recommendation: { action: 'CREATE_ROADMAP', title: 'Build your path', reason: 'Start with a roadmap.' } } },
+  }));
+  await page.route('**/api/v1/learning-goals/goal-gen/missions**', (route) => route.fulfill({ json: { data: { missions: [], totalXp: 0 } } }));
+  await page.route(/\/api\/v1\/learning-goals\/goal-gen\/missions\/recovery(?:\\?.*)?$/, (route) => route.fulfill({
+    json: { data: { roadmapId: null, missedCount: 0, missedMissions: [], currentWeekMissions: [], hasCurrentPlan: false, canReplan: false, timeZone: 'UTC', weekStartsOn: '2026-10-21' } },
+  }));
+  await page.route('**/api/v1/learning-goals/goal-gen/project-milestones', (route) => route.fulfill({
+    json: { data: { roadmapId: null, deliverable: null, milestones: [] } },
+  }));
+  await page.route('**/api/v1/gamification**', (route) => route.fulfill({
+    json: { data: { level: { level: 1 }, streak: { current: 0 }, totalXp: 0, achievements: [] } },
+  }));
+
+  await page.goto('/');
+  const goalCard = page.getByRole('article').filter({ hasText: 'Guitar' });
+  await goalCard.getByRole('button', { name: 'Generate learning plan' }).click();
+  await expect(goalCard.getByRole('status')).toContainText('Building your learning plan');
+  await expect(goalCard.getByText('Guitar day-by-day plan')).toBeVisible();
+  await expect(goalCard.getByText('Day 1: Tune up and learn two chords')).toBeVisible();
+  await expect(goalCard.getByText('Day 2: Recall both chords and add a third')).toBeVisible();
+  expect(questionEndpointCalled).toBe(false);
+  expect(generationRequestBody).toEqual({ planningDays: 3 });
+  await expect(goalCard.getByRole('button', { name: 'Generate learning plan' })).toBeEnabled();
+});

@@ -35,11 +35,7 @@ function App() {
   const [roadmapsByGoal, setRoadmapsByGoal] = useState({});
   const [learningBriefConfirmedByRoadmap, setLearningBriefConfirmedByRoadmap] = useState({});
   const [clarificationByRoadmap, setClarificationByRoadmap] = useState({});
-  const [planningByGoal, setPlanningByGoal] = useState({});
-  const [answersByGoal, setAnswersByGoal] = useState({});
-  const [clarificationByGoal, setClarificationByGoal] = useState({});
-  const [questionsByGoal, setQuestionsByGoal] = useState({});
-  const [questionFormGoal, setQuestionFormGoal] = useState(null);
+  const [generatingGoalId, setGeneratingGoalId] = useState(null);
   const [roadmapBusyGoal, setRoadmapBusyGoal] = useState(null);
   const [missionsByGoal, setMissionsByGoal] = useState({});
   const [recoveryByGoal, setRecoveryByGoal] = useState({});
@@ -305,35 +301,38 @@ function App() {
   }
 
   async function handleGenerateRoadmap(goal) {
-    setQuestionFormGoal(goal.id); setNotice(null);
-    try {
-      const result = await requestJson('/api/v1/learning-goals/' + goal.id + '/roadmaps/questions', { method: 'POST', body: JSON.stringify({}) });
-      const questions = result.data.questions || [];
-      setPlanningByGoal((current) => ({ ...current, [goal.id]: current[goal.id] || 3 }));
-      setAnswersByGoal((current) => ({ ...current, [goal.id]: current[goal.id] || {} }));
-      setQuestionsByGoal((current) => ({ ...current, [goal.id]: questions }));
-      setNotice({ type: 'success', message: questions.length ? 'Answer these questions to personalise the next chunk.' : 'No extra questions are needed. Generate your learning chunk below.' });
-    } catch (error) { setQuestionFormGoal(null); setNotice({ type: 'error', message: error.message }); }
-  }
-
-  async function handleGenerateChunk(goal) {
-    const answerState = answersByGoal[goal.id] || {};
-    const questions = questionsByGoal[goal.id] || [];
-    const answers = questions.map((question) => ({ question: question.question, answer: answerState[question.key] || '' }));
-    if (answers.some((item) => !item.answer)) {
-      setNotice({ type: 'error', message: 'Answer both questions before generating the chunk.' });
-      return;
-    }
-    setRoadmapBusyGoal(goal.id); setNotice(null);
+    setRoadmapBusyGoal(goal.id);
+    setGeneratingGoalId(goal.id);
+    setNotice({ type: 'success', message: `Pathwise is building your personalised day-by-day ${goal.skill} plan. This can take a little while; keep this page open.` });
     try {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-      const result = await requestJson('/api/v1/learning-goals/' + goal.id + '/roadmaps/generate?timeZone=' + encodeURIComponent(timeZone), { method: 'POST', body: JSON.stringify({ planningDays: planningByGoal[goal.id] || 3, answers, clarifications: clarificationByGoal[goal.id] || '' }) });
-      setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [result.data.roadmap.id]: false }));
-      setRoadmapsByGoal((current) => ({ ...current, [goal.id]: [result.data.roadmap, ...(current[goal.id] || [])] }));
-      setQuestionFormGoal(null);
-      setNotice({ type: 'success', message: 'Your next learning chunk is ready. Review its activities and time budget before activating it.' });
-    } catch (error) { setNotice({ type: 'error', message: error.message }); }
-    finally { setRoadmapBusyGoal(null); }
+      const result = await requestJson(
+        '/api/v1/learning-goals/' + goal.id + '/roadmaps/generate?timeZone=' + encodeURIComponent(timeZone),
+        { method: 'POST', body: JSON.stringify({ planningDays: 3 }) },
+      );
+      let roadmap = result?.data?.roadmap;
+      if (!roadmap?.id) {
+        throw new Error('Generation finished, but the server did not return a saved roadmap. Please try again.');
+      }
+      if (!Array.isArray(roadmap.topics) || roadmap.topics.length === 0) {
+        const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps?timeZone=${encodeURIComponent(timeZone)}`);
+        roadmap = (saved.data.roadmaps || []).find((item) => item.id === roadmap.id);
+        if (!roadmap?.topics?.length) {
+          throw new Error('The roadmap was created but could not be loaded for display. Refresh the page and check your saved roadmaps.');
+        }
+      }
+      setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [roadmap.id]: false }));
+      setRoadmapsByGoal((current) => ({
+        ...current,
+        [goal.id]: [roadmap, ...(current[goal.id] || []).filter((item) => item.id !== roadmap.id)],
+      }));
+      setNotice({ type: 'success', message: 'Your day-by-day learning plan is ready. It is saved below as a draft; review it before activating it.' });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setGeneratingGoalId(null);
+      setRoadmapBusyGoal(null);
+    }
   }
 
   async function handleRegenerateRoadmapWithClarification(goal, roadmap) {
@@ -922,7 +921,7 @@ function App() {
 </div>
 <div className="flex flex-wrap gap-2">
 <button type="button" onClick={() => handleDeleteGoal(goal)} disabled={roadmapBusyGoal !== null || apiStatus !== 'online'} className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">{roadmapBusyGoal === goal.id ? 'Working…' : 'Delete goal'}</button>
-<button type="button" onClick={() => handleGenerateRoadmap(goal)} disabled={roadmapBusyGoal !== null || apiStatus !== 'online'} className="rounded-xl bg-[#263f32] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{questionFormGoal === goal.id ? 'Questions open below' : 'Plan next learning chunk'}</button>
+<button type="button" onClick={() => handleGenerateRoadmap(goal)} disabled={roadmapBusyGoal !== null || apiStatus !== 'online'} className="rounded-xl bg-[#263f32] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{generatingGoalId === goal.id ? 'Generating your plan…' : 'Generate learning plan'}</button>
 {(roadmapsByGoal[goal.id] || []).some((item) => item.generationState === 'ACTIVE') && <button type="button" onClick={() => handleGenerateMissions(goal)} disabled={missionBusyId !== null || apiStatus !== 'online'} className="rounded-xl border border-[#b9cbb2] px-3 py-2 text-xs font-semibold text-[#355a39] disabled:opacity-50">{missionBusyId === goal.id ? 'Scheduling…' : 'Plan this week'}</button>}
 {masterySummaryByGoal[goal.id]?.needsPracticeCount > 0
   && (missionsByGoal[goal.id]?.missions || []).some((mission) => mission.status === 'SCHEDULED')
@@ -931,12 +930,7 @@ function App() {
 </div>
 
 </div>
-{questionFormGoal === goal.id && <div className="mt-4 rounded-2xl border border-[#dfe7d9] bg-[#fbfcf8] p-4">
-<p className="font-semibold">Personalise your next learning chunk</p><p className="mt-1 text-xs leading-5 text-[#737b70]">Plan only a short period. The next chunk will adapt to your progress.</p>
-<p className="mt-2 text-xs leading-5 text-[#737b70]">Pathwise generates the first 3 days, then keeps the next 1–2 days ready as you complete sessions. Your target timeline is saved with this goal.</p>
-{(questionsByGoal[goal.id] || []).map((question) => <Field key={question.key} label={question.question}><p className="mt-1 text-xs text-[#737b70]">{question.reason}</p><select className="field mt-2" value={(answersByGoal[goal.id] || {})[question.key] || ""} onChange={(event) => setAnswersByGoal((current) => ({ ...current, [goal.id]: { ...(current[goal.id] || {}), [question.key]: event.target.value } }))}><option value="">Choose…</option>{question.options.map((option) => <option key={option} value={option}>{option}</option>)}</select></Field>)}
-<Field label="Anything else Pathwise should know?"><textarea className="field mt-2" rows={2} maxLength={1200} value={clarificationByGoal[goal.id] || ""} onChange={(event) => setClarificationByGoal((current) => ({ ...current, [goal.id]: event.target.value }))} placeholder="Optional: paste a trusted tutorial or chord chart link, mention tools you have, or explain a constraint." /></Field>
-<div className="mt-3 flex gap-2"><button type="button" onClick={() => handleGenerateChunk(goal)} disabled={roadmapBusyGoal !== null} className="rounded-xl bg-[#263f32] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{roadmapBusyGoal === goal.id ? "Generating chunk…" : "Generate this chunk"}</button><button type="button" onClick={() => setQuestionFormGoal(null)} className="rounded-xl border border-[#dfe7d9] px-4 py-2 text-xs font-semibold">Cancel</button></div></div>}
+{generatingGoalId === goal.id && <div role="status" aria-live="polite" className="mt-4 flex items-start gap-3 rounded-xl border border-[#41413d] bg-[#191918] p-4 text-sm text-[#d1d1cd]"><span className="mt-0.5 inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#777773] border-t-[#ff5933]" aria-hidden="true" /><span><strong className="block text-[#f2f2f0]">Building your learning plan</strong><span className="mt-1 block text-xs leading-5 text-[#a3a39f]">The AI is organising practice day by day. Your saved roadmap will appear here automatically when generation finishes.</span></span></div>}
 {(roadmapsByGoal[goal.id] || []).map((roadmap) => <div key={roadmap.id} className="roadmap-card mt-4 rounded-xl bg-[#f7f8f4] p-4">
 <div className="flex flex-wrap items-start justify-between gap-2">
 <div>

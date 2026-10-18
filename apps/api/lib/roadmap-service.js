@@ -1,6 +1,7 @@
 const { prisma } = require('./prisma');
 const { validateRoadmap } = require('./roadmap-validation');
-const { generateRoadmap, generateClarifyingQuestions } = require('./roadmap-generator');
+const { generateRoadmap } = require('./roadmap-generator-experimental');
+const { generateClarifyingQuestions } = require('./roadmap-generator');
 const { addDays, dateInTimeZone, sessionDayIndexes } = require('./mission-scheduler');
 
 const rollingGenerationLocks = new Set();
