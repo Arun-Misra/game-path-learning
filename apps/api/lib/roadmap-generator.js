@@ -278,21 +278,76 @@ function guardUnverifiedSongDetails(proposal, goal) {
   const profile = String((goal.title || '') + ' ' + (goal.targetOutcome || '')).toLowerCase();
   const isNamedSongGoal = /guitar/.test(profile) && /(song|play|perform|record|arrangement)/.test(profile);
   const learnerMaterial = String((goal.originalDescription || '') + ' ' + (goal.learnerClarifications || ''));
-  const hasReference = /(https?:|youtube|tutorial|chord chart|tablature|\\btabs?\\b|provided reference|source link)/i.test(learnerMaterial);
+  const hasReference = /(https?:|youtube|tutorial|chord chart|tablature|\btabs?\b|provided reference|source link)/i.test(learnerMaterial);
   if (!isNamedSongGoal || hasReference) return proposal;
-  let replacedReferenceTask = false;
-  const topics = proposal.topics.map((topic) => {
-    const text = String((topic.title || '') + ' ' + (topic.description || ''));
+
+  // Do not invent song-specific chords or rhythm. Keep the learning progression useful
+  // while the learner finds a reliable arrangement: reference + first chord, second
+  // chord + transition, then rhythm/transfer using only verified song details.
+  let guardedTopicIndex = 0;
+  const safeProgression = [
+    {
+      title: 'Find a trusted song reference and learn one open chord',
+      description: 'Choose a trusted tutorial or chord chart for the exact arrangement you want to play. While checking the reference, learn one beginner-friendly open chord (for example, G major), check each string for a clear sound, and note which chord names the source confirms. Do not assume this is the song’s first chord unless the source confirms it.',
+      learningObjectives: ['Choose a trusted reference for the intended arrangement.', 'Form one beginner-friendly open chord and sound its strings clearly.', 'Record the chord names confirmed by the reference.'],
+    },
+    {
+      title: 'Learn a second open chord and practise the change',
+      description: 'Learn a second beginner-friendly open chord, then alternate slowly between the two shapes. Keep the fingers close to the strings, pause to correct buzzing, and prioritise a clean change over speed. Treat these as foundational practice chords until the chosen song reference confirms its progression.',
+      learningObjectives: ['Form two beginner-friendly open chords with clear notes.', 'Complete ten slow changes between the two chords with deliberate finger placement.', 'Identify which part of the change causes the most delay or buzzing.'],
+    },
+    {
+      title: 'Build a steady strumming pulse and apply verified song details',
+      description: 'Keep a steady, comfortable 4/4 down-strum on the two practice chords, then use the chord order and rhythm only if they are confirmed by the chosen reference. If the reference is not ready, record a short practice attempt on the two chords and continue checking the source rather than guessing the song arrangement.',
+      learningObjectives: ['Maintain a steady down-strum for 60 seconds without losing the pulse.', 'Change between the two practice chords without stopping the rhythm.', 'Use only source-confirmed chord order or rhythm when attempting the named song.'],
+    },
+  ];
+  let topics = proposal.topics.map((topic, topicIndex) => {
+    const text = String((topic.title || '') + ' ' + String(topic.description || ''));
     const mentionsSong = /\b(song|arrangement)\b/i.test(text);
     const mentionsArrangementDetail = /\b(chord|progression|strumming|rhythm|phrase|riff|tablature|tabs?|melody|key)\b/i.test(text);
     const namesUnverifiedSongDetail = mentionsSong && mentionsArrangementDetail;
-    if (!namesUnverifiedSongDetail && !/(chord sequence|chord progression|known chord progression|exact chords|song.?specific rhythm|strumming pattern associated with (the )?song)/i.test(text)) return topic;
-    if (!replacedReferenceTask) {
-      replacedReferenceTask = true;
-      return { ...topic, title: 'Find and verify a trusted song reference', description: 'Choose a trusted tutorial or chord chart for the exact arrangement you want to play. Record the chord names and rhythm instructions from that source; do not assume song-specific details before checking the reference.', learningObjectives: ['Choose a trusted reference for the intended arrangement.', 'Record the chord and rhythm information from the reference without guessing.'] };
+    const needsGuard = namesUnverifiedSongDetail || /(chord sequence|chord progression|known chord progression|exact chords|song.?specific rhythm|strumming pattern associated with (the )?song)/i.test(text);
+    if (!needsGuard) return topic;
+    const earlierPractice = proposal.topics.slice(0, topicIndex).some((earlier) => /\bchord\b/i.test(String(earlier.title || '') + ' ' + String(earlier.description || '')));
+    let safe;
+    if (guardedTopicIndex === 0 && earlierPractice) {
+      safe = {
+        title: 'Find a trusted song reference and connect it to your current practice',
+        description: 'Choose a trusted tutorial or chord chart for the exact arrangement you want to play. Compare its confirmed chord names and rhythm instructions with the chords and strumming you have already practised. Note what matches and what needs to change; do not guess any song-specific details.',
+        learningObjectives: ['Choose a trusted reference for the intended arrangement.', 'Identify the chord names and rhythm confirmed by the source.', 'Compare the source with current practice and note the next useful adjustment.'],
+      };
+    } else {
+      safe = safeProgression[Math.min(guardedTopicIndex, safeProgression.length - 1)];
     }
-    return { ...topic, title: 'Practise general chord and rhythm control', description: 'Practise the chord shapes already introduced and maintain a steady, comfortable strumming pulse. Use only chord names and song-specific rhythm instructions confirmed by your chosen reference.', learningObjectives: ['Form the currently assigned chords clearly.', 'Maintain a steady pulse without assuming an unverified song progression.'] };
+    guardedTopicIndex += 1;
+    return { ...topic, ...safe };
   });
+
+  // The model can avoid song-specific claims so completely that it forgets the goal.
+  // Even then, the learner needs a concrete route from general practice to the named song.
+  if (!topics.some((topic) => /trusted song reference/i.test(String(topic.title || '')))) {
+    const lastIndex = topics.length - 1;
+    const earlierChordPractice = topics.slice(0, lastIndex).some((topic) => /\bchord\b/i.test(String(topic.title || '') + ' ' + String(topic.description || '')));
+    const bridge = earlierChordPractice
+      ? {
+          title: 'Find a trusted song reference and connect it to your current practice',
+          description: 'Choose a trusted tutorial or chord chart for the exact arrangement you want to play. Compare its confirmed chord names and rhythm instructions with the chords and strumming you have already practised. Note what matches and what needs to change; do not guess any song-specific details.',
+          learningObjectives: ['Choose a trusted reference for the intended arrangement.', 'Identify the chord names and rhythm confirmed by the source.', 'Compare the source with current practice and note the next useful adjustment.'],
+        }
+      : safeProgression[0];
+    topics = topics.map((topic, index) => index === lastIndex ? { ...topic, ...bridge } : topic);
+  }
+
+  // A transition lesson must not assume a second chord that the chunk never teaches.
+  if (
+    topics.length > 1
+    && /trusted song reference and learn one open chord/i.test(String(topics[0].title || ''))
+    && /\b(transitions?|chang(?:e|ing) between|switch(?:ing)? between)\b/i.test(String(topics[1].title || '') + ' ' + String(topics[1].description || ''))
+    && !/\b(second chord|introduc(?:e|ing) a second|learn(?:ing)? two chords)\b/i.test(String(topics[1].title || '') + ' ' + String(topics[1].description || ''))
+  ) {
+    topics[1] = { ...topics[1], ...safeProgression[1] };
+  }
   return { ...proposal, topics };
 }
 

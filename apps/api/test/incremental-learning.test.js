@@ -183,9 +183,11 @@ test('unverified song-specific details are replaced until a trusted reference is
     targetOutcome: 'Play a named song from beginning to end',
     learnerClarifications: 'Beginner with acoustic guitar; no reference yet.',
   });
-  assert.equal(guarded.topics[0].title, 'Find and verify a trusted song reference');
+  assert.equal(guarded.topics[0].title, 'Find a trusted song reference and learn one open chord');
   assert.doesNotMatch(guarded.topics[1].description, /C G Am F|song progression/i);
-  assert.equal(guarded.topics[2].title, 'Practise general chord and rhythm control');
+  assert.equal(guarded.topics[1].title, 'Learn a second open chord and practise the change');
+  assert.equal(guarded.topics[2].title, 'Build a steady strumming pulse and apply verified song details');
+  assert.equal(guarded.topics[3].title, 'Build a steady strumming pulse and apply verified song details');
   assert.doesNotMatch(guarded.topics[3].description, /musical phrase from the song/i);
   const referenced = guardUnverifiedSongDetails(proposal, {
     title: 'Guitar',
@@ -193,6 +195,30 @@ test('unverified song-specific details are replaced until a trusted reference is
     learnerClarifications: 'Follow this trusted tutorial: https://example.test/tutorial',
   });
   assert.equal(referenced.topics[0].title, 'Identify song chords');
+  const genericOnly = guardUnverifiedSongDetails({
+    topics: [
+      { key: 'setup', title: 'Tuning and posture', description: 'Tune the guitar and practise posture.' },
+      { key: 'first-chord', title: 'Master the Em chord', description: 'Form Em and check each string.' },
+      { key: 'second-chord', title: 'Learn C major', description: 'Practise the C major chord shape.' },
+    ],
+  }, {
+    title: 'Guitar',
+    targetOutcome: 'Play a named song from beginning to end',
+    learnerClarifications: 'Beginner with acoustic guitar; no reference yet.',
+  });
+  assert.match(genericOnly.topics[2].title, /trusted song reference/i);
+  const missingSecondChord = guardUnverifiedSongDetails({
+    topics: [
+      { key: 'first', title: 'Find a trusted song reference and learn one open chord', description: 'Choose a reference and practise one chord.' },
+      { key: 'transition', title: 'Smooth chord transitions', description: 'Practise changing between the two chords.' },
+      { key: 'rhythm', title: 'Steady strumming', description: 'Keep a steady rhythm while changing chords.' },
+    ],
+  }, {
+    title: 'Guitar',
+    targetOutcome: 'Play a named song from beginning to end',
+    learnerClarifications: 'Beginner with acoustic guitar; no reference yet.',
+  });
+  assert.match(missingSecondChord.topics[1].title, /second open chord/i);
 });
 
 test('rolling generation does not call the model when three upcoming study days are already scheduled', async () => {
