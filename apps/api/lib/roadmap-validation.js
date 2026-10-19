@@ -19,7 +19,7 @@ const roadmapTopicSchema = z.object({
 const roadmapSchema = z.object({
   title: z.string().trim().min(1).max(160),
   summary: z.string().trim().min(1).max(3000),
-  topics: z.array(roadmapTopicSchema).min(2).max(40),
+  topics: z.array(roadmapTopicSchema).min(2),
 });
 
 function validatePrerequisiteGraph(topics) {

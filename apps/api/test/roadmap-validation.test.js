@@ -90,3 +90,10 @@ test('supports skill-agnostic objectives and bounded topic durations', () => {
   ]));
   assert.equal(invalid.success, false);
 });
+
+test('accepts a complete roadmap with more than forty sessions', () => {
+  const topics = Array.from({ length: 45 }, (_, index) => topic(`session-${index + 1}`, index === 0 ? [] : [`session-${index}`]));
+  const result = validateRoadmap(roadmap(topics));
+  assert.equal(result.success, true);
+  assert.equal(result.data.topics.length, 45);
+});
