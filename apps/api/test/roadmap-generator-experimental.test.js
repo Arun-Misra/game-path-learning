@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   buildLearnerBrief,
   buildMessages,
+  fitTopicsToChunk,
   parseDecision,
   generateRoadmap,
   ExperimentalRoadmapGenerationError,
@@ -89,14 +90,15 @@ test('single model request returns a complete roadmap and remaining-effort estim
   assert.equal(request.url, 'http://127.0.0.1:11434/api/chat');
   assert.equal(request.body.model, 'gemma4:e4b');
   assert.equal(request.body.format, 'json');
-  assert.equal(request.body.options.num_ctx, Number.parseInt(process.env.AI_CONTEXT_LENGTH || '16384', 10));
+  assert.equal(request.body.options.num_ctx, Math.max(4096, Math.min(32768, Number.parseInt(process.env.AI_CONTEXT_LENGTH || '16384', 10))));
   assert.equal(request.body.options.num_predict, 3072);
   assert.equal(request.body.think, process.env.AI_REASONING_EFFORT || 'medium');
   assert.deepEqual(result.topics, modelOutput.roadmap.topics);
-  assert.equal(result.title, modelOutput.roadmap.title);
+  assert.equal(result.title, 'First chunk · ' + modelOutput.roadmap.title);
   assert.equal(result.summary, modelOutput.roadmap.summary);
   assert.equal(result.estimatedRemainingMinutes, 900);
-  assert.deepEqual(result.learningBrief.modelOutput, modelOutput);
+  assert.equal(result.learningBrief.modelOutput.roadmap.title, result.title);
+  assert.deepEqual(result.learningBrief.modelOutput.roadmap.topics, result.topics);
 });
 
 test('uses JSON-only mode for Gemma 4 and schema-constrained format for other local models', async () => {
@@ -176,7 +178,7 @@ test('roadmap generation does not require or act on a viability decision', async
       }],
     }),
   });
-  assert.equal(result.title, 'A realistic roadmap');
+  assert.equal(result.title, 'First chunk · A realistic roadmap');
   assert.equal(result.topics.length, 1);
   assert.equal(Object.hasOwn(result.learningBrief.modelOutput, 'viable'), false);
 });
@@ -264,4 +266,66 @@ test('prompt includes prior learning and timing evidence and requires actionable
   assert.match(prompt, /concrete session/i);
   assert.match(prompt, /observable and testable/i);
   assert.match(prompt, /Do not restart the course/i);
+});
+
+test('initial chunk generation keeps session count and minutes inside the same study-day budget', async () => {
+  const chunkGoal = { ...goal, planningDays: 3, daysPerWeek: 7 };
+  const modelTopics = [
+    { key: 'tune', title: 'Tune and hold the guitar', description: 'Tune the guitar and check each string.', learningObjectives: ['Tune each string accurately.'], estimatedMinutes: 20, prerequisiteKeys: [] },
+    { key: 'em', title: 'Form E minor cleanly', description: 'Form Em and pluck each string.', learningObjectives: ['Play a clean Em chord.'], estimatedMinutes: 25, prerequisiteKeys: ['tune'] },
+    { key: 'c', title: 'Form C major cleanly', description: 'Form C and check each string.', learningObjectives: ['Play a clean C chord.'], estimatedMinutes: 25, prerequisiteKeys: ['em'] },
+    { key: 'transition', title: 'Change between chords', description: 'Practise Em to C.', learningObjectives: ['Change chords cleanly.'], estimatedMinutes: 25, prerequisiteKeys: ['c'] },
+    { key: 'song', title: 'Apply the chord changes', description: 'Play a short progression.', learningObjectives: ['Play the progression.'], estimatedMinutes: 25, prerequisiteKeys: ['transition'] },
+  ];
+  const result = await generateRoadmap(chunkGoal, {
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    model: 'gemma4:e4b',
+    fetchImpl: async () => mockResponse({
+      title: '30-Day Beginner Guitar Song Playbook',
+      summary: 'A full 30-day plan for beginner guitar.',
+      estimatedRemainingMinutes: 750,
+      estimateConfidence: 'low',
+      topics: modelTopics,
+    }),
+  });
+  assert.equal(result.topics.length, 3);
+  assert.equal(result.topics.reduce((sum, item) => sum + item.estimatedMinutes, 0), 70);
+  assert.ok(result.topics.every((item) => item.estimatedMinutes <= 30));
+  assert.deepEqual(result.topics.map((item) => item.key), ['tune', 'em', 'c']);
+  assert.deepEqual(result.topics[2].prerequisiteKeys, ['em']);
+  assert.match(result.title, /^First chunk/i);
+  assert.doesNotMatch(result.title, /30-Day/i);
+  assert.match(result.summary, /^This chunk/i);
+  assert.doesNotMatch(result.summary, /30-day plan/i);
+  assert.equal(result.estimatedRemainingMinutes, 750);
+  assert.equal(result.learningBrief.modelOutput.topics.length, 3);
+});
+
+test('chunk generation rejects estimates that cannot fit two complete sessions into the budget', async () => {
+  await assert.rejects(
+    generateRoadmap({ ...goal, planningDays: 3, daysPerWeek: 7 }, {
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      fetchImpl: async () => mockResponse({
+        title: 'Guitar chunk',
+        summary: 'Start playing.',
+        topics: [
+          { key: 'long', title: 'Too long', description: 'Too long for a day.', learningObjectives: ['Play it.'], estimatedMinutes: 31, prerequisiteKeys: [] },
+          { key: 'next', title: 'Next', description: 'Continue.', learningObjectives: ['Do it.'], estimatedMinutes: 20, prerequisiteKeys: ['long'] },
+        ],
+      }),
+    }),
+    (error) => error instanceof ExperimentalRoadmapGenerationError && error.code === 'ROADMAP_CHUNK_BUDGET_INVALID',
+  );
+});
+
+test('chunk topic fitting uses the requested number of study days, not a calendar-day conversion', () => {
+  const topics = [
+    { key: 'one', estimatedMinutes: 30, prerequisiteKeys: [] },
+    { key: 'two', estimatedMinutes: 30, prerequisiteKeys: ['one'] },
+    { key: 'three', estimatedMinutes: 30, prerequisiteKeys: ['two'] },
+    { key: 'four', estimatedMinutes: 30, prerequisiteKeys: ['three'] },
+  ];
+  const fitted = fitTopicsToChunk(topics, buildLearnerBrief({ ...goal, planningDays: 3, daysPerWeek: 5 }));
+  assert.equal(fitted.length, 3);
+  assert.equal(fitted.reduce((sum, topic) => sum + topic.estimatedMinutes, 0), 90);
 });

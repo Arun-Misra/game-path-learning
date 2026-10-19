@@ -9,7 +9,7 @@ test('deadline outlook explains feasible, over-capacity, and passed-deadline goa
 
   const outlooks = {
     'goal-on-track': { status: 'ON_TRACK', targetDate: '2026-11-20', estimatedRemainingMinutes: 60, estimateConfidence: 'high', availableMinutes: 240, availableStudyDays: 10, recommendation: 'The current estimate fits within the available study time. Recheck after each chunk because estimates and pace can change.' },
-    'goal-over-capacity': { status: 'OVER_CAPACITY', targetDate: '2026-10-24', estimatedRemainingMinutes: 500, estimateConfidence: 'low', availableMinutes: 48, availableStudyDays: 2, recommendation: 'The estimate is 452 minutes over buffered capacity. To keep the deadline, plan about 250 minutes per study day (226 extra minutes/day above your buffered plan); otherwise, extend by approximately 19 study days (~27 calendar days) or reduce the outcome scope.' },
+    'goal-over-capacity': { status: 'OVER_CAPACITY', targetDate: '2026-10-24', estimatedRemainingMinutes: 500, estimateConfidence: 'low', availableMinutes: 48, availableStudyDays: 2, recommendation: 'The estimate is 452 minutes over available capacity. To keep the deadline, plan about 250 minutes per study day (226 extra minutes/day above your current daily limit); otherwise, extend by approximately 19 study days (~27 calendar days) or reduce the outcome scope.' },
     'goal-deadline-passed': { status: 'DEADLINE_PASSED', targetDate: '2026-10-20', estimatedRemainingMinutes: 90, estimateConfidence: 'medium', availableMinutes: 0, availableStudyDays: 0, recommendation: 'The target date has passed. Choose a new date or reduce the goal scope.' },
   };
   const roadmaps = Object.fromEntries(goals.map((goal) => [goal.id, {
@@ -46,10 +46,16 @@ test('deadline outlook explains feasible, over-capacity, and passed-deadline goa
   const javaCard = page.getByRole('article').filter({ hasText: 'Java learning path' });
   const mlCard = page.getByRole('article').filter({ hasText: 'Machine Learning learning path' });
   const networkingCard = page.getByRole('article').filter({ hasText: 'Networking learning path' });
+  await javaCard.getByRole('button', { name: 'View goal' }).click();
+  await mlCard.getByRole('button', { name: 'View goal' }).click();
+  await networkingCard.getByRole('button', { name: 'View goal' }).click();
+  await javaCard.getByRole('button', { name: 'Open plan' }).click();
+  await mlCard.getByRole('button', { name: 'Open plan' }).click();
+  await networkingCard.getByRole('button', { name: 'Open plan' }).click();
   await expect(javaCard.getByText(/Deadline outlook: on track/i)).toBeVisible();
-  await expect(javaCard.getByText(/60 min \(high confidence\); buffered capacity: 240 min across 10 study days/i)).toBeVisible();
+  await expect(javaCard.getByText(/60 min \(high confidence\); available capacity: 240 min across 10 study days/i)).toBeVisible();
   await expect(mlCard.getByText(/Deadline outlook: over capacity/i)).toBeVisible();
-  await expect(mlCard.getByText(/452 minutes over buffered capacity/i)).toBeVisible();
+  await expect(mlCard.getByText(/452 minutes over available capacity/i)).toBeVisible();
   await expect(mlCard.getByText(/250 minutes per study day/i)).toBeVisible();
   await expect(mlCard.getByText(/reduce the outcome scope/i)).toBeVisible();
   await expect(networkingCard.getByText(/Deadline outlook: deadline passed/i)).toBeVisible();

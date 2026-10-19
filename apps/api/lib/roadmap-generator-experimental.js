@@ -76,10 +76,43 @@ function buildLearnerBrief(goal, now = new Date()) {
     additionalContext: typeof goal.learnerClarifications === 'string' && goal.learnerClarifications.trim() ? goal.learnerClarifications.trim() : undefined,
   };
 }
+
+// A generated chunk must fit the same budget that the scheduler and UI display.
+// Keep the earliest coherent sequence; never shrink individual estimates to make it fit.
+function fitTopicsToChunk(topics, learner) {
+  if (learner.unrestrictedGeneration) return topics;
+  const dailyMinutes = Math.floor(learner.minutesPerDay);
+  const practiceDays = learner.planningDays;
+  const chunkBudgetMinutes = dailyMinutes * practiceDays;
+  let totalMinutes = 0;
+  const selected = [];
+  for (const topic of topics) {
+    const minutes = topic?.estimatedMinutes;
+    if (!Number.isInteger(minutes) || minutes < 5 || minutes > dailyMinutes) break;
+    if (totalMinutes + minutes > chunkBudgetMinutes) break;
+    selected.push(topic);
+    totalMinutes += minutes;
+  }
+  if (selected.length < 2 && topics.length >= 2) {
+    throw new ExperimentalRoadmapGenerationError(
+      502,
+      'ROADMAP_CHUNK_BUDGET_INVALID',
+      `The model did not produce at least two complete sessions within the ${chunkBudgetMinutes}-minute budget for this ${learner.planningDays}-day chunk. Please regenerate the chunk.`,
+    );
+  }
+  const includedKeys = new Set(selected.map((topic) => topic.key));
+  return selected.map((topic) => ({
+    ...topic,
+    prerequisiteKeys: (Array.isArray(topic.prerequisiteKeys) ? topic.prerequisiteKeys : [])
+      .filter((key) => includedKeys.has(key)),
+  }));
+}
 function buildMessages(learner) {
   const deadline = Number.isFinite(learner.daysUntilTarget) && learner.daysUntilTarget >= 0
     ? `${learner.daysUntilTarget} days from now (${learner.targetDate})` : 'not specified';
   const planningDays = Number.isInteger(learner.planningDays) ? Math.max(1, learner.planningDays) : 3;
+  const practiceDays = planningDays;
+  const chunkBudgetMinutes = Math.floor(learner.minutesPerDay) * practiceDays;
   const scopeInstructions = learner.unrestrictedGeneration
     ? [
       'Plan the complete learning journey for the stated outcome, using the overall deadline as the target horizon when one is provided.',
@@ -87,9 +120,10 @@ function buildMessages(learner) {
       'Use the learner’s availability to make a realistic sequence, and include milestones, prerequisite skills, practice, retrieval, and meaningful application where relevant.',
     ]
     : [
-      `Generate only the next ${planningDays} study days for this roadmap chunk, not the entire curriculum through the deadline. The deadline describes the overall goal, not the length of this chunk.`,
-      `Keep this chunk focused: plan work for no more than ${planningDays} study days, and ensure every session fits within the learner's daily time budget. Do not invent extra study time.`,
-      'Avoid trying to teach the whole skill at once; later chunks will be generated after the learner completes this one.',
+      `Generate only the next ${planningDays} study days of this roadmap chunk, not the entire curriculum through the deadline. The deadline describes the overall goal, not the length of this chunk.`,
+      `This chunk has ${practiceDays} planned study days and a hard total budget of ${chunkBudgetMinutes} minutes. Every session must be 5 to ${Math.floor(learner.minutesPerDay)} minutes, and all session estimates added together must not exceed ${chunkBudgetMinutes} minutes.`,
+      'Return only the first coherent sequence of sessions that fits this chunk. Do not include later work just because it belongs in the overall journey; later chunks are generated after this one is completed.',
+      'The title and summary must describe this short chunk, not claim that the full deadline-length journey is included. Do not put the overall deadline duration in the chunk title.',
     ];
   const system = [
     `You are the best ${learner.skill} coach and planner: an exceptional, practical coach who plans for this specific learner, not a generic syllabus generator.`,
@@ -104,10 +138,10 @@ function buildMessages(learner) {
     '5. Choose practice methods native to this learner’s skill and outcome; never copy a template from an unrelated domain. Use focused repetitions and cumulative application for performance skills, runnable or buildable work and tests for technical skills, and retrieval plus applied problems for conceptual skills. These are adaptable principles, not mandatory templates.',
     '6. Avoid fake precision, filler, motivational padding, generic “research/watch/read about” tasks, oversized sessions, and repeating the same lesson structure mechanically. Prefer one useful, well-scoped activity over several shallow activities.',
     '7. Never invent source-specific facts, song chords/tabs, APIs, or other details that are not supported by the input. When exact details are unknown, state how to verify them and provide a safe practical alternative.',
-    '8. Treat time availability as a hard limit. Topic estimatedMinutes must be an integer of at least 5 and no greater than minutesPerDay. Keep the total planned work within the available study days; do not silently compress estimates to make a plan appear feasible.',
+    '8. Treat time availability as a hard limit. Topic estimatedMinutes must be an integer of at least 5 and no greater than minutesPerDay. Keep the total planned work within the chunk budget; do not silently compress estimates to make a plan appear feasible.',
     '9. For follow-up chunks, continue from the most recent work. Do not restart the course, repeat completed sessions, or assume completion equals mastery. Use recent assessment attempts, session feelings, reflections, unfinished work, and actual-time evidence to decide what to reinforce or advance.',
     '10. If prior evidence is missing, do not pretend to know the learner’s progress. Start with a brief, relevant retrieval check or a sensible next step based on the supplied starting level.',
-    'Return exactly one valid JSON object and nothing else, containing title, summary, estimatedRemainingMinutes, estimateConfidence, and topics. Estimate remaining effort for the overall goal, with honest uncertainty; this estimate is not a viability decision. Each topic needs key, title, description, learningObjectives, estimatedMinutes, and prerequisiteKeys.',
+    'Return exactly one valid JSON object and nothing else, containing title, summary, estimatedRemainingMinutes, estimateConfidence, and topics. Estimate remaining effort for the overall goal with honest uncertainty; do not confuse that estimate with this chunk’s workload. This is not a viability decision. Each topic needs key, title, description, learningObjectives, estimatedMinutes, and prerequisiteKeys.',
     'Choose the structure and sequence yourself. Make the plan specific to the goal, current ability, time budget, and evidence rather than forcing a fixed curriculum.',
   ].join(' ');
   return [
@@ -146,12 +180,20 @@ async function generateRoadmap(goal, { apiKey = process.env.AI_API_KEY || proces
   if (typeof roadmap.title !== 'string' || typeof roadmap.summary !== 'string' || !Array.isArray(roadmap.topics)) {
     throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_MISSING_CONTENT', 'The model returned JSON but omitted the roadmap title, summary, or topics. One model request was used; no repair retry was made.');
   }
+  const topics = fitTopicsToChunk(roadmap.topics, learner);
   const rawEstimate = decision.estimatedRemainingMinutes ?? roadmap.estimatedRemainingMinutes, estimate = Number(rawEstimate);
   const confidence = ['low', 'medium', 'high'].includes(decision.estimateConfidence) ? decision.estimateConfidence : 'low';
+  const title = learner.unrestrictedGeneration ? roadmap.title : `${learner.chunkNumber === 1 ? 'First chunk' : `Chunk ${learner.chunkNumber}`} · ${roadmap.title.replace(/^\s*\d+\s*[- ]?\s*day(?:s)?\s+/i, '')}`;
+  const summary = learner.unrestrictedGeneration ? roadmap.summary : roadmap.summary
+    .replace(/\b(?:this|a|the)\s+(?:(?:focused|full|complete|entire)\s+)?\d+\s*[- ]?\s*day(?:s)?\s+(?:plan|roadmap|learning path|journey)\b/gi, 'This chunk')
+    .replace(/^This chunk for\b/i, 'This chunk focused on');
+  const effectiveModelOutput = decision.roadmap && typeof decision.roadmap === 'object'
+    ? { ...decision, roadmap: { ...roadmap, title, summary, topics } }
+    : { ...decision, title, summary, topics };
   return {
-    title: roadmap.title, summary: roadmap.summary, topics: roadmap.topics,
+    title, summary, topics,
     estimatedRemainingMinutes: Number.isFinite(estimate) && estimate >= 0 ? estimate : null, estimateConfidence: confidence,
-    learningBrief: { modelOutput: decision, estimatedRemainingMinutes: Number.isFinite(estimate) && estimate >= 0 ? estimate : null, estimateConfidence: confidence, generationMode: 'model_first' },
+    learningBrief: { modelOutput: effectiveModelOutput, estimatedRemainingMinutes: Number.isFinite(estimate) && estimate >= 0 ? estimate : null, estimateConfidence: confidence, generationMode: learner.unrestrictedGeneration ? 'model_first_full_plan' : 'model_first_chunk' },
   };
 }
-module.exports = { ExperimentalRoadmapGenerationError, buildLearnerBrief, buildMessages, getEndpoint, parseDecision, generateRoadmap };
+module.exports = { ExperimentalRoadmapGenerationError, buildLearnerBrief, buildMessages, fitTopicsToChunk, getEndpoint, parseDecision, generateRoadmap };

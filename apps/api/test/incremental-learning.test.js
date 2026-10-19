@@ -163,7 +163,7 @@ test('AI clarification generator returns validated goal specific questions, uses
   assert.equal(requests.length, 1);
   assert.equal(requests[0].format.properties.questions.items.properties.question.type, 'string');
   assert.equal(requests[0].think, 'medium');
-  assert.equal(requests[0].options.num_ctx, 16384);
+  assert.equal(requests[0].options.num_ctx, Math.max(4096, Math.min(32768, Number.parseInt(process.env.AI_CONTEXT_LENGTH || '16384', 10))));
   assert.equal(requests[0].__url, 'http://127.0.0.1:11434/api/chat');
   assert.equal(result.questions.length, 2);
   assert.equal(result.questions[0].key, 'starting_ability');
@@ -354,7 +354,7 @@ test('deadline feasibility compares remaining effort with learner study availabi
   assert.equal(overCapacity.additionalMinutesPerStudyDay, 65);
   assert.equal(overCapacity.additionalStudyDaysRequired, 5);
   assert.equal(overCapacity.estimatedExtensionCalendarDays, 5);
-  assert.match(overCapacity.recommendation, /260 minutes over buffered capacity/);
+  assert.match(overCapacity.recommendation, /260 minutes over available capacity/);
   assert.match(overCapacity.recommendation, /125 minutes per study day/);
   assert.match(overCapacity.recommendation, /reduce the outcome scope/i);
 });

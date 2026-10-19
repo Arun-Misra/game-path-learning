@@ -264,7 +264,11 @@ test('project milestones require evidence and persist progress', async ({ page }
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/');
-  await expect(page.getByText('Mastery snapshot')).toBeVisible();
+  const javaCard = page.getByRole('article').filter({ hasText: 'Java' });
+  await javaCard.getByRole('button', { name: 'View goal' }).click();
+  await javaCard.getByRole('button', { name: 'Open plan' }).click();
+  await javaCard.locator('summary', { hasText: 'Mastery snapshot' }).click();
+  await expect(page.getByText('Mastery snapshot', { exact: true })).toBeVisible();
   await expect(page.getByText('How this chunk builds on your progress')).toBeVisible();
   await expect(page.getByText('Write validation tests')).toBeVisible();
   await expect(page.getByText('Reviews due')).toBeVisible();
@@ -469,12 +473,18 @@ test('adaptive dashboard responds differently to a learner needing practice and 
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/');
+  const dataCard = page.getByRole('article').filter({ hasText: 'Data Structures' });
+  await dataCard.getByRole('button', { name: 'View goal' }).click();
+  await dataCard.locator('summary', { hasText: 'Mastery snapshot' }).click();
   await expect(page.getByText('Reinforce: Arrays', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Needs practice', { exact: true })).toBeVisible();
   await expect(page.getByText('54%', { exact: true })).toBeVisible();
 
   activeProfile = 'dueReview';
   await page.reload();
+  const reviewCard = page.getByRole('article').filter({ hasText: 'Data Structures' });
+  await reviewCard.getByRole('button', { name: 'View goal' }).click();
+  await reviewCard.locator('summary', { hasText: 'Mastery snapshot' }).click();
   await expect(page.getByText('Refresh: Binary Search', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Reviews due', { exact: true })).toBeVisible();
   await expect(page.getByText('Binary Search', { exact: true })).toBeVisible();
@@ -528,10 +538,16 @@ test('each saved learning goal shows its own adaptive next step', async ({ page 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/');
   await expect(page.getByText('2 goals saved')).toBeVisible();
-  await expect(page.getByText('Reinforce: Arrays', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('Refresh: HTML semantics', { exact: true }).first()).toBeVisible();
   const arraysCard = page.getByRole('article').filter({ hasText: 'Data Structures' });
   const webCard = page.getByRole('article').filter({ hasText: 'Web Development' });
+  await arraysCard.getByRole('button', { name: 'View goal' }).click();
+  await webCard.getByRole('button', { name: 'View goal' }).click();
+  await arraysCard.getByRole('button', { name: 'Open plan' }).click();
+  await webCard.getByRole('button', { name: 'Open plan' }).click();
+  await arraysCard.locator('summary', { hasText: 'Mastery snapshot' }).click();
+  await webCard.locator('summary', { hasText: 'Mastery snapshot' }).click();
+  await expect(page.getByText('Reinforce: Arrays', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Refresh: HTML semantics', { exact: true }).first()).toBeVisible();
   await expect(arraysCard.getByText('Reinforce: Arrays')).toBeVisible();
   await expect(webCard.getByText('Refresh: HTML semantics')).toBeVisible();
   await expect(arraysCard.getByText('54%', { exact: true })).toBeVisible();
@@ -651,6 +667,10 @@ test('assessment retake refreshes topic mastery and the next recommendation', as
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/');
+  const retakeCard = page.getByRole('article').filter({ hasText: 'Data Structures' });
+  await retakeCard.getByRole('button', { name: 'View goal' }).click();
+  await retakeCard.getByRole('button', { name: 'Open plan' }).click();
+  await retakeCard.locator('summary', { hasText: 'Sessions in this chunk' }).click();
   await expect(page.getByText('Reinforce: Arrays', { exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: 'Take assessment' }).first().click();
   await page.getByLabel('Incorrect access').check();

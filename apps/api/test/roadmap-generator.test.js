@@ -285,7 +285,7 @@ test('E4B handles the enhanced brief, planning, and independent review without l
   assert.equal(requests[1].body.model, 'gemma4:e4b');
   assert.equal(requestSchemaName(requests[1].body), 'personalised_learning_roadmap');
   assert.equal(requests[1].body.options.num_predict, 4096);
-  assert.equal(requests[1].body.options.num_ctx, 16384);
+  assert.equal(requests[1].body.options.num_ctx, Math.max(4096, Math.min(32768, Number.parseInt(process.env.AI_CONTEXT_LENGTH || '16384', 10))));
   assert.equal(requests[1].body.options.temperature, 0.2);
   assert.equal(requests[1].body.think, process.env.AI_REASONING_EFFORT || 'low');
   assert.equal(requests[1].url, 'http://127.0.0.1:11434/api/chat');

@@ -2946,3 +2946,65 @@ body { background:#111110!important; color:#f2f2f0; }
     max-width: 100%;
   }
 }
+
+/* Goal overview: compact disclosure controls, using the active Storm Lab palette. */
+.app-shell:has(.learning-sidebar) .goal-toggle,
+.app-shell:has(.learning-sidebar) .roadmap-toggle {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pw-ink);
+  text-align: left;
+}
+.app-shell:has(.learning-sidebar) .goal-toggle-title,
+.app-shell:has(.learning-sidebar) .roadmap-toggle > span:first-child {
+  color: var(--pw-ink);
+}
+.app-shell:has(.learning-sidebar) .goal-toggle-state,
+.app-shell:has(.learning-sidebar) .roadmap-toggle-state {
+  flex-shrink: 0;
+  color: var(--pw-citron);
+}
+.app-shell:has(.learning-sidebar) .goal-toggle:hover .goal-toggle-state,
+.app-shell:has(.learning-sidebar) .roadmap-toggle:hover .roadmap-toggle-state {
+  color: var(--pw-violet);
+}
+.app-shell:has(.learning-sidebar) .goal-card .next-step-title {
+  color: var(--pw-ink) !important;
+}
+.app-shell:has(.learning-sidebar) .goal-card [aria-label^="Next step for"] {
+  border-color: var(--pw-citron) !important;
+}
+.app-shell:has(.learning-sidebar) .goal-card [aria-label^="Next step for"] p:first-child {
+  color: var(--pw-citron) !important;
+}
+.app-shell:has(.learning-sidebar) .mastery-details {
+  border-color: var(--pw-line) !important;
+  background: #151514 !important;
+}
+.app-shell:has(.learning-sidebar) .mastery-details > summary {
+  color: var(--pw-ink) !important;
+}
+.app-shell:has(.learning-sidebar) .mastery-details p,
+.app-shell:has(.learning-sidebar) .mastery-details li {
+  color: var(--pw-muted);
+}
+.app-shell:has(.learning-sidebar) .learning-path-details {
+  border-color: var(--pw-line) !important;
+  background: #151514 !important;
+}
+.app-shell:has(.learning-sidebar) .learning-path-details > summary {
+  color: var(--pw-citron) !important;
+}
+.app-shell:has(.learning-sidebar) .roadmap-card .learning-path-details .path-step {
+  border-color: var(--pw-line) !important;
+}
+@media (max-width: 700px) {
+  .app-shell:has(.learning-sidebar) .goal-toggle {
+    flex-wrap: wrap;
+  }
+  .app-shell:has(.learning-sidebar) .goal-toggle-state {
+    margin-left: auto;
+  }
+}
