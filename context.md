@@ -1,3 +1,6 @@
+
+
+
 # Gamified Learning V2 — Contextrning V2 — Context
 
 ## Product and principles
@@ -337,3 +340,50 @@ Do not update master/reference docs frequently; update this context only for mat
 - While the model runs, the goal card shows a live status indicator and keeps the action disabled to prevent duplicate requests. On success, the saved roadmap is inserted into the goal card immediately; if the response omits topics, the UI reloads the saved roadmap before displaying it. API errors are shown in the existing notice area.
 - Added a Playwright regression test that verifies the questions endpoint is not called and the returned day-by-day roadmap appears in the UI.
 - Validation: `npm run check`, `npm run build`, `npm test` (99/99), `npm run test:e2e -- --workers=2` (11/11), `npm run db:validate`, and `git diff --check` passed. The E2E uses a mocked AI response; a live-model browser round trip has not yet been verified.
+
+## Experimental generator malformed JSON recovery (2026-10-22)
+- On branch `fix/roadmap-generation-display`, the direct Ollama generator now tries balanced JSON objects (including JSON wrapped in markdown or brief surrounding text) instead of assuming the first-to-last braces form one object.
+- If the model output is malformed or lacks the required boolean `viable`, the generator makes one bounded repair request asking for a single valid JSON object. It does not ask the learner clarification questions or add another planning/review stage.
+- Regression coverage includes a malformed first response followed by a valid repaired response. Validation now passes: API tests 100/100, check/lint, production build, E2E 11/11, Prisma validation, and `git diff --check`.
+- The browser E2E still mocks the model. A live Ollama request has not been confirmed after this repair. If the API still logs `Failed running './bin/www'`, capture the API terminal's stack trace immediately before that line; the Vite port 5173 message only means another process already owns that port, so Vite picked 5174.
+
+## Ollama format selection for roadmap generation (2026-10-22)
+
+- The experimental roadmap generator selects Ollama's `format: "json"` for model names containing `gemma4`, because Gemma 4 supports JSON-only mode rather than schema-constrained output.
+- Other local Ollama models receive a JSON Schema requiring a boolean `viable` field and defining the expected roadmap shape.
+- The OpenAI-compatible remote path continues to use `response_format: { type: "json_object" }`.
+- Regression coverage verifies Gemma 4 gets the string `"json"` and another local model gets the schema object.
+
+## Recovery when viable decision omits roadmap (2026-10-23)
+
+- Experimental roadmap generation now uses its single bounded repair attempt for malformed JSON, a missing boolean `viable`, or a viable response that omits the actual roadmap fields.
+- The missing-content repair explicitly asks for a `roadmap` object with title, summary, topics, and the required topic fields, and says not to return only a viability assessment.
+- A model-declared non-viable goal is still returned immediately with its reason; it is not retried into a potentially misleading plan.
+- Regression coverage verifies a `viable:true` response without roadmap content is repaired into a usable roadmap.
+
+## Roadmap generation update (2026-10-23)
+
+- Removed the viability judgement from the experimental generator prompt and output schema. The model's job is to return the roadmap, not decide whether generation is allowed.
+- A response with a complete roadmap is accepted whether or not it contains an optional viability field; a response that omits roadmap content gets one bounded repair request focused on the roadmap itself.
+- The structured schema for non-Gemma local models now requires title, summary, and topics, with no viability property. Gemma 4 continues to use JSON-only format mode.
+- Regression coverage verifies generation succeeds without a viability field and the prompt/schema do not require one.
+
+## Experimental generator chunk-boundary fix (2026-10-23)
+
+- The live Gemma 4 request used the overall goal deadline as the generation horizon. For a goal roughly 39 days away, the prompt asked for day-by-day topics over that entire period; the model hit its 8,192-token output cap on both the first response and repair request, then returned a 502 because no complete roadmap content was available.
+- The experimental generator now separates the overall goal deadline from the rolling chunk length. It receives `planningDays` from the roadmap service (default 3), asks only for the next chunk, and explicitly says the deadline is not the chunk length.
+- The output budget is now bounded by chunk size: 2,048 tokens for a one-day chunk, 3,072 for two or three days, and 6,144 for larger chunks. The repair prompt repeats the chunk limit instead of asking for a full curriculum.
+- Added tests for the next-chunk prompt, planningDays propagation/default, and token budget. Validation: `set AI_CONTEXT_LENGTH=16384&& npm test` passed 103/103; `git diff --check` passed. The workspace .env sets a 32,768-token context, which makes three pre-existing tests expecting 16,384 fail unless the test command overrides that variable.
+- Backup copies were created before editing; keep them outside the repository so they do not appear as untracked project files.
+
+## Experimental generator single-request change (2026-10-23)
+- The experimental generator now makes exactly one model request per generation. It no longer sends a second repair prompt after malformed JSON or a response missing roadmap fields; those cases return a specific generation error instead.
+- The prompt explicitly asks for one concise JSON object and preserves the existing rolling-chunk limit. This removes the extra 6-second repair request observed in recent live logs, but does not by itself reduce the first request's ~29-second generation time.
+- Regression tests assert one provider call for successful output, malformed JSON, and missing roadmap content. set AI_CONTEXT_LENGTH=16384&& npm test passed 103/103.
+- Trade-off: malformed/incomplete model output now fails immediately instead of attempting recovery. A live Ollama smoke test and the remaining check/build/E2E/database validation have not yet been run after this change.
+
+## Unrestricted initial roadmap generation (2026-10-23)
+- The initial Generate learning plan endpoint now asks the model to plan the complete learning journey rather than limiting it to the rolling `planningDays` value.
+- Initial generation has no application-set output-token ceiling: native Ollama receives `num_predict: -1`, and the hosted request omits `max_tokens`. It remains a single model request, with no automatic repair call.
+- Follow-up rolling chunks remain bounded because the mission scheduler must place those sessions within the available dates and daily time budget. The roadmap validator still validates fields and prerequisite integrity, but no longer caps the number of topics at 40.
+- Added tests for the unrestricted initial prompt and unbounded local/hosted request settings. `set AI_CONTEXT_LENGTH=16384&& npm test` passed 104/104. Live Ollama verification and full check/build/E2E/database validation are pending.
