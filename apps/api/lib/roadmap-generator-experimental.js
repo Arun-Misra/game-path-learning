@@ -107,6 +107,60 @@ function fitTopicsToChunk(topics, learner) {
       .filter((key) => includedKeys.has(key)),
   }));
 }
+
+function normalizeTopicTitle(title) {
+  return String(title || '')
+    .toLowerCase()
+    .replace(/^\s*(?:(?:learn|review|apply|practice|revise|recall|retrieve)\s*:\s*)+/, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function findRepeatedCompletedTopics(topics, priorLearningContext) {
+  if (!Array.isArray(topics) || !priorLearningContext) return [];
+  let prior;
+  try { prior = JSON.parse(priorLearningContext); } catch { return []; }
+  const previousTopics = Array.isArray(prior.topics) ? prior.topics : [];
+  const previousByTitle = new Map();
+  for (const topic of previousTopics) {
+    const normalizedTitle = normalizeTopicTitle(topic.title);
+    if (!normalizedTitle) continue;
+    const existing = previousByTitle.get(normalizedTitle) || [];
+    existing.push(topic);
+    previousByTitle.set(normalizedTitle, existing);
+  }
+
+  return topics.flatMap((topic) => {
+    const normalizedTitle = normalizeTopicTitle(topic.title);
+    const previous = previousByTitle.get(normalizedTitle) || [];
+    if (!normalizedTitle || previous.length === 0) return [];
+    const learningGapExists = previous.some((oldTopic) => {
+      const attempts = Array.isArray(oldTopic.assessments) ? oldTopic.assessments : [];
+      const latestScore = attempts.length > 0 && Number.isFinite(Number(attempts[0].score))
+        ? Number(attempts[0].score) : null;
+      const progress = Array.isArray(oldTopic.progress) ? oldTopic.progress : [];
+      const notMastered = progress.some((item) => String(item.status || '').toUpperCase() !== 'MASTERED');
+      return (latestScore !== null && latestScore < 85) || notMastered;
+    });
+    const isExplicitReview = /\b(review|retriev|recall|revis|reinforc|remediat|practice)\b/i.test(topic.title || '');
+    if (isExplicitReview && learningGapExists) return [];
+    return [{ title: topic.title, previousTitle: previous[0].title }];
+  });
+}
+
+function assertContinuationProgress(topics, learner) {
+  const repeated = findRepeatedCompletedTopics(topics, learner.priorLearningContext);
+  if (repeated.length) {
+    const titles = repeated.slice(0, 3).map((item) => item.title).join(', ');
+    throw new ExperimentalRoadmapGenerationError(
+      502,
+      'ROADMAP_DUPLICATE_CONTENT',
+      `The proposed continuation repeats recent material without evidence that it needs review (${titles}). No new chunk was activated; regenerate the next chunk.`,
+    );
+  }
+}
+
 function buildMessages(learner) {
   const deadline = Number.isFinite(learner.daysUntilTarget) && learner.daysUntilTarget >= 0
     ? `${learner.daysUntilTarget} days from now (${learner.targetDate})` : 'not specified';
@@ -181,6 +235,7 @@ async function generateRoadmap(goal, { apiKey = process.env.AI_API_KEY || proces
     throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_MISSING_CONTENT', 'The model returned JSON but omitted the roadmap title, summary, or topics. One model request was used; no repair retry was made.');
   }
   const topics = fitTopicsToChunk(roadmap.topics, learner);
+  if (!learner.unrestrictedGeneration) assertContinuationProgress(topics, learner);
   const rawEstimate = decision.estimatedRemainingMinutes ?? roadmap.estimatedRemainingMinutes, estimate = Number(rawEstimate);
   const confidence = ['low', 'medium', 'high'].includes(decision.estimateConfidence) ? decision.estimateConfidence : 'low';
   const title = learner.unrestrictedGeneration ? roadmap.title : `${learner.chunkNumber === 1 ? 'First chunk' : `Chunk ${learner.chunkNumber}`} · ${roadmap.title.replace(/^\s*\d+\s*[- ]?\s*day(?:s)?\s+/i, '')}`;
@@ -196,4 +251,4 @@ async function generateRoadmap(goal, { apiKey = process.env.AI_API_KEY || proces
     learningBrief: { modelOutput: effectiveModelOutput, estimatedRemainingMinutes: Number.isFinite(estimate) && estimate >= 0 ? estimate : null, estimateConfidence: confidence, generationMode: learner.unrestrictedGeneration ? 'model_first_full_plan' : 'model_first_chunk' },
   };
 }
-module.exports = { ExperimentalRoadmapGenerationError, buildLearnerBrief, buildMessages, fitTopicsToChunk, getEndpoint, parseDecision, generateRoadmap };
+module.exports = { ExperimentalRoadmapGenerationError, buildLearnerBrief, buildMessages, fitTopicsToChunk, normalizeTopicTitle, findRepeatedCompletedTopics, assertContinuationProgress, getEndpoint, parseDecision, generateRoadmap };

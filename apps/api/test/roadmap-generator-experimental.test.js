@@ -4,6 +4,8 @@ const {
   buildLearnerBrief,
   buildMessages,
   fitTopicsToChunk,
+  findRepeatedCompletedTopics,
+  assertContinuationProgress,
   parseDecision,
   generateRoadmap,
   ExperimentalRoadmapGenerationError,
@@ -55,6 +57,43 @@ test('parses valid JSON wrapped in markdown fences or surrounding text', () => {
   const expected = { viable: false, reason: 'Not enough time.' };
   assert.deepEqual(parseDecision('```json\\n' + JSON.stringify(expected) + '\\n```'), expected);
   assert.deepEqual(parseDecision('Here is the decision:\\n' + JSON.stringify(expected)), expected);
+});
+
+test('continuation rejects repeated completed topics even when prefixed as review', () => {
+  const prior = JSON.stringify({ topics: [
+    { title: 'Variables and Basic Conditionals', assessments: [], progress: [{ status: 'MASTERED' }] },
+    { title: 'Mastering Repetition with For and While Loops', assessments: [{ score: 92 }], progress: [{ status: 'MASTERED' }] },
+  ] });
+  assert.deepEqual(
+    findRepeatedCompletedTopics([
+      { title: 'Review: Variables and Basic Conditionals' },
+      { title: 'Mastering Repetition with For and While Loops' },
+    ], prior).map((item) => item.title),
+    ['Review: Variables and Basic Conditionals', 'Mastering Repetition with For and While Loops'],
+  );
+  assert.throws(
+    () => assertContinuationProgress([{ title: 'Review: Variables and Basic Conditionals' }], { priorLearningContext: prior }),
+    (error) => error.code === 'ROADMAP_DUPLICATE_CONTENT',
+  );
+});
+
+test('continuation allows explicit review when recent evidence shows a learning gap', () => {
+  const prior = JSON.stringify({ topics: [
+    { title: 'Variables and Basic Conditionals', assessments: [{ score: 62 }], progress: [{ status: 'MASTERED' }] },
+  ] });
+  assert.deepEqual(
+    findRepeatedCompletedTopics([{ title: 'Review: Variables and Basic Conditionals' }], prior),
+    [],
+  );
+  assert.throws(
+    () => assertContinuationProgress([{ title: 'Variables and Basic Conditionals' }], { priorLearningContext: prior }),
+    (error) => error.code === 'ROADMAP_DUPLICATE_CONTENT',
+  );
+});
+
+test('continuation allows new topics and safely ignores malformed prior context', () => {
+  assert.deepEqual(findRepeatedCompletedTopics([{ title: 'Arrays and Indexing' }], JSON.stringify({ topics: [{ title: 'Variables' }] })), []);
+  assert.deepEqual(findRepeatedCompletedTopics([{ title: 'Variables' }], '{invalid'), []);
 });
 
 test('single model request returns a complete roadmap and remaining-effort estimate', async () => {
