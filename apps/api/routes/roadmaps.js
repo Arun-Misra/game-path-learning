@@ -87,6 +87,7 @@ router.post('/generate', async (req, res, next) => {
       goalId: parsedId.data,
       clarifications: parsedBody.data.clarifications || '',
       planningDays: parsedBody.data.planningDays || 3,
+      unrestrictedGeneration: true,
       answers: parsedBody.data.answers || [],
       timeZone: parsedQuery.data.timeZone,
     });

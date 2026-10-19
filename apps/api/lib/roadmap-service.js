@@ -301,7 +301,7 @@ function buildContinuationSummary(priorLearningContext, nextTopics = []) {
   if (!evidence.length) evidence.push('Evidence is limited. Start with a brief retrieval or diagnostic attempt before assuming earlier material is mastered.');
   return { heading: 'How this chunk builds on your progress', evidence, nextFocus: (Array.isArray(nextTopics) ? nextTopics : []).slice(0, 3).map((topic) => topic.title).filter(Boolean) };
 }
-async function generateRoadmapDraft({ userId, goalId, clarifications = '', planningDays = 3, answers = [], timeZone = 'UTC', now = new Date(), db = prisma, generator = generateRoadmap }) {
+async function generateRoadmapDraft({ userId, goalId, clarifications = '', planningDays = 3, unrestrictedGeneration = false, answers = [], timeZone = 'UTC', now = new Date(), db = prisma, generator = generateRoadmap }) {
   const goal = await db.learningGoal.findFirst({
     where: { id: goalId, userId },
     select: {
@@ -366,7 +366,7 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
 
   let proposed;
   try {
-    proposed = await generator({ ...goal, learnerClarifications: combinedClarifications, planningDays: normalizedPlanningDays, chunkNumber, priorLearningContext, timeCalibrationContext: timeCalibration.context });
+    proposed = await generator({ ...goal, learnerClarifications: combinedClarifications, planningDays: normalizedPlanningDays, unrestrictedGeneration: unrestrictedGeneration === true, chunkNumber, priorLearningContext, timeCalibrationContext: timeCalibration.context });
   } catch (error) {
     if (process.env.AI_DEBUG === 'true') {
       console.error('[roadmap-service] Roadmap generation failed:', JSON.stringify({
