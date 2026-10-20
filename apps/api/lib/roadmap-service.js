@@ -553,9 +553,13 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
       topicGroups[dateIndex].push(topic);
       usedMinutes += topic.estimatedMinutes;
     }
-    if (budgetInvalid || topics.length === 0) {
+    if (budgetInvalid || topics.length < 2) {
       await deleteRoadmapDraft({ userId, goalId, roadmapId: draft.id, db });
-      throw new RoadmapServiceError(502, 'ROLLING_CHUNK_BUDGET_INVALID', 'The next learning chunk did not fit the daily time budget. Please retry.');
+      const code = topics.length < 2 && !budgetInvalid ? 'ROLLING_CHUNK_TOO_SMALL' : 'ROLLING_CHUNK_BUDGET_INVALID';
+      const message = code === 'ROLLING_CHUNK_TOO_SMALL'
+        ? 'The model returned fewer than two usable sessions for the next chunk. The draft was discarded; retry generation.'
+        : 'The next learning chunk did not fit the daily time budget. The draft was discarded; retry generation.';
+      throw new RoadmapServiceError(502, code, message);
     }
 
     const activeRoadmap = await activateRoadmap({ userId, goalId, roadmapId: draft.id, confirmLearningBrief: true, db });
