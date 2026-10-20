@@ -571,8 +571,9 @@ function App() {
       setMissionsByGoal((current) => ({ ...current, [goal.id]: missionRefresh.data }));
       await refreshNextStep(goal.id);
       setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Pathwise prepared the next ${rollingResult.data.planningDays} day(s).` });
-    } catch {
-      setNotice({ type: 'error', message: `Mission complete! You earned ${xpAwarded} XP. Your progress is saved, but the next chunk could not be prepared yet; Pathwise will try again after another completed day.` });
+    } catch (error) {
+      const detail = error instanceof Error && error.message ? ` Reason: ${error.message}` : '';
+      setNotice({ type: 'error', message: `Mission complete! You earned ${xpAwarded} XP. Your progress is saved, but the next chunk could not be prepared.${detail}` });
     }
   }
 
