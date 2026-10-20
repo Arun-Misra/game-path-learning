@@ -96,6 +96,37 @@ test('continuation allows new topics and safely ignores malformed prior context'
   assert.deepEqual(findRepeatedCompletedTopics([{ title: 'Variables' }], '{invalid'), []);
 });
 
+test('retries a duplicate continuation once with explicit topic exclusions', async () => {
+  const priorLearningContext = JSON.stringify({ topics: [
+    { title: 'Fold a basic paper crane', assessments: [], progress: [{ status: 'COMPLETED' }] },
+  ] });
+  const outputs = [
+    { title: 'Repeat the crane', summary: 'Repeat the same fold.', topics: [
+      { key: 'repeat', title: 'Fold a basic paper crane', description: 'Repeat the folds.', learningObjectives: ['Fold a crane.'], estimatedMinutes: 20, prerequisiteKeys: [] },
+      { key: 'repeat2', title: 'Practise the paper crane', description: 'Repeat the same fold again.', learningObjectives: ['Fold a crane again.'], estimatedMinutes: 20, prerequisiteKeys: [] },
+    ] },
+    { title: 'Next origami skills', summary: 'Progress to a new model.', topics: [
+      { key: 'base', title: 'Create a stable waterbomb base', description: 'Fold and check a waterbomb base.', learningObjectives: ['Make a symmetrical waterbomb base.'], estimatedMinutes: 20, prerequisiteKeys: [] },
+      { key: 'box', title: 'Fold a simple origami box', description: 'Use the base folds to create a small box.', learningObjectives: ['Fold a box that holds its shape.'], estimatedMinutes: 20, prerequisiteKeys: ['base'] },
+    ] },
+  ];
+  const prompts = [];
+  let calls = 0;
+  const result = await generateRoadmap({ ...goal, title: 'Origami', targetOutcome: 'Learn to fold useful origami models', planningDays: 2, chunkNumber: 2, priorLearningContext }, {
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    model: 'gemma4:e4b',
+    fetchImpl: async (_url, options) => {
+      prompts.push(JSON.parse(options.body).messages[0].content);
+      return mockResponse(outputs[calls++]);
+    },
+  });
+  assert.equal(calls, 2);
+  assert.match(prompts[1], /Fold a basic paper crane/);
+  assert.match(prompts[1], /Do not reuse these titles/);
+  assert.match(result.title, /Chunk 2/);
+  assert.equal(result.topics[0].title, 'Create a stable waterbomb base');
+});
+
 test('single model request returns a complete roadmap and remaining-effort estimate', async () => {
   const modelOutput = {
     estimatedRemainingMinutes: 900,

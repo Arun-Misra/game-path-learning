@@ -71,6 +71,7 @@ function buildLearnerBrief(goal, now = new Date()) {
     chunkNumber: Number.isInteger(goal.chunkNumber) ? goal.chunkNumber : 1,
     priorLearningContext: typeof goal.priorLearningContext === 'string' && goal.priorLearningContext.trim() ? goal.priorLearningContext : undefined,
     timeCalibrationContext: typeof goal.timeCalibrationContext === 'string' && goal.timeCalibrationContext.trim() ? goal.timeCalibrationContext : undefined,
+    rejectedTopics: Array.isArray(goal.rejectedTopics) ? goal.rejectedTopics.filter((title) => typeof title === 'string').slice(0, 12) : [],
     targetDate: targetDate && Number.isFinite(targetDate.getTime()) ? targetDate.toISOString().slice(0, 10) : null,
     daysUntilTarget,
     additionalContext: typeof goal.learnerClarifications === 'string' && goal.learnerClarifications.trim() ? goal.learnerClarifications.trim() : undefined,
@@ -153,11 +154,13 @@ function assertContinuationProgress(topics, learner) {
   const repeated = findRepeatedCompletedTopics(topics, learner.priorLearningContext);
   if (repeated.length) {
     const titles = repeated.slice(0, 3).map((item) => item.title).join(', ');
-    throw new ExperimentalRoadmapGenerationError(
+    const error = new ExperimentalRoadmapGenerationError(
       502,
       'ROADMAP_DUPLICATE_CONTENT',
-      `The proposed continuation repeats recent material without evidence that it needs review (${titles}). No new chunk was activated; regenerate the next chunk.`,
+      `The proposed continuation repeats recent material without evidence that it needs review (${titles}).`,
     );
+    error.repeatedTitles = repeated.map((item) => item.title);
+    throw error;
   }
 }
 
@@ -194,6 +197,7 @@ function buildMessages(learner) {
     '7. Never invent source-specific facts, song chords/tabs, APIs, or other details that are not supported by the input. When exact details are unknown, state how to verify them and provide a safe practical alternative.',
     '8. Treat time availability as a hard limit. Topic estimatedMinutes must be an integer of at least 5 and no greater than minutesPerDay. Keep the total planned work within the chunk budget; do not silently compress estimates to make a plan appear feasible.',
     '9. For follow-up chunks, continue from the most recent work. Do not restart the course, repeat completed sessions, or assume completion equals mastery. Use recent assessment attempts, session feelings, reflections, unfinished work, and actual-time evidence to decide what to reinforce or advance.',
+    ...(learner.rejectedTopics.length ? [`REQUIRED CORRECTION: Your previous draft repeated these topics without a justified learning gap: ${learner.rejectedTopics.join('; ')}. Do not reuse these titles or teach the same concept under a synonym. Choose genuinely new next-step material, or use a clearly different prerequisite/application only when needed for the stated goal.`] : []),
     '10. If prior evidence is missing, do not pretend to know the learner’s progress. Start with a brief, relevant retrieval check or a sensible next step based on the supplied starting level.',
     'Return exactly one valid JSON object and nothing else, containing title, summary, estimatedRemainingMinutes, estimateConfidence, and topics. Estimate remaining effort for the overall goal with honest uncertainty; do not confuse that estimate with this chunk’s workload. This is not a viability decision. Each topic needs key, title, description, learningObjectives, estimatedMinutes, and prerequisiteKeys.',
     'Choose the structure and sequence yourself. Make the plan specific to the goal, current ability, time budget, and evidence rather than forcing a fixed curriculum.',
@@ -203,7 +207,7 @@ function buildMessages(learner) {
     { role: 'user', content: JSON.stringify(learner) },
   ];
 }
-async function generateRoadmap(goal, { apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '', baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL, model = process.env.AI_MODEL || process.env.OPENAI_MODEL || DEFAULT_MODEL, fetchImpl = globalThis.fetch, now = new Date() } = {}) {
+async function generateRoadmapOnce(goal, { apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '', baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL, model = process.env.AI_MODEL || process.env.OPENAI_MODEL || DEFAULT_MODEL, fetchImpl = globalThis.fetch, now = new Date() } = {}) {
   const localOllama = isLocalOllama(baseUrl);
   if (!apiKey && !localOllama) throw new ExperimentalRoadmapGenerationError(503, 'ROADMAP_GENERATOR_NOT_CONFIGURED', 'No AI API key is configured.');
   const learner = buildLearnerBrief(goal, now), endpoint = getEndpoint(baseUrl), headers = { 'Content-Type': 'application/json' };
@@ -251,4 +255,17 @@ async function generateRoadmap(goal, { apiKey = process.env.AI_API_KEY || proces
     learningBrief: { modelOutput: effectiveModelOutput, estimatedRemainingMinutes: Number.isFinite(estimate) && estimate >= 0 ? estimate : null, estimateConfidence: confidence, generationMode: learner.unrestrictedGeneration ? 'model_first_full_plan' : 'model_first_chunk' },
   };
 }
+async function generateRoadmap(goal, options = {}) {
+  const rejectedTopics = [];
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await generateRoadmapOnce({ ...goal, rejectedTopics }, options);
+    } catch (error) {
+      if (error?.code !== 'ROADMAP_DUPLICATE_CONTENT' || attempt === 1) throw error;
+      rejectedTopics.push(...(Array.isArray(error.repeatedTitles) ? error.repeatedTitles : []));
+    }
+  }
+  throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_DUPLICATE_CONTENT', 'The model repeated prior topics after one correction attempt. No new chunk was activated.');
+}
+
 module.exports = { ExperimentalRoadmapGenerationError, buildLearnerBrief, buildMessages, fitTopicsToChunk, normalizeTopicTitle, findRepeatedCompletedTopics, assertContinuationProgress, getEndpoint, parseDecision, generateRoadmap };
