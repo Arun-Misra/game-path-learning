@@ -262,7 +262,7 @@ async function generateRoadmapOnce(goal, { apiKey = process.env.AI_API_KEY || pr
   // Full-plan generation has no artificial output-token ceiling. Rolling chunks remain bounded.
   const numPredict = learner.unrestrictedGeneration ? -1 : (learner.planningDays <= 1 ? 2048 : learner.planningDays <= 3 ? 3072 : learner.planningDays <= 7 ? 6144 : 8192);
   const body = localOllama
-    ? { model, messages, format: ollamaFormat, think: (typeof onToken === 'function' && /gemma4/i.test(model) ? false : reasoningEffort), options: { num_ctx: Number.isFinite(contextLength) ? Math.max(4096, Math.min(32768, contextLength)) : 16384, num_predict: numPredict, temperature: 0.4 }, stream: typeof onToken === 'function' }
+    ? { model, messages, format: ollamaFormat, think: (typeof onToken === 'function' && /gemma4/i.test(model) ? true : reasoningEffort), options: { num_ctx: Number.isFinite(contextLength) ? Math.max(4096, Math.min(32768, contextLength)) : 16384, num_predict: numPredict, temperature: 0.4 }, stream: typeof onToken === 'function' }
     : { model, messages, ...(learner.unrestrictedGeneration ? {} : { max_tokens: numPredict }), temperature: 0.4, reasoning_effort: reasoningEffort, response_format: { type: 'json_object' }, stream: typeof onToken === 'function' };
   let response;
   try {
