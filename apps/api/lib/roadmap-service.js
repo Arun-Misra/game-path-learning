@@ -598,6 +598,14 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
     }
     return { generated: true, roadmap: activeRoadmap, missions, planningDays: actualPlanningDays, scheduledDates: dates, pendingDays: pendingDates.length + dates.length };
   } catch (error) {
+    if (process.env.AI_DEBUG === 'true') {
+      console.error('[roadmap-service] Rolling continuation failed:', JSON.stringify({
+        goalId,
+        code: error?.code || 'ROLL_FORWARD_FAILED',
+        status: error?.status || 500,
+        message: error?.message || 'Unknown rolling continuation error',
+      }));
+    }
     if (generationRunId && db.roadmapGenerationRun) {
       try {
         await db.roadmapGenerationRun.update({
