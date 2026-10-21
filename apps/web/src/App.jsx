@@ -11,6 +11,41 @@ const initialForm = {
   name: '', email: '', password: '',
 };
 
+
+async function requestRoadmapStream(url, options = {}, onToken = () => {}) {
+  const response = await fetch(url, {
+    credentials: 'include',
+    ...options,
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(options.headers || {}) },
+  });
+  if (!response.ok || !response.body) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error?.message || 'Could not start streamed roadmap generation.');
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let result = null;
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() || '';
+    for (const block of blocks) {
+      const dataLine = block.split(/\r?\n/).find((line) => line.startsWith('data:'));
+      if (!dataLine) continue;
+      let event;
+      try { event = JSON.parse(dataLine.slice(5).trim()); } catch { continue; }
+      if (event.type === 'token') onToken(event.token);
+      if (event.type === 'complete') result = event.roadmap;
+      if (event.type === 'error') throw new Error(event.error?.message || 'Roadmap generation failed.');
+    }
+    if (done) break;
+  }
+  if (!result) throw new Error('The stream ended before a saved roadmap was returned. Please retry.');
+  return { data: { roadmap: result } };
+}
+
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
     credentials: 'include',
@@ -305,12 +340,23 @@ function App() {
   async function handleGenerateRoadmap(goal) {
     setRoadmapBusyGoal(goal.id);
     setGeneratingGoalId(goal.id);
-    setNotice({ type: 'success', message: `Pathwise is building your personalised day-by-day ${goal.skill} plan. This can take a little while; keep this page open.` });
+    setNotice({ type: 'success', message: `Pathwise is streaming your personalised week of ${goal.skill} practice as the AI generates it.` });
     try {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-      const result = await requestJson(
+      let streamedText = '';
+      const result = await requestRoadmapStream(
         '/api/v1/learning-goals/' + goal.id + '/roadmaps/generate?timeZone=' + encodeURIComponent(timeZone),
-        { method: 'POST', body: JSON.stringify({ planningDays: 3 }) },
+        { method: 'POST', body: JSON.stringify({ planningDays: 7 }) },
+        (token) => {
+          streamedText += token;
+          const titles = [...streamedText.matchAll(/"title"\s*:\s*"([^"]+)"/g)]
+            .map((match) => { try { return JSON.parse('"' + match[1] + '"'); } catch { return ''; } })
+            .filter(Boolean);
+          const visibleTitles = [...new Set(titles.slice(1))].slice(0, 5);
+          setNotice({ type: 'success', message: visibleTitles.length
+            ? 'Building your week: ' + visibleTitles.join(' · ')
+            : 'AI is drafting your personalised week. The first practice sessions are arriving…' });
+        },
       );
       let roadmap = result?.data?.roadmap;
       if (!roadmap?.id) {
@@ -330,7 +376,7 @@ function App() {
         ...current,
         [goal.id]: [roadmap, ...(current[goal.id] || []).filter((item) => item.id !== roadmap.id)],
       }));
-      setNotice({ type: 'success', message: 'Your day-by-day learning plan is ready. It is saved below as a draft; review it before activating it.' });
+      setNotice({ type: 'success', message: 'Your personalised week is ready and saved below as a draft; review it before activating it.' });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
     } finally {
