@@ -71,6 +71,7 @@ function App() {
   const [learningBriefConfirmedByRoadmap, setLearningBriefConfirmedByRoadmap] = useState({});
   const [clarificationByRoadmap, setClarificationByRoadmap] = useState({});
   const [generatingGoalId, setGeneratingGoalId] = useState(null);
+  const [streamedTopics, setStreamedTopics] = useState([]);
   const [expandedGoalIds, setExpandedGoalIds] = useState(() => new Set());
   const [expandedRoadmapIds, setExpandedRoadmapIds] = useState(() => new Set());
   const [roadmapBusyGoal, setRoadmapBusyGoal] = useState(null);
@@ -340,6 +341,7 @@ function App() {
   async function handleGenerateRoadmap(goal) {
     setRoadmapBusyGoal(goal.id);
     setGeneratingGoalId(goal.id);
+    setStreamedTopics([]);
     setNotice({ type: 'success', message: `Pathwise is streaming your personalised week of ${goal.skill} practice as the AI generates it.` });
     try {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -349,13 +351,37 @@ function App() {
         { method: 'POST', body: JSON.stringify({ planningDays: 7 }) },
         (token) => {
           streamedText += token;
-          const titles = [...streamedText.matchAll(/"title"\s*:\s*"([^"]+)"/g)]
-            .map((match) => { try { return JSON.parse('"' + match[1] + '"'); } catch { return ''; } })
-            .filter(Boolean);
-          const visibleTitles = [...new Set(titles.slice(1))].slice(0, 5);
-          setNotice({ type: 'success', message: visibleTitles.length
-            ? 'Building your week: ' + visibleTitles.join(' · ')
-            : 'AI is drafting your personalised week. The first practice sessions are arriving…' });
+          const foundTopics = [];
+          const objectStarts = [];
+          let inString = false, escaped = false;
+          for (let index = 0; index < streamedText.length; index += 1) {
+            const char = streamedText[index];
+            if (inString) {
+              if (escaped) escaped = false;
+              else if (char === '\\') escaped = true;
+              else if (char === '"') inString = false;
+              continue;
+            }
+            if (char === '"') inString = true;
+            else if (char === '{') objectStarts.push(index);
+            else if (char === '}') {
+              const objectStart = objectStarts.pop();
+              if (objectStart !== undefined) {
+                try {
+                  const item = JSON.parse(streamedText.slice(objectStart, index + 1));
+                  if (item && typeof item.key === 'string' && typeof item.title === 'string'
+                    && typeof item.description === 'string' && Array.isArray(item.learningObjectives)
+                    && Number.isFinite(item.estimatedMinutes)) {
+                    foundTopics.push({ key: item.key, title: item.title, description: item.description, estimatedMinutes: item.estimatedMinutes });
+                  }
+                } catch { /* Ignore objects that are not complete topic records. */ }
+              }
+            }
+          }
+          setStreamedTopics(foundTopics);
+          setNotice({ type: 'success', message: foundTopics.length
+            ? `AI is writing session ${foundTopics.length} of your week…`
+            : `AI is drafting your personalised week… ${streamedText.length.toLocaleString()} characters received` });
         },
       );
       let roadmap = result?.data?.roadmap;
@@ -985,7 +1011,7 @@ return <article key={goal.id} className="goal-card rounded-2xl border border-[#e
 </div>
 
 </div>
-{generatingGoalId === goal.id && <div role="status" aria-live="polite" className="mt-4 flex items-start gap-3 rounded-xl border border-[#41413d] bg-[#191918] p-4 text-sm text-[#d1d1cd]"><span className="mt-0.5 inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#777773] border-t-[#ff5933]" aria-hidden="true" /><span><strong className="block text-[#f2f2f0]">Building your learning plan</strong><span className="mt-1 block text-xs leading-5 text-[#a3a39f]">The AI is organising practice day by day. Your saved roadmap will appear here automatically when generation finishes.</span></span></div>}
+{generatingGoalId === goal.id && <section role="status" aria-live="polite" className="mt-4 border border-[#41413d] bg-[#191918] p-4 text-sm text-[#d1d1cd]"><div className="flex items-start gap-3"><span className="mt-0.5 inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#777773] border-t-[#ff5933]" aria-hidden="true" /><span><strong className="block text-[#f2f2f0]">Building your learning plan</strong><span className="mt-1 block text-xs leading-5 text-[#a3a39f]">{streamedTopics.length ? `Live draft · ${streamedTopics.length} session${streamedTopics.length === 1 ? '' : 's'} received from the model` : 'Waiting for the first session tokens from the AI…'}</span></span></div>{streamedTopics.length > 0 && <ol className="mt-4 space-y-3 border-t border-[#343432] pt-3">{streamedTopics.map((topic, index) => <li key={topic.title + index} className="border-b border-[#343432] pb-3 last:border-b-0 last:pb-0"><div className="flex items-start justify-between gap-3"><strong className="text-sm text-[#f2f2f0]">{index + 1}. {topic.title}</strong>{Number.isFinite(topic.estimatedMinutes) && <span className="shrink-0 text-xs text-[#a3a39f]">{topic.estimatedMinutes} min</span>}</div><p className="mt-1 text-xs leading-5 text-[#a3a39f]">{topic.description}</p></li>)}</ol>}</section>}
 {(roadmapsByGoal[goal.id] || []).map((roadmap) => {
 const roadmapExpanded = expandedRoadmapIds.has(roadmap.id) || roadmap.generationState === 'DRAFT';
 return <div key={roadmap.id} className={`roadmap-card mt-4 rounded-xl bg-[#f7f8f4] p-4 ${goalExpanded ? '' : 'hidden'}`}>
