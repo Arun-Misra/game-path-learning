@@ -207,7 +207,50 @@ function buildMessages(learner) {
     { role: 'user', content: JSON.stringify(learner) },
   ];
 }
-async function generateRoadmapOnce(goal, { apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '', baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL, model = process.env.AI_MODEL || process.env.OPENAI_MODEL || DEFAULT_MODEL, fetchImpl = globalThis.fetch, now = new Date() } = {}) {
+
+async function readStreamingContent(response, localOllama, onToken) {
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_STREAM_UNSUPPORTED', 'The AI provider did not expose a readable token stream.');
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '', content = '';
+  const consumeLine = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed || (!localOllama && !trimmed.startsWith('data:'))) return;
+    const data = localOllama ? trimmed : trimmed.slice(5).trim();
+    if (!data || data === '[DONE]') return;
+    let payload;
+    try { payload = JSON.parse(data); } catch { return; }
+    const token = localOllama
+      ? payload?.message?.content
+      : payload?.choices?.[0]?.delta?.content;
+    if (typeof token === 'string' && token.length) {
+      content += token;
+      onToken(token);
+    }
+    if (payload?.error) throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_PROVIDER_ERROR', 'The AI provider returned an error while streaming the roadmap.');
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) consumeLine(line);
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) consumeLine(buffer);
+  } catch (error) {
+    if (error instanceof ExperimentalRoadmapGenerationError) throw error;
+    throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_STREAM_INTERRUPTED', 'The AI token stream ended unexpectedly.');
+  }
+  if (!content.trim()) throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_EMPTY_MODEL_RESPONSE', 'The model did not stream a roadmap.');
+  return content.trim();
+}
+
+async function generateRoadmapOnce(goal, { apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '', baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL, model = process.env.AI_MODEL || process.env.OPENAI_MODEL || DEFAULT_MODEL, fetchImpl = globalThis.fetch, now = new Date(), onToken } = {}) {
   const localOllama = isLocalOllama(baseUrl);
   if (!apiKey && !localOllama) throw new ExperimentalRoadmapGenerationError(503, 'ROADMAP_GENERATOR_NOT_CONFIGURED', 'No AI API key is configured.');
   const learner = buildLearnerBrief(goal, now), endpoint = getEndpoint(baseUrl), headers = { 'Content-Type': 'application/json' };
@@ -219,8 +262,8 @@ async function generateRoadmapOnce(goal, { apiKey = process.env.AI_API_KEY || pr
   // Full-plan generation has no artificial output-token ceiling. Rolling chunks remain bounded.
   const numPredict = learner.unrestrictedGeneration ? -1 : (learner.planningDays <= 1 ? 2048 : learner.planningDays <= 3 ? 3072 : learner.planningDays <= 7 ? 6144 : 8192);
   const body = localOllama
-    ? { model, messages, format: ollamaFormat, think: reasoningEffort, options: { num_ctx: Number.isFinite(contextLength) ? Math.max(4096, Math.min(32768, contextLength)) : 16384, num_predict: numPredict, temperature: 0.4 }, stream: false }
-    : { model, messages, ...(learner.unrestrictedGeneration ? {} : { max_tokens: numPredict }), temperature: 0.4, reasoning_effort: reasoningEffort, response_format: { type: 'json_object' }, stream: false };
+    ? { model, messages, format: ollamaFormat, think: reasoningEffort, options: { num_ctx: Number.isFinite(contextLength) ? Math.max(4096, Math.min(32768, contextLength)) : 16384, num_predict: numPredict, temperature: 0.4 }, stream: typeof onToken === 'function' }
+    : { model, messages, ...(learner.unrestrictedGeneration ? {} : { max_tokens: numPredict }), temperature: 0.4, reasoning_effort: reasoningEffort, response_format: { type: 'json_object' }, stream: typeof onToken === 'function' };
   let response;
   try {
     response = await fetchImpl(endpoint, { method: 'POST', headers, signal: AbortSignal.timeout(240000), body: JSON.stringify(body) });
@@ -228,12 +271,18 @@ async function generateRoadmapOnce(goal, { apiKey = process.env.AI_API_KEY || pr
     throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_PROVIDER_UNAVAILABLE', 'The AI provider could not be reached. Check that the selected model is running.');
   }
   if (!response.ok) throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_PROVIDER_ERROR', 'The AI provider returned an error while generating the roadmap.');
-  let payload;
-  try { payload = await response.json(); } catch {
-    throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_INVALID_PROVIDER_RESPONSE', 'The AI provider returned an unreadable response.');
+  let content;
+  if (typeof onToken === 'function') {
+    content = await readStreamingContent(response, localOllama, onToken);
+  } else {
+    let payload;
+    try { payload = await response.json(); } catch {
+      throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_INVALID_PROVIDER_RESPONSE', 'The AI provider returned an unreadable response.');
+    }
+    content = getMessageContent(payload);
   }
   // Exactly one provider call per generation; don't silently pay for a repair generation.
-  const decision = parseDecision(getMessageContent(payload));
+  const decision = parseDecision(content);
   const roadmap = decision.roadmap && typeof decision.roadmap === 'object' ? decision.roadmap : decision;
   if (typeof roadmap.title !== 'string' || typeof roadmap.summary !== 'string' || !Array.isArray(roadmap.topics)) {
     throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_MISSING_CONTENT', 'The model returned JSON but omitted the roadmap title, summary, or topics. One model request was used; no repair retry was made.');
@@ -268,4 +317,4 @@ async function generateRoadmap(goal, options = {}) {
   throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_DUPLICATE_CONTENT', 'The model repeated prior topics after one correction attempt. No new chunk was activated.');
 }
 
-module.exports = { ExperimentalRoadmapGenerationError, buildLearnerBrief, buildMessages, fitTopicsToChunk, normalizeTopicTitle, findRepeatedCompletedTopics, assertContinuationProgress, getEndpoint, parseDecision, generateRoadmap };
+module.exports = { ExperimentalRoadmapGenerationError, buildLearnerBrief, buildMessages, fitTopicsToChunk, normalizeTopicTitle, findRepeatedCompletedTopics, assertContinuationProgress, getEndpoint, parseDecision, readStreamingContent, generateRoadmap };

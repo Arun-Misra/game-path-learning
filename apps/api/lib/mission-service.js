@@ -82,8 +82,10 @@ async function generateInitialRollingMissions({ userId, goalId, timeZone = 'UTC'
   }
 
   const dayIndexes = new Set(sessionDayIndexes(goal.daysPerWeek));
+  const plannedDays = Number.isInteger(roadmap.learningBrief?.planningDays)
+    ? Math.min(7, Math.max(1, roadmap.learningBrief.planningDays)) : 3;
   const dates = [];
-  for (let offset = 0; offset <= 365 && dates.length < 3; offset += 1) {
+  for (let offset = 0; offset <= 365 && dates.length < plannedDays; offset += 1) {
     const candidate = addDays(today, offset);
     if (deadline && candidate > deadline) break;
     if (dayIndexes.has(offset % 7)) dates.push(candidate);
@@ -103,7 +105,7 @@ async function generateInitialRollingMissions({ userId, goalId, timeZone = 'UTC'
       usedMinutes = 0;
     }
     if (dateIndex >= groups.length) {
-      throw new MissionServiceError(409, 'INITIAL_CHUNK_DAILY_BUDGET_INVALID', 'The first learning chunk is larger than the first three study days can support. Regenerate a smaller chunk.');
+      throw new MissionServiceError(409, 'INITIAL_CHUNK_DAILY_BUDGET_INVALID', `The first learning chunk is larger than its ${plannedDays}-study-day schedule can support. Regenerate a smaller chunk.`);
     }
     groups[dateIndex].push(topic);
     usedMinutes += topic.estimatedMinutes;

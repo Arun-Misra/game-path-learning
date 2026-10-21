@@ -24,6 +24,44 @@ const goal = {
   targetDate: '2026-12-01T00:00:00.000Z',
 };
 
+
+test('streams model tokens while still validating and returning the complete weekly roadmap', async () => {
+  const output = {
+    title: 'A focused guitar week',
+    summary: 'Seven study days of practical progress.',
+    topics: [
+      { key: 'one', title: 'Practise clean chord changes', description: 'Switch between two chords slowly.', learningObjectives: ['Change chords cleanly five times.'], estimatedMinutes: 25, prerequisiteKeys: [] },
+      { key: 'two', title: 'Apply chord changes to a progression', description: 'Play a short progression.', learningObjectives: ['Play the progression without stopping.'], estimatedMinutes: 25, prerequisiteKeys: ['one'] },
+    ],
+  };
+  const json = JSON.stringify(output);
+  const chunks = [json.slice(0, 45), json.slice(45, 120), json.slice(120)];
+  const streamedTokens = [];
+  let requestBody;
+  const body = new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(JSON.stringify({ message: { content: chunk }, done: false }) + '\n'));
+      controller.enqueue(new TextEncoder().encode(JSON.stringify({ message: { content: '', done: true } }) + '\n'));
+      controller.close();
+    },
+  });
+  const result = await generateRoadmap({ ...goal, planningDays: 7, daysPerWeek: 7 }, {
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    model: 'gemma4:e4b',
+    onToken: (token) => streamedTokens.push(token),
+    fetchImpl: async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return { ok: true, status: 200, body };
+    },
+  });
+  assert.equal(requestBody.stream, true);
+  assert.equal(requestBody.options.num_predict, 6144);
+  assert.equal(streamedTokens.join(''), json);
+  assert.equal(result.topics.length, 2);
+  assert.equal(result.topics[0].title, 'Practise clean chord changes');
+  assert.match(result.title, /First chunk/);
+});
+
 test('learner brief contains the goal, starting level, available time, and target horizon', () => {
   const brief = buildLearnerBrief(goal, new Date('2026-10-22T00:00:00.000Z'));
   assert.equal(brief.skill, 'Guitar');
@@ -38,7 +76,7 @@ test('learner brief contains the goal, starting level, available time, and targe
 
 test('prompt asks for a concise, single JSON response within the rolling chunk', () => {
   const messages = buildMessages(buildLearnerBrief(goal, new Date('2026-10-22T00:00:00.000Z')));
-  const prompt = messages.map((message) => message.content).join('\\n');
+  const prompt = messages.map((message) => message.content).join('\n');
   assert.match(prompt, /best Guitar coach and planner/i);
   assert.match(prompt, /40 days/i);
   assert.match(prompt, /30 minutes per day/i);
@@ -283,7 +321,7 @@ test('limits generation to the requested rolling chunk and scales the output bud
 test('unrestricted initial generation removes prompt and output-token ceilings', async () => {
   const unrestrictedGoal = { ...goal, planningDays: 3, unrestrictedGeneration: true };
   const messages = buildMessages(buildLearnerBrief(unrestrictedGoal, new Date('2026-10-22T00:00:00.000Z')));
-  const prompt = messages.map((message) => message.content).join('\\n');
+  const prompt = messages.map((message) => message.content).join('\n');
   assert.match(prompt, /complete learning journey/i);
   assert.match(prompt, /not a generation limit/i);
   assert.doesNotMatch(prompt, /Generate only the next 3 study days/i);
@@ -327,7 +365,7 @@ test('prompt includes prior learning and timing evidence and requires actionable
   });
   const timeCalibrationContext = JSON.stringify({ sampleCount: 3, observedPattern: 'actual time is typically about 20% longer than estimated' });
   const brief = buildLearnerBrief({ ...goal, chunkNumber: 2, priorLearningContext, timeCalibrationContext });
-  const prompt = buildMessages(brief).map((message) => message.content).join('\\n');
+  const prompt = buildMessages(brief).map((message) => message.content).join('\n');
   assert.equal(brief.chunkNumber, 2);
   assert.equal(brief.priorLearningContext, priorLearningContext);
   assert.equal(brief.timeCalibrationContext, timeCalibrationContext);

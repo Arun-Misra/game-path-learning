@@ -331,6 +331,72 @@ test('initial mission scheduling prepares at most three study dates within learn
   assert.ok(created.every((mission) => mission.estimatedMinutes <= 30));
 });
 
+
+test('initial mission scheduling prepares all seven study days for a weekly roadmap', async () => {
+  const created = [];
+  let listCalls = 0;
+  const topics = Array.from({ length: 7 }, (_, index) => ({
+    id: 'week-topic-' + index,
+    title: 'Week topic ' + index,
+    description: 'Practise week topic ' + index,
+    learningObjectives: ['Demonstrate week topic ' + index],
+    estimatedMinutes: 20,
+    position: index,
+  }));
+  const db = {
+    learningGoal: { findFirst: async () => ({ id: 'goal-1', minutesPerDay: 30, daysPerWeek: 7, targetDate: null }) },
+    roadmap: { findFirst: async () => ({ id: 'roadmap-week', learningBrief: { planningDays: 7 }, topics }) },
+    dailyMission: {
+      findMany: async () => {
+        listCalls += 1;
+        if (listCalls === 1) return [];
+        return created.map((mission) => ({ ...mission, topic: topics.find((topic) => topic.id === mission.topicId), completion: null }));
+      },
+      createMany: async ({ data }) => { created.push(...data); return { count: data.length }; },
+    },
+    xpTransaction: { aggregate: async () => ({ _sum: { amount: 0 } }) },
+  };
+
+  const result = await generateInitialRollingMissions({
+    userId: 'user-1',
+    goalId: 'goal-1',
+    timeZone: 'UTC',
+    now: new Date('2026-10-26T10:00:00.000Z'),
+    db,
+  });
+
+  assert.equal(result.plannedDays, 7);
+  assert.equal(new Set(created.map((mission) => mission.scheduledDate.toISOString().slice(0, 10))).size, 7);
+  assert.equal(created.length, 7);
+  assert.ok(created.every((mission) => mission.estimatedMinutes <= 30));
+});
+
+test('weekly rolling generation waits for the active week to finish even when fewer than three days remain', async () => {
+  const db = {
+    learningGoal: {
+      findFirst: async () => ({
+        id: 'goal-week', title: 'Java', targetOutcome: 'Practise Java',
+        experienceLevel: 'BEGINNER', minutesPerDay: 30, daysPerWeek: 7,
+        targetDate: null, originalDescription: 'Practise Java',
+      }),
+    },
+    roadmap: { findFirst: async () => ({ id: 'weekly-roadmap', learningBrief: { planningDays: 7 } }) },
+    dailyMission: {
+      findMany: async () => [
+        { scheduledDate: new Date('2026-10-30T00:00:00.000Z') },
+        { scheduledDate: new Date('2026-10-31T00:00:00.000Z') },
+      ],
+    },
+  };
+  const result = await rollForwardRoadmap({
+    userId: 'user-week', goalId: 'goal-week', timeZone: 'UTC',
+    now: new Date('2026-10-29T10:00:00.000Z'), db,
+  });
+  assert.equal(result.generated, false);
+  assert.equal(result.reason, 'ROLLING_WINDOW_FULL');
+  assert.equal(result.pendingDays, 2);
+});
+
 test('deadline feasibility compares remaining effort with learner study availability', () => {
   const goal = {
     minutesPerDay: 60,

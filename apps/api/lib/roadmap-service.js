@@ -301,7 +301,7 @@ function buildContinuationSummary(priorLearningContext, nextTopics = []) {
   if (!evidence.length) evidence.push('Evidence is limited. Start with a brief retrieval or diagnostic attempt before assuming earlier material is mastered.');
   return { heading: 'How this chunk builds on your progress', evidence, nextFocus: (Array.isArray(nextTopics) ? nextTopics : []).slice(0, 3).map((topic) => topic.title).filter(Boolean) };
 }
-async function generateRoadmapDraft({ userId, goalId, clarifications = '', planningDays = 3, unrestrictedGeneration = false, answers = [], timeZone = 'UTC', now = new Date(), db = prisma, generator = generateRoadmap }) {
+async function generateRoadmapDraft({ userId, goalId, clarifications = '', planningDays = 3, unrestrictedGeneration = false, answers = [], timeZone = 'UTC', now = new Date(), db = prisma, generator = generateRoadmap, onToken }) {
   const goal = await db.learningGoal.findFirst({
     where: { id: goalId, userId },
     select: {
@@ -366,7 +366,7 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
 
   let proposed;
   try {
-    proposed = await generator({ ...goal, learnerClarifications: combinedClarifications, planningDays: normalizedPlanningDays, unrestrictedGeneration: unrestrictedGeneration === true, chunkNumber, priorLearningContext, timeCalibrationContext: timeCalibration.context });
+    proposed = await generator({ ...goal, learnerClarifications: combinedClarifications, planningDays: normalizedPlanningDays, unrestrictedGeneration: unrestrictedGeneration === true, chunkNumber, priorLearningContext, timeCalibrationContext: timeCalibration.context }, { onToken });
   } catch (error) {
     if (process.env.AI_DEBUG === 'true') {
       console.error('[roadmap-service] Roadmap generation failed:', JSON.stringify({
@@ -440,7 +440,7 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
     if (!goal) throw new RoadmapServiceError(404, 'GOAL_NOT_FOUND', 'Learning goal not found.');
     const currentActiveRoadmap = await db.roadmap.findFirst({
       where: { learningGoalId: goalId, generationState: 'ACTIVE' },
-      select: { id: true },
+      select: { id: true, learningBrief: true },
     });
     if (!currentActiveRoadmap) throw new RoadmapServiceError(409, 'ACTIVE_ROADMAP_REQUIRED', 'Activate the initial roadmap before generating continuation sessions.');
 
@@ -475,9 +475,15 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
       orderBy: { scheduledDate: 'asc' },
     });
     const pendingDates = [...new Set(pending.map((item) => item.scheduledDate.toISOString().slice(0, 10)))];
+    const weeklyGeneration = Number(currentActiveRoadmap.learningBrief?.planningDays) >= 7;
+    // A weekly roadmap owns its full scheduled week. Do not supersede it just because
+    // the rolling lookahead has shrunk below three days; wait until its week is consumed.
+    if (weeklyGeneration && pendingDates.length > 0) {
+      return { generated: false, reason: 'ROLLING_WINDOW_FULL', pendingDays: pendingDates.length };
+    }
     if (pendingDates.length >= 3) return { generated: false, reason: 'ROLLING_WINDOW_FULL', pendingDays: pendingDates.length };
 
-    const planningDays = Math.min(2, 3 - pendingDates.length);
+    const planningDays = weeklyGeneration ? 7 : Math.min(2, 3 - pendingDates.length);
     if (planningDays < 1) return { generated: false, reason: 'ROLLING_WINDOW_FULL', pendingDays: pendingDates.length };
 
     const lastPendingDate = pendingDates[pendingDates.length - 1] || today;

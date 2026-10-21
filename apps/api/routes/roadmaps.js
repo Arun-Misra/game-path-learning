@@ -81,6 +81,12 @@ router.post('/generate', async (req, res, next) => {
     });
   }
 
+  const streaming = String(req.headers.accept || '').includes('text/event-stream');
+  if (streaming) {
+    res.status(200);
+    res.set({ 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+    res.flushHeaders?.();
+  }
   try {
     const roadmap = await generateRoadmapDraft({
       userId: req.user.id,
@@ -89,9 +95,23 @@ router.post('/generate', async (req, res, next) => {
       planningDays: parsedBody.data.planningDays || 3,
       answers: parsedBody.data.answers || [],
       timeZone: parsedQuery.data.timeZone,
+      onToken: streaming ? (token) => {
+        if (!res.writableEnded) res.write('data: ' + JSON.stringify({ type: 'token', token }) + '\n\n');
+      } : undefined,
     });
+    if (streaming) {
+      res.write('data: ' + JSON.stringify({ type: 'complete', roadmap }) + '\n\n');
+      return res.end();
+    }
     return res.status(201).json({ data: { roadmap } });
   } catch (error) {
+    if (streaming) {
+      if (!res.writableEnded) {
+        res.write('data: ' + JSON.stringify({ type: 'error', error: { code: error.code || 'ROADMAP_GENERATION_FAILED', message: error.message || 'Roadmap generation failed.' } }) + '\n\n');
+        return res.end();
+      }
+      return undefined;
+    }
     return handleServiceError(error, res, next);
   }
 });
