@@ -80,6 +80,7 @@ function App() {
   const [missionBusyId, setMissionBusyId] = useState(null);
   const [expandedMissionId, setExpandedMissionId] = useState(null);
   const [missionEvidenceById, setMissionEvidenceById] = useState({});
+  const [missionChecklistById, setMissionChecklistById] = useState({});
   const [missionFeelingById, setMissionFeelingById] = useState({});
   const [missionActualMinutesById, setMissionActualMinutesById] = useState({});
   const [assessmentByTopic, setAssessmentByTopic] = useState({});
@@ -1178,10 +1179,23 @@ return <div key={roadmap.id} className={`roadmap-card mt-4 rounded-xl bg-[#f7f8f
       {objectives.length > 0 && <>
         <h4 className="mt-4 text-xs font-bold uppercase tracking-[0.12em] text-[#a3a39f]">Success checklist</h4>
         <ul className="mt-2 space-y-2">
-          {objectives.map((objective, index) => <li key={index} className="flex items-start gap-2 text-sm leading-5 text-[#d1d1cd]">
-            <span className="mt-1 inline-block h-3 w-3 shrink-0 border border-[#ff5933]" aria-hidden="true" />
-            <span>{objective}</span>
-          </li>)}
+          {objectives.map((objective, index) => {
+            const checked = Boolean(missionChecklistById[mission.id]?.[index]);
+            return <li key={index}>
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#343432] p-3 text-sm leading-5 text-[#d1d1cd] transition-colors hover:border-[#777773]">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => setMissionChecklistById((current) => ({
+                    ...current,
+                    [mission.id]: { ...(current[mission.id] || {}), [index]: event.target.checked },
+                  }))}
+                  className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[#ff5933]"
+                />
+                <span className={checked ? 'text-[#777773] line-through' : ''}>{objective}</span>
+              </label>
+            </li>;
+          })}
         </ul>
       </>}
       {!completed && <>
