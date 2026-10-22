@@ -349,7 +349,7 @@ function App() {
       let streamedText = '';
       const result = await requestRoadmapStream(
         '/api/v1/learning-goals/' + goal.id + '/roadmaps/generate?timeZone=' + encodeURIComponent(timeZone),
-        { method: 'POST', body: JSON.stringify({ planningDays: 7 }) },
+        { method: 'POST', body: JSON.stringify({ planningDays: Math.min(7, Math.max(1, Number(goal.daysPerWeek) || 3)) }) },
         (token) => {
           streamedText += token;
           const foundTopics = [];
