@@ -30,11 +30,17 @@ async function listMissions({ userId, goalId, from, to, timeZone = 'UTC', db = p
     throw new MissionServiceError(400, 'INVALID_DATE_RANGE', 'Provide a valid date range.');
   }
 
+  const activeRoadmap = await db.roadmap.findFirst({
+    where: { learningGoalId: goalId, generationState: 'ACTIVE' },
+    orderBy: { version: 'desc' },
+    select: { id: true },
+  });
   const [missions, xp] = await Promise.all([
     db.dailyMission.findMany({
       where: {
         userId,
         learningGoalId: goalId,
+        ...(activeRoadmap ? { roadmapId: activeRoadmap.id } : {}),
         scheduledDate: { gte: utcDate(startDate), lte: utcDate(endDate) },
       },
       orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
