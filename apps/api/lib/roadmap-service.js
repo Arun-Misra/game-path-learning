@@ -245,6 +245,8 @@ function buildPriorLearningContext(activeRoadmap, priorRoadmaps = [], chunkNumbe
           minutes: item.estimatedMinutes,
           ...(typeof evidence.sessionFeeling === 'string' ? { sessionFeeling: evidence.sessionFeeling } : {}),
           ...(typeof evidence.reflection === 'string' && evidence.reflection.trim() ? { learnerReflection: evidence.reflection.trim().slice(0, 300) } : {}),
+          ...(Number.isInteger(evidence.actualMinutes) && evidence.actualMinutes > 0 ? { actualMinutes: evidence.actualMinutes } : {}),
+          ...(Array.isArray(evidence.checklist) ? { checklist: evidence.checklist.slice(0, 30).map((item) => ({ objective: String(item.objective || '').slice(0, 300), completed: item.completed === true })) } : {}),
         };
       }),
       incompleteActivities: missions.filter((item) => item.status !== 'COMPLETED').map((item) => ({ title: item.title, topic: item.topic?.title, status: item.status })),
@@ -259,6 +261,7 @@ function buildPriorLearningContext(activeRoadmap, priorRoadmaps = [], chunkNumbe
       'Use the most recent assessment attempt for each topic; older high scores must not hide a weak retake.',
       'Treat completion as evidence that an activity was finished, not proof that the skill was mastered.',
       'Use the learner’s own session feeling and reflection as coaching signals: stuck means isolate the obstacle and scaffold a retry; too easy means offer a transfer or stretch; about right means keep a productive level of challenge. These signals inform the plan but do not prove mastery by themselves.',
+      'Use checklist results as learner-reported objective evidence: unchecked objectives are candidate gaps to revisit, while checked objectives still do not prove independent mastery.',
       'Interpret assessment scores alongside the specific errors, task difficulty, confidence and other evidence. Use the actual gap to choose reinforcement or progression instead of applying a universal percentage threshold.',
       'A score of 85% or higher is evidence only for the concepts that assessment tested. Hands-on skills still require independent performance or an authentic artifact before mastery is assumed.',
       'Carry unfinished work forward when it still serves the goal; otherwise explain why the next step should change.',
@@ -462,7 +465,25 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
       }
     }
 
-    if (completedDate) {
+    // Option A: prepare the next chunk when only one lesson remains in the active
+    // chunk. Every earlier completion is persisted without calling the model.
+    // This server-side check is authoritative and safe against stale frontend state.
+    let remainingActiveChunkLessons = null;
+    if (completedDate && typeof db.dailyMission.count === 'function') {
+      remainingActiveChunkLessons = await db.dailyMission.count({
+        where: {
+          userId,
+          learningGoalId: goalId,
+          roadmapId: currentActiveRoadmap.id,
+          status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+        },
+      });
+      if (remainingActiveChunkLessons > 1) {
+        return { generated: false, reason: 'CHUNK_NOT_NEAR_END', remainingLessons: remainingActiveChunkLessons };
+      }
+    }
+
+    if (completedDate && remainingActiveChunkLessons === null) {
       const unfinishedOnCompletedDate = await db.dailyMission.count({
         where: { userId, learningGoalId: goalId, scheduledDate: utcDate(completedDate), status: { in: ['SCHEDULED', 'IN_PROGRESS'] } },
       });
@@ -470,15 +491,17 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
     }
 
     const pending = await db.dailyMission.findMany({
-      where: { userId, learningGoalId: goalId, scheduledDate: { gte: utcDate(today) }, status: { in: ['SCHEDULED', 'IN_PROGRESS'] } },
-      select: { scheduledDate: true },
-      orderBy: { scheduledDate: 'asc' },
+      where: { userId, learningGoalId: goalId, roadmapId: currentActiveRoadmap.id, scheduledDate: { gte: utcDate(today) }, status: { in: ['SCHEDULED', 'IN_PROGRESS'] } },
+      select: { scheduledDate: true, id: true, status: true },
+      orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
     });
     const pendingDates = [...new Set(pending.map((item) => item.scheduledDate.toISOString().slice(0, 10)))];
     const weeklyGeneration = Number(currentActiveRoadmap.learningBrief?.planningDays) >= 7;
-    // A weekly roadmap owns its full scheduled week. Do not supersede it just because
-    // the rolling lookahead has shrunk below three days; wait until its week is consumed.
-    if (weeklyGeneration && pendingDates.length > 0) {
+    // Keep the weekly chunk intact while more than one lesson remains.
+    // Once only the final lesson remains, a new chunk may be prepared ahead of it.
+    // A weekly chunk may be generated ahead while its final lesson remains
+    // scheduled. Keep the old lesson intact; it can be completed on its own roadmap.
+    if (weeklyGeneration && pending.length > 1) {
       return { generated: false, reason: 'ROLLING_WINDOW_FULL', pendingDays: pendingDates.length };
     }
     if (pendingDates.length >= 3) return { generated: false, reason: 'ROLLING_WINDOW_FULL', pendingDays: pendingDates.length };

@@ -624,6 +624,8 @@ function App() {
           setRoadmapsByGoal((current) => ({ ...current, [goal.id]: roadmapRefresh.data.roadmaps }));
           await refreshNextStep(goal.id);
           setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Your next learning days were already prepared and have been refreshed.` });
+        } else if (rollingResult.data.reason === 'CHUNK_NOT_NEAR_END') {
+          setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Pathwise saved your learning evidence and will prepare the next chunk when one lesson remains.` });
         } else if (rollingResult.data.reason === 'DAY_NOT_COMPLETE') {
           setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Finish the remaining sessions for today and Pathwise will prepare the next days.` });
         } else if (rollingResult.data.reason === 'ROLLING_WINDOW_FULL') {
@@ -674,6 +676,10 @@ function App() {
               reflection,
               ...(missionFeelingById[mission.id] ? { sessionFeeling: missionFeelingById[mission.id] } : {}),
               ...(actualMinutes === null ? {} : { actualMinutes }),
+              checklist: (Array.isArray(mission.completionCriteria?.objectives) ? mission.completionCriteria.objectives : []).map((objective, index) => ({
+                objective: String(objective),
+                completed: missionChecklistById[mission.id]?.[index] === true,
+              })),
               completionCriteria: mission.completionCriteria || {},
               missionType: mission.missionType || 'LEARN',
             },

@@ -51,7 +51,7 @@ test('follow-up context carries the learner’s session feeling and reflection i
       status: 'COMPLETED',
       topic: { title: 'Chord changes' },
       completion: {
-        evidence: { sessionFeeling: 'STUCK', reflection: 'I can form both chords, but the transition is slow.' },
+        evidence: { sessionFeeling: 'STUCK', reflection: 'I can form both chords, but the transition is slow.', actualMinutes: 32, checklist: [{ objective: 'Change chords cleanly', completed: false }, { objective: 'Keep a steady rhythm', completed: true }] },
         completedAt: new Date('2026-10-21T10:00:00Z'),
       },
     }],
@@ -59,6 +59,8 @@ test('follow-up context carries the learner’s session feeling and reflection i
   const context = JSON.parse(buildPriorLearningContext(roadmap, [roadmap], 2));
   assert.equal(context.completedActivities[0].sessionFeeling, 'STUCK');
   assert.match(context.completedActivities[0].learnerReflection, /transition is slow/);
+  assert.equal(context.completedActivities[0].actualMinutes, 32);
+  assert.deepEqual(context.completedActivities[0].checklist, [{ objective: 'Change chords cleanly', completed: false }, { objective: 'Keep a steady rhythm', completed: true }]);
   assert.match(context.continuationRules.join(' '), /stuck means isolate the obstacle and scaffold a retry/i);
 });
 
@@ -258,8 +260,8 @@ test('rolling generation does not call the model when three upcoming study days 
   assert.equal(result.pendingDays, 3);
 });
 
-test('rolling generation waits until every session for the completed date is finished', async () => {
-  let pendingDaysQueried = false;
+test('rolling generation does not call the model until only one lesson remains in the active chunk', async () => {
+  let pendingQueried = false;
   const db = {
     learningGoal: {
       findFirst: async () => ({
@@ -273,10 +275,10 @@ test('rolling generation waits until every session for the completed date is fin
         originalDescription: 'Learn React',
       }),
     },
-    roadmap: { findFirst: async () => ({ id: 'active-roadmap-1' }) },
+    roadmap: { findFirst: async () => ({ id: 'active-roadmap-1', learningBrief: { planningDays: 7 } }) },
     dailyMission: {
-      count: async () => 1,
-      findMany: async () => { pendingDaysQueried = true; return []; },
+      count: async () => 2,
+      findMany: async () => { pendingQueried = true; return []; },
     },
   };
 
@@ -290,8 +292,9 @@ test('rolling generation waits until every session for the completed date is fin
   });
 
   assert.equal(result.generated, false);
-  assert.equal(result.reason, 'DAY_NOT_COMPLETE');
-  assert.equal(pendingDaysQueried, false);
+  assert.equal(result.reason, 'CHUNK_NOT_NEAR_END');
+  assert.equal(result.remainingLessons, 2);
+  assert.equal(pendingQueried, false);
 });
 
 test('initial mission scheduling prepares at most three study dates within learner availability', async () => {
