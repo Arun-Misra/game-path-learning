@@ -115,7 +115,7 @@ function buildDeadlineFeasibility({ goal, estimatedRemainingMinutes, estimateCon
       ? 'AT_RISK'
       : 'ON_TRACK';
   const recommendation = status === 'OVER_CAPACITY'
-    ? `The estimate is ${shortfallMinutes} minutes over available capacity. To keep the deadline, plan about ${requiredMinutesPerStudyDay} minutes per study day (${additionalMinutesPerStudyDay} extra minutes/day above your current daily limit); otherwise, extend by approximately ${additionalStudyDaysRequired} study days (~${estimatedExtensionCalendarDays} calendar days) or reduce the outcome scope.`
+    ? `The estimate exceeds your available capacity by ${shortfallMinutes} minutes. Pathwise will keep sessions within your chosen daily limit. To improve feasibility, extend the deadline by approximately ${additionalStudyDaysRequired} study days (~${estimatedExtensionCalendarDays} calendar days) or reduce the goal scope. Only increase your daily limit if you choose to.`
     : status === 'AT_RISK'
       ? 'The goal may fit, but there is little room for delays. Keep the scope focused and review progress after the next chunk.'
       : 'The current estimate fits within the available study time. Recheck after each chunk because estimates and pace can change.';

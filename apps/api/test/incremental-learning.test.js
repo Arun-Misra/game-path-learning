@@ -431,9 +431,12 @@ test('deadline feasibility compares remaining effort with learner study availabi
   assert.equal(overCapacity.additionalMinutesPerStudyDay, 65);
   assert.equal(overCapacity.additionalStudyDaysRequired, 5);
   assert.equal(overCapacity.estimatedExtensionCalendarDays, 5);
-  assert.match(overCapacity.recommendation, /260 minutes over available capacity/);
-  assert.match(overCapacity.recommendation, /125 minutes per study day/);
-  assert.match(overCapacity.recommendation, /reduce the outcome scope/i);
+  assert.match(overCapacity.recommendation, /exceeds your available capacity by 260 minutes/);
+  assert.match(overCapacity.recommendation, /keep sessions within your chosen daily limit/i);
+  assert.match(overCapacity.recommendation, /reduce the goal scope/i);
+  assert.match(overCapacity.recommendation, /only increase your daily limit if you choose/i);
+  assert.doesNotMatch(overCapacity.recommendation, /plan about 125 minutes per study day/i);
+  assert.match(overCapacity.recommendation, /reduce the goal scope/i);
 });
 
 test('deadline feasibility is explicit when there is no deadline or the estimate is unavailable', () => {

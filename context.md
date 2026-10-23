@@ -1,3 +1,5 @@
+File: context.md
+
 
 
 
@@ -417,3 +419,19 @@ Do not update master/reference docs frequently; update this context only for mat
 - Dashboard catch-up now releases its per-roadmap in-flight guard after a non-terminal response or request error. This prevents one stale/transient attempt from permanently blocking future catch-up checks for that roadmap.
 - This addresses the case where the next chunk was never requested from the AI because an overlapping request returned early at the generation-lock gate. Duplicate model calls remain protected by the server-side lock and persisted generation lease.
 - Validation after the change: `npm test` passed 118/118; `npm run check`, `npm run build`, `npm run db:validate`, and `git diff --check` passed. `npm run test:e2e` remains 10/11: the pre-existing mocked generated-roadmap journey still fails to find the fixture title “Guitar day-by-day plan”. Live multi-chunk verification against Ollama has not yet been performed.
+## Dashboard toast notifications (2026-10-27)
+
+- Replaced the in-flow green dashboard status banner with a fixed top-of-screen toast, so notices no longer push dashboard content down or leave a large empty area.
+- Toasts include a dismiss (�) button, appear with a short downward entrance, and automatically clear after five seconds; CSS fades them upward/out at the end of the five-second window. Repeated notice updates restart the timer.
+- Added reduced-motion handling. Existing notice types and message sources remain unchanged.
+
+## Learning goals in the sidebar (2026-10-27)
+
+- Added a compact `YOUR GOALS` list directly below `New learning goal`, with one shortcut per saved learning goal (for example, Java or Guitar), in a chat-history-inspired style.
+- Selecting a goal toggles its expanded details and smoothly scrolls its goal card into view. The active expanded goal is highlighted in the sidebar. Goal cards now have stable IDs for navigation.
+- The list scrolls independently if the user has many goals; existing create-goal and profile controls remain in place.
+
+## Deadline outlook respects learner time limits (2026-10-27)
+
+- Clarified over-capacity recommendations: Pathwise no longer tells the learner to schedule longer sessions as the default way to meet the deadline. It explicitly keeps the chosen daily limit as the planning constraint and recommends extending the deadline or reducing goal scope; increasing availability is presented only as the learner's choice.
+- Added regression assertions to ensure the over-capacity message respects the learner's daily limit and does not instruct them to exceed it.

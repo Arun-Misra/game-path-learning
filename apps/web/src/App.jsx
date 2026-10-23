@@ -96,6 +96,12 @@ function App() {
   const rollingCatchupRef = useRef(new Set());
 
   useEffect(() => {
+    if (!notice) return undefined;
+    const timeout = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
+  useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
     const scene = document.querySelector('.landing-art-scene');
     if (!scene) return undefined;
@@ -910,6 +916,12 @@ function App() {
           <p>{gamification?.currentStreak ? 'You’re building a habit. Keep it alive!' : 'One small session starts your streak.'}</p>
         </div>
         <button type="button" className="sidebar-add-goal" onClick={() => { setShowGoalForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Plus size={18} /> New learning goal</button>
+        <div className="sidebar-goals" aria-label="Your learning goals">
+          <p className="sidebar-goals-label">YOUR GOALS</p>
+          <nav className="sidebar-goal-list" aria-label="Learning goals">
+            {goals.map((goal) => <button key={goal.id} type="button" className={`sidebar-goal-link ${expandedGoalIds.has(goal.id) ? 'active' : ''}`} aria-current={expandedGoalIds.has(goal.id) ? 'page' : undefined} title={goal.skill} onClick={() => { setExpandedGoalIds((current) => { const next = new Set(current); if (next.has(goal.id)) next.delete(goal.id); else next.add(goal.id); return next; }); document.getElementById('goal-' + goal.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}><BookOpen size={16} /><span>{goal.skill}</span></button>)}
+          </nav>
+        </div>
         <div className="sidebar-profile"><span className="profile-avatar">{(user.name || user.email || 'L').slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{user.name || 'Learner'}</strong><small>Level {gamification?.level?.level || 1} explorer</small></span><button type="button" onClick={handleLogout} aria-label="Sign out" title="Sign out">↗</button></div>
       </aside>}
 
@@ -1042,7 +1054,7 @@ function App() {
         <div className="dashboard-spark dashboard-spark-two" aria-hidden="true">✦</div>
       </section>}
 
-      {user && goals.length > 0 && notice && <div role="status" aria-live="polite" className={`mx-auto mb-5 max-w-7xl px-5 sm:px-8`}><div className={`border px-4 py-3 text-sm leading-6 ${notice.type === 'success' ? 'border-[#3f5b46] bg-[#1a241d] text-[#c6e5c9]' : 'border-[#733b2c] bg-[#271915] text-[#ffc0ad]'}`}>{notice.message}</div></div>}
+      {notice && <div role="status" aria-live="polite" className={`app-toast ${notice.type === 'success' ? 'app-toast-success' : 'app-toast-error'}`}><p>{notice.message}</p><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification" className="app-toast-dismiss"><span aria-hidden="true">�</span></button></div>}
 
       {user && gamification && <section id="learning-stats" data-reveal="up" className="dashboard-section mx-auto max-w-7xl px-5 pb-6 sm:px-8">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1059,7 +1071,7 @@ function App() {
 
 <div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.map((goal) => {
 const goalExpanded = expandedGoalIds.has(goal.id);
-return <article key={goal.id} className="goal-card rounded-2xl border border-[#e7e9e1] p-4">
+return <article key={goal.id} id={`goal-${goal.id}`} className="goal-card rounded-2xl border border-[#e7e9e1] p-4 scroll-mt-6">
 <div className="flex flex-wrap items-start justify-between gap-3">
 <div>
 <button type="button" onClick={() => setExpandedGoalIds((current) => { const next = new Set(current); if (next.has(goal.id)) next.delete(goal.id); else next.add(goal.id); return next; })} aria-expanded={goalExpanded} className="goal-toggle flex w-full items-center gap-2 text-left font-semibold"><span className="goal-toggle-title">{goal.skill}</span><span className="goal-toggle-state ml-auto text-xs font-medium">{goalExpanded ? 'Hide details' : 'View goal'}</span><span aria-hidden="true" className="text-[#82917b]">{goalExpanded ? '⌃' : '⌄'}</span></button>

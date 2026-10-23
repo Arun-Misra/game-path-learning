@@ -3008,3 +3008,47 @@ body { background:#111110!important; color:#f2f2f0; }
     margin-left: auto;
   }
 }
+
+/* ChatGPT-style goal shortcuts beneath the create-goal action */
+.app-shell:has(.learning-sidebar) .sidebar-goals {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: .45rem;
+  margin-top: -.45rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.app-shell:has(.learning-sidebar) .sidebar-goals-label {
+  margin: .2rem .7rem .2rem;
+  color: #858580;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .13em;
+}
+.app-shell:has(.learning-sidebar) .sidebar-goal-list { display: grid; gap: 3px; }
+.app-shell:has(.learning-sidebar) .sidebar-goal-link {
+  display: flex;
+  min-width: 0;
+  min-height: 39px;
+  align-items: center;
+  gap: .65rem;
+  padding: .55rem .7rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #a3a39f;
+  font-size: .82rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.app-shell:has(.learning-sidebar) .sidebar-goal-link svg { flex: 0 0 auto; color: #777773; }
+.app-shell:has(.learning-sidebar) .sidebar-goal-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell:has(.learning-sidebar) .sidebar-goal-link:hover,
+.app-shell:has(.learning-sidebar) .sidebar-goal-link.active { background: #211915; color: #f2f2f0; }
+.app-shell:has(.learning-sidebar) .sidebar-goal-link.active { border-left-color: #ff3300; }
+.app-shell:has(.learning-sidebar) .sidebar-goal-link.active svg { color: #ff5933; }
+@media (prefers-reduced-motion: reduce) {
+  .app-shell:has(.learning-sidebar) .sidebar-goal-link { transition: none; }
+}
