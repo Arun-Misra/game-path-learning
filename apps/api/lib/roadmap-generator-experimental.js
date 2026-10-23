@@ -66,6 +66,7 @@ function buildLearnerBrief(goal, now = new Date()) {
   return {
     skill: goal.title, goal: goal.targetOutcome || goal.originalDescription || goal.title,
     experienceLevel: goal.experienceLevel || 'UNSPECIFIED', minutesPerDay: Number(goal.minutesPerDay),
+    sessionBudgetMinutes: Math.max(5, Math.floor(Number(goal.minutesPerDay) * 0.8)),
     daysPerWeek: Number(goal.daysPerWeek), minutesAvailablePerWeek: Number(goal.minutesPerDay) * Number(goal.daysPerWeek),
     planningDays, unrestrictedGeneration,
     chunkNumber: Number.isInteger(goal.chunkNumber) ? goal.chunkNumber : 1,
@@ -82,7 +83,9 @@ function buildLearnerBrief(goal, now = new Date()) {
 // Keep the earliest coherent sequence; never shrink individual estimates to make it fit.
 function fitTopicsToChunk(topics, learner) {
   if (learner.unrestrictedGeneration) return topics;
-  const dailyMinutes = Math.floor(learner.minutesPerDay);
+  const dailyMinutes = Number.isFinite(learner.sessionBudgetMinutes)
+    ? Math.max(5, Math.floor(learner.sessionBudgetMinutes))
+    : Math.max(5, Math.floor(learner.minutesPerDay * 0.8));
   const practiceDays = learner.planningDays;
   const chunkBudgetMinutes = dailyMinutes * practiceDays;
   let totalMinutes = 0;
@@ -169,7 +172,10 @@ function buildMessages(learner) {
     ? `${learner.daysUntilTarget} days from now (${learner.targetDate})` : 'not specified';
   const planningDays = Number.isInteger(learner.planningDays) ? Math.max(1, learner.planningDays) : 3;
   const practiceDays = planningDays;
-  const chunkBudgetMinutes = Math.floor(learner.minutesPerDay) * practiceDays;
+  const dailyBudgetMinutes = Number.isFinite(learner.sessionBudgetMinutes)
+    ? Math.max(5, Math.floor(learner.sessionBudgetMinutes))
+    : Math.max(5, Math.floor(learner.minutesPerDay * 0.8));
+  const chunkBudgetMinutes = dailyBudgetMinutes * practiceDays;
   const scopeInstructions = learner.unrestrictedGeneration
     ? [
       'Plan the complete learning journey for the stated outcome, using the overall deadline as the target horizon when one is provided.',
@@ -178,7 +184,7 @@ function buildMessages(learner) {
     ]
     : [
       `Generate only the next ${planningDays} study days of this roadmap chunk, not the entire curriculum through the deadline. The deadline describes the overall goal, not the length of this chunk.`,
-      `This chunk has ${practiceDays} planned study days and a hard total budget of ${chunkBudgetMinutes} minutes. Every session must be 5 to ${Math.floor(learner.minutesPerDay)} minutes, and all session estimates added together must not exceed ${chunkBudgetMinutes} minutes.`,
+      `This chunk has ${practiceDays} planned study days and a hard total work budget of ${chunkBudgetMinutes} minutes. Reserve at least 20% of each study day as a buffer: every session must be 5 to ${dailyBudgetMinutes} minutes, and all session estimates added together must not exceed ${chunkBudgetMinutes} minutes.`,
       'Return only the first coherent sequence of sessions that fits this chunk. Do not include later work just because it belongs in the overall journey; later chunks are generated after this one is completed.',
       'The title and summary must describe this short chunk, not claim that the full deadline-length journey is included. Do not put the overall deadline duration in the chunk title.',
     ];
@@ -195,7 +201,7 @@ function buildMessages(learner) {
     '5. Choose practice methods native to this learner’s skill and outcome; never copy a template from an unrelated domain. Use focused repetitions and cumulative application for performance skills, runnable or buildable work and tests for technical skills, and retrieval plus applied problems for conceptual skills. These are adaptable principles, not mandatory templates.',
     '6. Avoid fake precision, filler, motivational padding, generic “research/watch/read about” tasks, oversized sessions, and repeating the same lesson structure mechanically. Prefer one useful, well-scoped activity over several shallow activities.',
     '7. Never invent source-specific facts, song chords/tabs, APIs, or other details that are not supported by the input. When exact details are unknown, state how to verify them and provide a safe practical alternative.',
-    '8. Treat time availability as a hard limit. Topic estimatedMinutes must be an integer of at least 5 and no greater than minutesPerDay. Keep the total planned work within the chunk budget; do not silently compress estimates to make a plan appear feasible.',
+    '8. Treat time availability as a hard limit. Reserve 20% of each study day as a buffer. Topic estimatedMinutes must be an integer of at least 5 and no greater than the daily session budget. Keep the total planned work within the chunk budget; do not silently compress estimates to make a plan appear feasible.',
     '9. For follow-up chunks, continue from the most recent work. Do not restart the course, repeat completed sessions, or assume completion equals mastery. Use recent assessment attempts, session feelings, reflections, unfinished work, and actual-time evidence to decide what to reinforce or advance.',
     ...(learner.rejectedTopics.length ? [`REQUIRED CORRECTION: Your previous draft repeated these topics without a justified learning gap: ${learner.rejectedTopics.join('; ')}. Do not reuse these titles or teach the same concept under a synonym. Choose genuinely new next-step material, or use a clearly different prerequisite/application only when needed for the stated goal.`] : []),
     '10. If prior evidence is missing, do not pretend to know the learner’s progress. Start with a brief, relevant retrieval check or a sensible next step based on the supplied starting level.',

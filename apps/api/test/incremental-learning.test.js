@@ -260,7 +260,7 @@ test('rolling generation does not call the model when three upcoming study days 
   assert.equal(result.pendingDays, 3);
 });
 
-test('rolling generation does not call the model until only one lesson remains in the active chunk', async () => {
+test('rolling generation waits until every prior session is finished before superseding its roadmap', async () => {
   let pendingQueried = false;
   const db = {
     learningGoal: {
@@ -277,7 +277,7 @@ test('rolling generation does not call the model until only one lesson remains i
     },
     roadmap: { findFirst: async () => ({ id: 'active-roadmap-1', learningBrief: { planningDays: 7 } }) },
     dailyMission: {
-      count: async () => 2,
+      count: async () => 1,
       findMany: async () => { pendingQueried = true; return []; },
     },
   };
@@ -292,8 +292,8 @@ test('rolling generation does not call the model until only one lesson remains i
   });
 
   assert.equal(result.generated, false);
-  assert.equal(result.reason, 'CHUNK_NOT_NEAR_END');
-  assert.equal(result.remainingLessons, 2);
+  assert.equal(result.reason, 'CHUNK_HAS_UNFINISHED_SESSIONS');
+  assert.equal(result.remainingLessons, 1);
   assert.equal(pendingQueried, false);
 });
 

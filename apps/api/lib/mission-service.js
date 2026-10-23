@@ -98,7 +98,7 @@ async function generateInitialRollingMissions({ userId, goalId, timeZone = 'UTC'
   }
   if (dates.length === 0) throw new MissionServiceError(409, 'NO_STUDY_DAYS_BEFORE_DEADLINE', 'There are no study days left before this goal’s target date.');
 
-  const dailyBudget = Math.max(5, Math.floor(goal.minutesPerDay));
+  const dailyBudget = Math.max(5, Math.floor(goal.minutesPerDay * 0.8));
   const groups = dates.map(() => []);
   let dateIndex = 0;
   let usedMinutes = 0;
@@ -147,7 +147,7 @@ async function generateInitialRollingMissions({ userId, goalId, timeZone = 'UTC'
     }),
     db.xpTransaction.aggregate({ where: { userId }, _sum: { amount: true } }),
   ]);
-  return { missions, totalXp: xp._sum.amount || 0, from: today, to: dates[dates.length - 1], timeZone, alreadyScheduled: false, plannedDays: dates.length, scheduledMinutes: missionRows.reduce((sum, item) => sum + item.estimatedMinutes, 0), availableMinutes: dailyBudget * dates.length };
+  return { missions, totalXp: xp._sum.amount || 0, from: today, to: dates[dates.length - 1], timeZone, alreadyScheduled: false, plannedDays: dates.length, scheduledMinutes: missionRows.reduce((sum, item) => sum + item.estimatedMinutes, 0), availableMinutes: Math.max(5, Math.floor(goal.minutesPerDay)) * dates.length };
 }
 
 async function generateWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = new Date(), forceReplan = false, db = prisma }) {

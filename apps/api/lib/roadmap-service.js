@@ -384,7 +384,7 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
 
   const brief = proposed.learningBrief && typeof proposed.learningBrief === 'object' ? proposed.learningBrief : {};
   const practiceDays = normalizedPlanningDays;
-  const plannedDailyMinutes = Math.max(5, Math.floor(goal.minutesPerDay));
+  const plannedDailyMinutes = Math.max(5, Math.floor(goal.minutesPerDay * 0.8));
   proposed.learningBrief = {
     ...brief,
     chunkNumber,
@@ -395,7 +395,7 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
     daysPerWeek: goal.daysPerWeek,
     availableCapacityMinutes: goal.minutesPerDay * practiceDays,
     chunkBudgetMinutes: plannedDailyMinutes * practiceDays,
-    bufferMinutes: 0,
+    bufferMinutes: Math.max(0, goal.minutesPerDay * practiceDays - plannedDailyMinutes * practiceDays),
     deadlineFeasibility: buildDeadlineFeasibility({ goal, estimatedRemainingMinutes: brief.estimatedRemainingMinutes, estimateConfidence: brief.estimateConfidence, now, timeZone }),
     timeCalibrationSampleCount: timeCalibration.sampleCount,
     ...(timeCalibration.medianRatio === null ? {} : { medianActualToEstimatedRatio: timeCalibration.medianRatio }),
@@ -478,8 +478,11 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
           status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
         },
       });
-      if (remainingActiveChunkLessons > 1) {
-        return { generated: false, reason: 'CHUNK_NOT_NEAR_END', remainingLessons: remainingActiveChunkLessons };
+      // Do not activate a continuation while any prior session is unfinished.
+      // Activating the new roadmap supersedes the old one; generating early would
+      // orphan the final mission and often recreate it as a duplicate topic.
+      if (remainingActiveChunkLessons > 0) {
+        return { generated: false, reason: 'CHUNK_HAS_UNFINISHED_SESSIONS', remainingLessons: remainingActiveChunkLessons };
       }
     }
 
@@ -561,7 +564,7 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
     const actualPlanningDays = dates.length;
     const draft = await generateRoadmapDraft({ userId, goalId, planningDays: actualPlanningDays, timeZone, now, db });
     const topics = draft.topics || [];
-    const plannedDailyMinutes = Math.max(5, Math.floor(goal.minutesPerDay));
+    const plannedDailyMinutes = Math.max(5, Math.floor(goal.minutesPerDay * 0.8));
     const topicGroups = dates.map(() => []);
     let dateIndex = 0;
     let usedMinutes = 0;
