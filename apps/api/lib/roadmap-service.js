@@ -14,6 +14,12 @@ class RoadmapServiceError extends Error {
   }
 }
 
+function normalizeInitialPlanningDays(planningDays, daysPerWeek) {
+  const requested = Number.isInteger(planningDays) ? Math.max(1, Math.min(28, planningDays)) : 3;
+  const weeklyStudyDays = Number.isFinite(Number(daysPerWeek)) ? Math.max(1, Math.min(7, Math.floor(Number(daysPerWeek)))) : 3;
+  return Math.min(requested, weeklyStudyDays);
+}
+
 function getValidatedRoadmap(input) {
   const result = validateRoadmap(input);
   if (!result.success) {
@@ -322,7 +328,7 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
   if (!goal) {
     throw new RoadmapServiceError(404, 'GOAL_NOT_FOUND', 'Learning goal not found.');
   }
-  const normalizedPlanningDays = Number.isInteger(planningDays) ? Math.max(1, Math.min(28, planningDays)) : 3;
+  let normalizedPlanningDays = Number.isInteger(planningDays) ? Math.max(1, Math.min(28, planningDays)) : 3;
   const timingHistory = await db.missionCompletion.findMany({
     where: { userId, mission: { is: { learningGoalId: goalId } } },
     orderBy: { completedAt: 'desc' },
@@ -341,6 +347,9 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
   const timeCalibration = buildTimeCalibrationContext(timingHistory);
   const activeRoadmap = await db.roadmap.findFirst({ where: { learningGoalId: goalId, generationState: 'ACTIVE' }, orderBy: { version: 'desc' }, include: { topics: { orderBy: { position: 'asc' }, select: { id: true, title: true, description: true, learningObjectives: true, estimatedMinutes: true, position: true, userProgress: { where: { userId }, select: { status: true, masteryScore: true, attempts: true } }, assessment: { include: { attempts: { where: { userId }, orderBy: { createdAt: 'desc' }, take: 2, select: { score: true, passed: true } } } } } }, missions: { where: { userId }, select: { title: true, estimatedMinutes: true, status: true, completion: { select: { evidence: true, completedAt: true } }, topic: { select: { title: true } } }, orderBy: { scheduledDate: 'desc' }, take: 50 } } });
   const chunkNumber = activeRoadmap ? Number(activeRoadmap.learningBrief?.chunkNumber || 1) + 1 : 1;
+  // The first chunk is personalized to the learner's weekly study cadence.
+  // A request or stale client must not turn a 3-days/week goal into 7 study days.
+  if (!activeRoadmap) normalizedPlanningDays = normalizeInitialPlanningDays(normalizedPlanningDays, goal.daysPerWeek);
   let priorRoadmaps = [activeRoadmap].filter(Boolean);
   if (activeRoadmap && typeof db.roadmap.findMany === 'function') {
     priorRoadmaps = await db.roadmap.findMany({
@@ -787,7 +796,7 @@ async function activateRoadmap({ userId, goalId, roadmapId, confirmLearningBrief
   });
 }
 
-module.exports = {
+module.exports = { normalizeInitialPlanningDays,
   RoadmapServiceError,
   getClarifyingQuestions,
   createRoadmapDraft,

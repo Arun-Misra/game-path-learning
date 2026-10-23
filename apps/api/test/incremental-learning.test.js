@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { buildTimeCalibrationContext, buildDeadlineFeasibility, rollForwardRoadmap, buildPriorLearningContext, buildContinuationSummary } = require('../lib/roadmap-service');
+const { buildTimeCalibrationContext, buildDeadlineFeasibility, rollForwardRoadmap, buildPriorLearningContext, buildContinuationSummary, normalizeInitialPlanningDays } = require('../lib/roadmap-service');
 const { generateInitialRollingMissions } = require('../lib/mission-service');
 const {
   applyChunkBudget,
@@ -15,6 +15,14 @@ function responseFor(value) {
   const content = JSON.stringify(value);
   return { ok: true, status: 200, json: async () => ({ message: { content }, choices: [{ message: { content } }] }) };
 }
+
+test('initial chunk study days cannot exceed the learner custom weekly cadence', () => {
+  assert.equal(normalizeInitialPlanningDays(7, 3), 3);
+  assert.equal(normalizeInitialPlanningDays(3, 3), 3);
+  assert.equal(normalizeInitialPlanningDays(2, 5), 2);
+  assert.equal(normalizeInitialPlanningDays(7, 7), 7);
+  assert.equal(normalizeInitialPlanningDays(7, 0), 1);
+});
 
 test('follow-up context preserves four-chunk continuity and uses the latest assessment attempt', () => {
   const active = {
