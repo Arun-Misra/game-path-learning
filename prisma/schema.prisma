@@ -198,7 +198,7 @@ model RoadmapGenerationRun {
   sourceRoadmap     Roadmap      @relation("RoadmapGenerationSource", fields: [sourceRoadmapId], references: [id], onDelete: Cascade)
   resultRoadmap     Roadmap?     @relation("RoadmapGenerationResult", fields: [resultRoadmapId], references: [id], onDelete: SetNull)
 
-  @@unique([learningGoalId, triggerDate])
+  @@unique([sourceRoadmapId, triggerDate])
   @@index([status, leaseExpiresAt])
 }
 

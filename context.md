@@ -1,7 +1,7 @@
 
 
 
-# Gamified Learning V2 — Contextrning V2 — Context
+# Gamified Learning V2 — Context
 
 ## Product and principles
 A personalised learning platform for any skill. Learners provide their skill, existing knowledge, target outcome, and availability; the app generates a validated roadmap, schedules missions, tracks demonstrated progress, and adapts future work. Backend owns identity, persistence, business rules, progress, and rewards. Frontend presents API state. Keep the original app untouched and use it only as a reference. Use generated scaffolds and prefer JavaScript. The master implementation plan remains the source of full requirements and sequencing.
@@ -387,3 +387,33 @@ Do not update master/reference docs frequently; update this context only for mat
 - Initial generation has no application-set output-token ceiling: native Ollama receives `num_predict: -1`, and the hosted request omits `max_tokens`. It remains a single model request, with no automatic repair call.
 - Follow-up rolling chunks remain bounded because the mission scheduler must place those sessions within the available dates and daily time budget. The roadmap validator still validates fields and prerequisite integrity, but no longer caps the number of topics at 40.
 - Added tests for the unrestricted initial prompt and unbounded local/hosted request settings. `set AI_CONTEXT_LENGTH=16384&& npm test` passed 104/104. Live Ollama verification and full check/build/E2E/database validation are pending.
+
+## Rolling continuation idempotency repair (2026-10-26)
+
+- Fixed a continuation-generation blocker where generation runs were uniquely keyed by learning goal + trigger date. After one chunk generated, a later chunk completed on the same date could find the earlier chunk's completed run and return `ALREADY_GENERATED` instead of generating the next chunk.
+- `RoadmapGenerationRun` idempotency is now scoped to source roadmap + trigger date. Each active chunk can therefore generate its own continuation on the same date, while retries for that same source chunk/date remain idempotent. Updated the Prisma unique constraint and added migration `20261026100000_scope_rolling_runs_to_source_roadmap`.
+- Updated the dashboard's continuation feedback to explicitly handle `CHUNK_HAS_UNFINISHED_SESSIONS` and `GENERATION_IN_PROGRESS`, and to surface other non-generation reasons instead of silently leaving a stale notice.
+- Regression coverage checks that a continuation lookup uses the active source roadmap key and does not reuse a previous chunk's generation run.
+- Validation on 2026-10-26: API tests passed 118/118 including PostgreSQL integration; root `npm run check`, `npm run build`, and `npm run db:validate` passed. The migration was applied successfully to the isolated `gamified_learning_test` database with `npm run db:migrate:test`.
+- E2E result: 10/11 passed. One existing mocked generation journey failed waiting for the fixture title “Guitar day-by-day plan”; this needs separate investigation and the suite is not considered fully green. No claim of live Ollama continuation or full multi-chunk browser verification has been made.
+- Working branch: `feat/streamed-weekly-roadmap-generation`. Preserve the pre-existing untracked files `apps/web/src/App.jsx.backup-20261024` and `apps/web/streamed-app-check.js`; do not stage unrelated files.
+
+## Frontend refresh after rolling generation (2026-10-27)
+
+- After a successful rolling continuation, the dashboard now reloads the authoritative persisted roadmap list and mission list from the API rather than optimistically inserting the generation response into React state. This avoids relying on a partial or mismatched response shape when rendering the newly generated chunk.
+- The success path also refreshes the next-step recommendation and mission recovery state.
+- Validation after the change: `npm run check`, `npm run build`, and `npm test` passed; API tests passed 118/118, including PostgreSQL integration. Browser verification of the specific previously generated chunk remains outstanding.
+
+## Server-owned rolling continuation trigger (2026-10-27)
+
+- Mission completion now invokes the rolling continuation gate from the API after the completion and XP transaction commits. The browser no longer needs to successfully fire a separate best-effort roll-forward request for the next chunk to be considered.
+- The completion route accepts the browser's validated IANA timezone and passes it to the rolling scheduler. Continuation results or structured continuation errors are returned alongside the saved completion; a continuation failure does not undo the already-persisted completion or XP.
+- The dashboard consumes the server-returned continuation result, refreshes persisted roadmaps/missions on generation, and displays failures rather than silently leaving the old chunk visible.
+- Updated the mission-player E2E mock for the timezone query and continuation result. Validation: API tests 118/118, `npm run check`, `npm run build`, Prisma validation, and `git diff --check` passed. E2E has 10/11 passing after correcting the mission-player URL mock; the remaining generated-roadmap fixture test still fails to find its expected title and is unrelated to continuation generation.
+
+## Rolling generation retry after a transient lock (2026-10-27)
+
+- Fixed a frontend race where the completion response and dashboard catch-up effect could overlap. If the completion response reports `GENERATION_IN_PROGRESS`, the completion flow now retries the authoritative roll-forward request twice with a short delay instead of treating the lock response as final.
+- Dashboard catch-up now releases its per-roadmap in-flight guard after a non-terminal response or request error. This prevents one stale/transient attempt from permanently blocking future catch-up checks for that roadmap.
+- This addresses the case where the next chunk was never requested from the AI because an overlapping request returned early at the generation-lock gate. Duplicate model calls remain protected by the server-side lock and persisted generation lease.
+- Validation after the change: `npm test` passed 118/118; `npm run check`, `npm run build`, `npm run db:validate`, and `git diff --check` passed. `npm run test:e2e` remains 10/11: the pre-existing mocked generated-roadmap journey still fails to find the fixture title “Guitar day-by-day plan”. Live multi-chunk verification against Ollama has not yet been performed.

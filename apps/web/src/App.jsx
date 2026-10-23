@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight, BookOpen, Check, Clock3, Compass, Flame,
   GraduationCap, Sparkles, Target, Zap, House, Map, Trophy, Plus,
@@ -93,6 +93,7 @@ function App() {
   const [projectMilestonesByGoal, setProjectMilestonesByGoal] = useState({});
   const [milestoneBusyGoal, setMilestoneBusyGoal] = useState(null);
   const [milestoneEvidenceById, setMilestoneEvidenceById] = useState({});
+  const rollingCatchupRef = useRef(new Set());
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
@@ -607,13 +608,32 @@ function App() {
     }
   }
 
-  async function prepareNextChunkAfterCompletion(goal, mission, xpAwarded) {
+  async function prepareNextChunkAfterCompletion(goal, mission, xpAwarded, continuation, continuationError) {
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     try {
-      const rollingResult = await requestJson(
+      // The completion API runs the rolling gate server-side. If that attempt
+      // failed, retry once now; the run lease is released on failure and the
+      // saved completion remains intact.
+      const retryRollForward = () => requestJson(
         `/api/v1/learning-goals/${goal.id}/roadmaps/roll-forward?timeZone=${encodeURIComponent(timeZone)}`,
         { method: 'POST', body: JSON.stringify({ completedDate: String(mission.scheduledDate).slice(0, 10) }) },
       );
+      let rollingResult = continuationError
+        ? await retryRollForward()
+        : continuation
+          ? { data: continuation }
+          : await retryRollForward();
+
+      // The completion request can overlap a catch-up request from the dashboard.
+      // If that request owns the generation lease, retry after it has had time to
+      // finish rather than treating GENERATION_IN_PROGRESS as a terminal result.
+      for (let attempt = 0; attempt < 2
+        && !rollingResult.data.generated
+        && rollingResult.data.reason === 'GENERATION_IN_PROGRESS'; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+        rollingResult = await retryRollForward();
+      }
+
       if (!rollingResult.data.generated) {
         if (rollingResult.data.reason === 'ALREADY_GENERATED') {
           const [missionRefresh, roadmapRefresh] = await Promise.all([
@@ -630,22 +650,30 @@ function App() {
           setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Finish the remaining sessions for today and Pathwise will prepare the next days.` });
         } else if (rollingResult.data.reason === 'ROLLING_WINDOW_FULL') {
           setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Your next learning days are already scheduled.` });
+        } else if (rollingResult.data.reason === 'CHUNK_HAS_UNFINISHED_SESSIONS') {
+          setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Finish the remaining ${rollingResult.data.remainingLessons || 'unfinished'} session(s) in this chunk before the next chunk is prepared.` });
+        } else if (rollingResult.data.reason === 'GENERATION_IN_PROGRESS') {
+          setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Pathwise is already preparing your next learning days; refresh shortly to see them.` });
+        } else {
+          setNotice({ type: 'error', message: `Mission complete! You earned ${xpAwarded} XP, but the next chunk was not prepared (${rollingResult.data.reason || 'unknown reason'}). Try completing the last session again or refresh the page.` });
         }
         return;
       }
 
       const nextRoadmap = rollingResult.data.roadmap;
-      setRoadmapsByGoal((current) => ({
-        ...current,
-        [goal.id]: [nextRoadmap, ...(current[goal.id] || []).map((item) => item.generationState === 'ACTIVE' ? { ...item, generationState: 'SUPERSEDED' } : item)],
-      }));
-      setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [nextRoadmap.id]: true }));
-      const missionRefresh = await requestJson(
-        `/api/v1/learning-goals/${goal.id}/missions?timeZone=${encodeURIComponent(timeZone)}`,
-      );
+      // Reload the persisted roadmap list instead of relying on the generation
+      // response's partial/optimistic shape. The dashboard renders from this list.
+      const [roadmapRefresh, missionRefresh] = await Promise.all([
+        requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps?timeZone=${encodeURIComponent(timeZone)}`),
+        requestJson(`/api/v1/learning-goals/${goal.id}/missions?timeZone=${encodeURIComponent(timeZone)}`),
+      ]);
+      setRoadmapsByGoal((current) => ({ ...current, [goal.id]: roadmapRefresh.data.roadmaps || [] }));
       setMissionsByGoal((current) => ({ ...current, [goal.id]: missionRefresh.data }));
-      await refreshNextStep(goal.id);
-      setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Pathwise prepared the next ${rollingResult.data.planningDays} day(s).` });
+      if (nextRoadmap?.id) {
+        setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [nextRoadmap.id]: true }));
+      }
+      await Promise.all([refreshNextStep(goal.id), refreshMissionRecovery(goal.id)]);
+      setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Pathwise prepared the next ${rollingResult.data.planningDays} day(s), and the saved roadmap list has been refreshed.` });
     } catch (error) {
       const detail = error instanceof Error && error.message ? ` Reason: ${error.message}` : '';
       setNotice({ type: 'error', message: `Mission complete! You earned ${xpAwarded} XP. Your progress is saved, but the next chunk could not be prepared.${detail}` });
@@ -668,7 +696,7 @@ function App() {
     setNotice(null);
     try {
       const result = await requestJson(
-        `/api/v1/learning-goals/${goal.id}/missions/${mission.id}/complete`,
+        `/api/v1/learning-goals/${goal.id}/missions/${mission.id}/complete?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`,
         {
           method: 'POST',
           body: JSON.stringify({
@@ -702,9 +730,9 @@ function App() {
       await Promise.all([refreshGamification(), refreshNextStep(goal.id), refreshMissionRecovery(goal.id)]);
       setNotice({ type: 'success', message: result.data.alreadyCompleted
         ? 'This mission was already completed.'
-        : `Mission complete! You earned ${result.data.xpAwarded} XP. Checking the next learning days in the background…` });
+        : `Mission complete! You earned ${result.data.xpAwarded} XP. Updating your learning plan…` });
       if (!result.data.alreadyCompleted) {
-        void prepareNextChunkAfterCompletion(goal, mission, result.data.xpAwarded);
+        void prepareNextChunkAfterCompletion(goal, mission, result.data.xpAwarded, result.data.rollingContinuation, result.data.rollingContinuationError);
       }
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
@@ -796,6 +824,52 @@ function App() {
   const dashboardRoadmap = dashboardGoal
     ? (roadmapsByGoal[dashboardGoal.id] || []).find((roadmap) => roadmap.generationState === 'ACTIVE')
     : null;
+
+  useEffect(() => {
+    if (window.location.pathname === '/assessment-test' || !user || apiStatus !== 'online') return;
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+    for (const goal of goals) {
+      const roadmaps = roadmapsByGoal[goal.id];
+      const activeRoadmap = Array.isArray(roadmaps) ? roadmaps.find((item) => item.generationState === 'ACTIVE') : null;
+      const missionState = missionsByGoal[goal.id];
+      if (!activeRoadmap || !missionState || !Array.isArray(missionState.missions)) continue;
+      const chunkNumber = Number(activeRoadmap.learningBrief?.chunkNumber || activeRoadmap.version || 1);
+      // Only attempt catch-up when the visible sessions are finished (or a
+      // later chunk has no sessions in the current date range). The API repeats
+      // the authoritative check across every mission on the active roadmap.
+      if (missionState.missions.some((mission) => ['SCHEDULED', 'IN_PROGRESS'].includes(mission.status))) continue;
+      if (missionState.missions.length === 0 && chunkNumber <= 1) continue;
+      if (rollingCatchupRef.current.has(activeRoadmap.id)) continue;
+      rollingCatchupRef.current.add(activeRoadmap.id);
+
+      void requestJson(
+        `/api/v1/learning-goals/${goal.id}/roadmaps/roll-forward?timeZone=${encodeURIComponent(timeZone)}`,
+        { method: 'POST', body: JSON.stringify({}) },
+      ).then(async (result) => {
+        if (!result.data.generated && result.data.reason !== 'ALREADY_GENERATED') {
+          // Do not permanently poison catch-up for this roadmap. A transient
+          // lock or stale mission snapshot must not prevent a later completion
+          // event from trying again.
+          rollingCatchupRef.current.delete(activeRoadmap.id);
+          return;
+        }
+        const [roadmapRefresh, missionRefresh] = await Promise.all([
+          requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps?timeZone=${encodeURIComponent(timeZone)}`),
+          requestJson(`/api/v1/learning-goals/${goal.id}/missions?timeZone=${encodeURIComponent(timeZone)}`),
+        ]);
+        setRoadmapsByGoal((current) => ({ ...current, [goal.id]: roadmapRefresh.data.roadmaps || [] }));
+        setMissionsByGoal((current) => ({ ...current, [goal.id]: missionRefresh.data }));
+        await Promise.all([refreshNextStep(goal.id), refreshMissionRecovery(goal.id)]);
+        if (result.data.generated) {
+          setNotice({ type: 'success', message: `Pathwise caught up your learning plan and prepared the next ${result.data.planningDays} day(s).` });
+        }
+      }).catch((error) => {
+        rollingCatchupRef.current.delete(activeRoadmap.id);
+        setNotice({ type: 'error', message: `Pathwise could not check the next chunk: ${error.message || 'Unknown error'}` });
+      });
+    }
+  }, [user, apiStatus, goals, roadmapsByGoal, missionsByGoal]);
 
   if (window.location.pathname === '/assessment-test') {
     return <AssessmentTestPage user={user} goals={goals} roadmapsByGoal={roadmapsByGoal} apiStatus={apiStatus} />;

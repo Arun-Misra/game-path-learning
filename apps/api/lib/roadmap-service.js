@@ -464,7 +464,7 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
     let existingGenerationRun = null;
     if (db.roadmapGenerationRun) {
       existingGenerationRun = await db.roadmapGenerationRun.findUnique({
-        where: { learningGoalId_triggerDate: { learningGoalId: goalId, triggerDate } },
+        where: { sourceRoadmapId_triggerDate: { sourceRoadmapId: currentActiveRoadmap.id, triggerDate } },
       });
       if (existingGenerationRun?.status === 'COMPLETED') {
         return getCompletedRollingGeneration({ db, run: existingGenerationRun, goalId });
@@ -546,7 +546,7 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
         });
         if (claimed.count !== 1) {
           const latestRun = await db.roadmapGenerationRun.findUnique({
-            where: { learningGoalId_triggerDate: { learningGoalId: goalId, triggerDate } },
+            where: { sourceRoadmapId_triggerDate: { sourceRoadmapId: currentActiveRoadmap.id, triggerDate } },
           });
           if (latestRun?.status === 'COMPLETED') return getCompletedRollingGeneration({ db, run: latestRun, goalId });
           return { generated: false, reason: 'GENERATION_IN_PROGRESS' };
@@ -562,7 +562,7 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
         } catch (error) {
           if (error?.code !== 'P2002') throw error;
           const latestRun = await db.roadmapGenerationRun.findUnique({
-            where: { learningGoalId_triggerDate: { learningGoalId: goalId, triggerDate } },
+            where: { sourceRoadmapId_triggerDate: { sourceRoadmapId: currentActiveRoadmap.id, triggerDate } },
           });
           if (latestRun?.status === 'COMPLETED') return getCompletedRollingGeneration({ db, run: latestRun, goalId });
           return { generated: false, reason: 'GENERATION_IN_PROGRESS' };

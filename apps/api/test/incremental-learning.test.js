@@ -460,7 +460,7 @@ test('a completed rolling generation is returned idempotently for the same goal 
     },
     roadmapGenerationRun: {
       findUnique: async () => ({
-        id: 'run-1', status: 'COMPLETED', resultRoadmapId: 'roadmap-next',
+        id: 'run-1', status: 'COMPLETED', sourceRoadmapId: 'active-roadmap-2', resultRoadmapId: 'roadmap-next',
         leaseExpiresAt: new Date('2026-10-21T12:00:00.000Z'),
       }),
     },
@@ -479,6 +479,41 @@ test('a completed rolling generation is returned idempotently for the same goal 
   assert.equal(result.roadmap.id, 'roadmap-next');
   assert.equal(result.missions[0].id, 'mission-next');
   assert.equal(missionCountCalled, false);
+});
+
+test('rolling generation keys idempotency to the source chunk, allowing a later chunk on the same date', async () => {
+  const activeRoadmap = { id: 'active-roadmap-2', learningBrief: { planningDays: 7 } };
+  let runLookup = null;
+  const db = {
+    learningGoal: { findFirst: async () => ({
+      id: 'goal-1', title: 'Learn React', targetOutcome: 'Build an app',
+      experienceLevel: 'BEGINNER', minutesPerDay: 60, daysPerWeek: 7,
+      targetDate: null, originalDescription: 'Learn React',
+    }) },
+    roadmap: { findFirst: async () => activeRoadmap },
+    roadmapGenerationRun: {
+      findUnique: async ({ where }) => { runLookup = where; return null; },
+      create: async () => ({ id: 'run-new' }),
+      update: async () => ({}),
+    },
+    dailyMission: {
+      count: async () => 1,
+      findMany: async ({ where }) => {
+        if (where.roadmapId === activeRoadmap.id) return [];
+        return [{ id: 'new-mission', scheduledDate: new Date('2026-10-22T00:00:00.000Z'), status: 'SCHEDULED' }];
+      },
+      createMany: async () => ({ count: 0 }),
+    },
+  };
+  // A missing source-specific run must proceed to generation; the former
+  // goal/date key incorrectly found the prior chunk's completed run here.
+  const result = await rollForwardRoadmap({
+    userId: 'user-1', goalId: 'goal-1', completedDate: '2026-10-21',
+    now: new Date('2026-10-21T10:00:00.000Z'), db,
+  });
+  assert.deepEqual(Object.keys(runLookup), ['sourceRoadmapId_triggerDate']);
+  assert.equal(runLookup.sourceRoadmapId_triggerDate.sourceRoadmapId, activeRoadmap.id);
+  assert.equal(result.reason, 'CHUNK_HAS_UNFINISHED_SESSIONS');
 });
 
 test('a live rolling-generation lease prevents a duplicate cross-instance generation attempt', async () => {

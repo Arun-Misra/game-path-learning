@@ -175,7 +175,8 @@ router.post('/:missionId/complete', async (req, res, next) => {
   const parsedGoal = idSchema.safeParse(req.params.goalId);
   const parsedMission = idSchema.safeParse(req.params.missionId);
   const parsedBody = completeSchema.safeParse(req.body);
-  if (!parsedGoal.success || !parsedMission.success || !parsedBody.success) {
+  const parsedQuery = z.object({ timeZone: timeZoneSchema.default('UTC') }).safeParse(req.query);
+  if (!parsedGoal.success || !parsedMission.success || !parsedBody.success || !parsedQuery.success) {
     return res.status(400).json({
       error: { code: 'VALIDATION_ERROR', message: 'Provide a valid mission ID and completion evidence.' },
     });
@@ -187,6 +188,7 @@ router.post('/:missionId/complete', async (req, res, next) => {
       goalId: parsedGoal.data,
       missionId: parsedMission.data,
       evidence: parsedBody.data.evidence,
+      timeZone: parsedQuery.data.timeZone,
     });
     return res.json({ data: result });
   } catch (error) {

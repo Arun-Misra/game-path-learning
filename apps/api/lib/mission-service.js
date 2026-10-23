@@ -1,4 +1,5 @@
 const { prisma } = require('./prisma');
+const { rollForwardRoadmap } = require('./roadmap-service');
 const { buildWeeklyMissionPlan, addDays, dateInTimeZone, sessionDayIndexes } = require('./mission-scheduler');
 
 class MissionServiceError extends Error {
@@ -470,7 +471,7 @@ async function recoverMissedSessions({ userId, goalId, timeZone = 'UTC', now = n
   return { ...plan, recoveredMissedCount: recovery.missedCount };
 }
 
-async function completeMission({ userId, goalId, missionId, evidence, db = prisma }) {
+async function completeMission({ userId, goalId, missionId, evidence, timeZone = 'UTC', db = prisma }) {
   const result = await db.$transaction(async (tx) => {
     await ownedGoal(tx, userId, goalId);
     const mission = await tx.dailyMission.findFirst({
@@ -569,6 +570,28 @@ async function completeMission({ userId, goalId, missionId, evidence, db = prism
     };
   });
 
+  if (result.alreadyCompleted) return result;
+
+  // Trigger continuation from the server after persisting completion. The client
+  // must not be responsible for firing a best-effort background request that can
+  // be lost on navigation or refresh. The rolling service decides whether this
+  // was the final unfinished session before it calls the model.
+  try {
+    result.rollingContinuation = await rollForwardRoadmap({
+      userId,
+      goalId,
+      completedDate: result.mission.scheduledDate.toISOString().slice(0, 10),
+      timeZone,
+      db,
+    });
+  } catch (error) {
+    // Completion and XP are already committed. Preserve that success and return
+    // the continuation failure so the UI can show it and let the learner retry.
+    result.rollingContinuationError = {
+      code: error?.code || 'ROLL_FORWARD_FAILED',
+      message: error?.message || 'The next learning chunk could not be prepared.',
+    };
+  }
   return result;
 }
 
