@@ -1,5 +1,7 @@
 File: context.md
 
+File: context.md
+
 
 
 
@@ -435,3 +437,8 @@ Do not update master/reference docs frequently; update this context only for mat
 
 - Clarified over-capacity recommendations: Pathwise no longer tells the learner to schedule longer sessions as the default way to meet the deadline. It explicitly keeps the chosen daily limit as the planning constraint and recommends extending the deadline or reducing goal scope; increasing availability is presented only as the learner's choice.
 - Added regression assertions to ensure the over-capacity message respects the learner's daily limit and does not instruct them to exceed it.
+
+## Simplified roadmap card information (2026-10-27)
+
+- Removed the verbose workload-capacity and deadline-outlook panels from roadmap cards, along with the large Enhanced learning brief display and its unused detail lists.
+- Kept the draft activation confirmation as a short, plain checkbox so the existing confirmation-required activation flow still works.

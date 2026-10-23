@@ -419,58 +419,6 @@ function App() {
     }
   }
 
-  async function handleRegenerateRoadmapWithClarification(goal, roadmap) {
-    const clarifications = (clarificationByRoadmap[roadmap.id] || '').trim();
-    if (!clarifications) return;
-
-    setRoadmapBusyGoal(goal.id);
-    setNotice(null);
-    try {
-      const result = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps/generate`, {
-        method: 'POST',
-        body: JSON.stringify({ clarifications }),
-      });
-      setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [result.data.roadmap.id]: false }));
-      setExpandedGoalIds((current) => new Set(current).add(goal.id));
-      setExpandedRoadmapIds((current) => new Set(current).add(result.data.roadmap.id));
-      setClarificationByRoadmap((current) => ({ ...current, [roadmap.id]: '' }));
-      setRoadmapsByGoal((current) => ({
-        ...current,
-        [goal.id]: [result.data.roadmap, ...(current[goal.id] || [])],
-      }));
-      setNotice({ type: 'success', message: 'Created a new draft using your clarification. Review its updated learning brief before activating it.' });
-    } catch (error) {
-      setNotice({ type: 'error', message: error.message });
-    } finally {
-      setRoadmapBusyGoal(null);
-    }
-  }
-
-  async function handleDeleteRoadmap(goal, roadmap) {
-    const confirmed = window.confirm(
-      `Delete draft “${roadmap.title}”? This cannot be undone.`,
-    );
-    if (!confirmed) return;
-
-    setRoadmapBusyGoal(goal.id);
-    setNotice(null);
-    try {
-      await requestJson(
-        `/api/v1/learning-goals/${goal.id}/roadmaps/${roadmap.id}`,
-        { method: 'DELETE' },
-      );
-      setRoadmapsByGoal((current) => ({
-        ...current,
-        [goal.id]: (current[goal.id] || []).filter((item) => item.id !== roadmap.id),
-      }));
-      setNotice({ type: 'success', message: `Deleted draft roadmap “${roadmap.title}”.` });
-    } catch (error) {
-      setNotice({ type: 'error', message: error.message });
-    } finally {
-      setRoadmapBusyGoal(null);
-    }
-  }
-
   async function handleActivateRoadmap(goal, roadmap) {
     setRoadmapBusyGoal(goal.id);
     setNotice(null);
@@ -1120,32 +1068,9 @@ return <div key={roadmap.id} className={`roadmap-card mt-4 rounded-xl bg-[#f7f8f
 </div>
 }</div>
 
-{roadmapExpanded && <><p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p>{roadmap.learningBrief?.continuationSummary && <section className="mt-3 rounded-xl border border-[#cbdcc3] bg-[#f0f6ec] p-3"><p className="text-xs font-bold uppercase tracking-wide text-[#355a39]">{roadmap.learningBrief.continuationSummary.heading}</p>{roadmap.learningBrief.continuationSummary.evidence?.length > 0 && <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-[#4d6049]">{roadmap.learningBrief.continuationSummary.evidence.map((item, index) => <li key={index}>{item}</li>)}</ul>}{roadmap.learningBrief.continuationSummary.nextFocus?.length > 0 && <p className="mt-2 text-xs leading-5 text-[#355a39]"><strong>This chunk focuses on:</strong> {roadmap.learningBrief.continuationSummary.nextFocus.join(" · ")}</p>}</section>}{roadmap.learningBrief?.chunkBudgetMinutes && <p className="mt-2 rounded-lg bg-[#edf3e9] p-2 text-xs text-[#355a39]">Workload cap: {roadmap.learningBrief.chunkBudgetMinutes} minutes across {roadmap.learningBrief.practiceDays ?? roadmap.learningBrief.planningDays} planned study days ({roadmap.learningBrief.plannedDailyMinutes ?? roadmap.learningBrief.dailyMinutes} minutes/day). Your availability is {roadmap.learningBrief.availableCapacityMinutes ?? roadmap.learningBrief.chunkBudgetMinutes} minutes total, with {roadmap.learningBrief.bufferMinutes ?? 0} minutes reserved as a buffer. This chunk contains {roadmap.topics.length} study sessions across {roadmap.learningBrief.practiceDays ?? roadmap.learningBrief.planningDays} planned study days. Estimates are checked against the daily and total limits; future chunks adapt to progress.</p>}{roadmap.learningBrief?.deadlineFeasibility && <p className={`mt-2 rounded-lg border p-2 text-xs leading-5 ${['OVER_CAPACITY', 'DEADLINE_PASSED'].includes(roadmap.learningBrief.deadlineFeasibility.status) ? 'border-rose-200 bg-rose-50 text-rose-800' : roadmap.learningBrief.deadlineFeasibility.status === 'AT_RISK' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-[#dfe7d9] bg-white text-[#737b70]'}`}><strong>Deadline outlook: {roadmap.learningBrief.deadlineFeasibility.status.replaceAll('_', ' ').toLowerCase()}.</strong> {roadmap.learningBrief.deadlineFeasibility.estimatedRemainingMinutes !== null && roadmap.learningBrief.deadlineFeasibility.estimatedRemainingMinutes !== undefined ? `Estimated remaining effort: ${roadmap.learningBrief.deadlineFeasibility.estimatedRemainingMinutes} min (${roadmap.learningBrief.deadlineFeasibility.estimateConfidence} confidence); available capacity: ${roadmap.learningBrief.deadlineFeasibility.availableMinutes} min across ${roadmap.learningBrief.deadlineFeasibility.availableStudyDays} study days. ` : ''}{roadmap.learningBrief.deadlineFeasibility.recommendation}</p>}{roadmap.learningBrief?.timeCalibrationSampleCount >= 3 && roadmap.learningBrief?.medianActualToEstimatedRatio && <p className="mt-2 rounded-lg border border-[#dfe7d9] p-2 text-xs text-[#737b70]">Personalized timing: your last {roadmap.learningBrief.timeCalibrationSampleCount} timed sessions typically took {roadmap.learningBrief.medianActualToEstimatedRatio.toFixed(2)}× the estimated time. Pathwise uses this evidence when planning future chunks.</p>}
+{roadmapExpanded && <><p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p>{roadmap.learningBrief?.continuationSummary && <section className="mt-3 rounded-xl border border-[#cbdcc3] bg-[#f0f6ec] p-3"><p className="text-xs font-bold uppercase tracking-wide text-[#355a39]">{roadmap.learningBrief.continuationSummary.heading}</p>{roadmap.learningBrief.continuationSummary.evidence?.length > 0 && <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-[#4d6049]">{roadmap.learningBrief.continuationSummary.evidence.map((item, index) => <li key={index}>{item}</li>)}</ul>}{roadmap.learningBrief.continuationSummary.nextFocus?.length > 0 && <p className="mt-2 text-xs leading-5 text-[#355a39]"><strong>This chunk focuses on:</strong> {roadmap.learningBrief.continuationSummary.nextFocus.join(" · ")}</p>}</section>}{roadmap.learningBrief?.timeCalibrationSampleCount >= 3 && roadmap.learningBrief?.medianActualToEstimatedRatio && <p className="mt-2 rounded-lg border border-[#dfe7d9] p-2 text-xs text-[#737b70]">Personalized timing: your last {roadmap.learningBrief.timeCalibrationSampleCount} timed sessions typically took {roadmap.learningBrief.medianActualToEstimatedRatio.toFixed(2)}× the estimated time. Pathwise uses this evidence when planning future chunks.</p>}
 
-{roadmap.learningBrief && <section className="mt-4 rounded-xl border border-[#dfe7d9] bg-white p-4">
-<p className="text-xs font-bold uppercase tracking-wide text-[#688663]">Enhanced learning brief</p>
-<p className="mt-2 text-sm font-semibold">{roadmap.learningBrief.outcomeRestatement}</p>
-<p className="mt-2 text-xs leading-5 text-[#737b70]"><strong className="text-[#424a40]">Final deliverable:</strong> {roadmap.learningBrief.finalDeliverable}</p>
-{roadmap.learningBrief.capabilities?.length > 0 && <div className="mt-3">
-<p className="text-xs font-semibold text-[#424a40]">Capabilities this roadmap should cover</p>
-<ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-5 text-[#737b70]">{roadmap.learningBrief.capabilities.map((item, index) => <li key={index}><strong>{item.capability}</strong> — {item.evidenceOfSuccess}</li>)}</ul>
-</div>}
-{roadmap.learningBrief.prerequisiteKnowledge?.length > 0 && <div className="mt-3"><p className="text-xs font-semibold text-[#424a40]">Expected prerequisites</p><ul className="mt-1 list-disc pl-5 text-xs leading-5 text-[#737b70]">{roadmap.learningBrief.prerequisiteKnowledge.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
-{roadmap.learningBrief.assumptions?.length > 0 && <div className="mt-3 rounded-lg bg-[#fff6e5] p-3"><p className="text-xs font-semibold text-[#825a21]">Assumptions to review</p><ul className="mt-1 list-disc pl-5 text-xs leading-5 text-[#785d31]">{roadmap.learningBrief.assumptions.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
-{roadmap.learningBrief.outOfScope?.length > 0 && <div className="mt-3"><p className="text-xs font-semibold text-[#424a40]">Not included in this plan</p><ul className="mt-1 list-disc pl-5 text-xs leading-5 text-[#737b70]">{roadmap.learningBrief.outOfScope.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
-{roadmap.learningBrief.learnerClarifications && <p className="mt-3 rounded-lg bg-[#edf3e9] p-3 text-xs leading-5 text-[#355a39]"><strong>Clarification applied:</strong> {roadmap.learningBrief.learnerClarifications}</p>}
-{roadmap.generationState === 'DRAFT' && <div className="mt-4 border-t border-[#e4e8df] pt-3">
-<label className="block text-xs font-semibold text-[#424a40]" htmlFor={'roadmap-clarification-' + roadmap.id}>Need to correct an assumption?</label>
-<p className="mt-1 text-xs leading-5 text-[#737b70]">Tell Pathwise what you meant. It will enhance the request again and generate a separate draft, leaving this version untouched.</p>
-<textarea id={'roadmap-clarification-' + roadmap.id} value={clarificationByRoadmap[roadmap.id] || ''} onChange={(event) => setClarificationByRoadmap((current) => ({ ...current, [roadmap.id]: event.target.value }))} maxLength={1200} rows={2} placeholder="e.g. Use plain Java rather than Spring Boot; keep all work local." className="field mt-2 resize-y" />
-<button type="button" onClick={() => handleRegenerateRoadmapWithClarification(goal, roadmap)} disabled={roadmapBusyGoal !== null || !(clarificationByRoadmap[roadmap.id] || '').trim()} className="mt-2 rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">{roadmapBusyGoal === goal.id ? 'Regenerating…' : 'Regenerate with clarification'}</button>
-</div>}
-{roadmap.generationState === 'DRAFT' && <label className="mt-4 flex cursor-pointer items-start gap-2 border-t border-[#e4e8df] pt-3 text-xs leading-5 text-[#424a40]">
-<input type="checkbox" checked={Boolean(learningBriefConfirmedByRoadmap[roadmap.id])} onChange={(event) => setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [roadmap.id]: event.target.checked }))} className="mt-1 accent-[#355a39]" />
-<span>I’ve reviewed this brief, including its assumptions, and it reflects what I want to achieve. I understand I can delete this draft and generate another if it doesn’t.</span>
-</label>}
-{roadmap.learningBriefConfirmedAt && <p className="mt-3 text-xs text-[#688663]">Learning brief confirmed before activation.</p>}
-</section>}
+{roadmap.learningBrief && roadmap.generationState === 'DRAFT' && <label className="mt-4 flex cursor-pointer items-start gap-2 text-xs leading-5 text-[#424a40]"><input type="checkbox" checked={Boolean(learningBriefConfirmedByRoadmap[roadmap.id])} onChange={(event) => setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [roadmap.id]: event.target.checked }))} className="mt-1 accent-[#355a39]" /><span>I confirm this learning path matches the goal I want to achieve.</span></label>}
 
 <details open={roadmap.generationState === 'DRAFT'} className="learning-path-details mt-3 rounded-lg border border-[#e4e8df] bg-white/70 p-3"><summary className="cursor-pointer text-xs font-semibold text-[#355a39]">Sessions in this chunk · {roadmap.topics.length}</summary><ol className="learning-path mt-3 space-y-2">{roadmap.topics.map((topic) => <li key={topic.id} className="path-step border-t border-[#e4e8df] pt-3">
 <div className="flex gap-3">
