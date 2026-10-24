@@ -418,6 +418,31 @@ function App() {
     }
   }
 
+  async function handleDeleteRoadmap(goal, roadmap) {
+    const confirmed = window.confirm(
+      `Delete draft “${roadmap.title}”? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    setRoadmapBusyGoal(goal.id);
+    setNotice(null);
+    try {
+      await requestJson(
+        `/api/v1/learning-goals/${goal.id}/roadmaps/${roadmap.id}`,
+        { method: 'DELETE' },
+      );
+      setRoadmapsByGoal((current) => ({
+        ...current,
+        [goal.id]: (current[goal.id] || []).filter((item) => item.id !== roadmap.id),
+      }));
+      setNotice({ type: 'success', message: `Deleted draft roadmap “${roadmap.title}”.` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setRoadmapBusyGoal(null);
+    }
+  }
+
   async function handleActivateRoadmap(goal, roadmap) {
     setRoadmapBusyGoal(goal.id);
     setNotice(null);

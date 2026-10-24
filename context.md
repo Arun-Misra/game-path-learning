@@ -442,3 +442,10 @@ Do not update master/reference docs frequently; update this context only for mat
 
 - Removed the verbose workload-capacity and deadline-outlook panels from roadmap cards, along with the large Enhanced learning brief display and its unused detail lists.
 - Kept the draft activation confirmation as a short, plain checkbox so the existing confirmation-required activation flow still works.
+
+## Roadmap deletion handler restored (2026-10-27)
+
+- Restored the missing `handleDeleteRoadmap` frontend handler. The roadmap card still rendered its Delete button, but the handler was accidentally removed during the roadmap-card simplification, causing the button to fail when clicked.
+- The restored handler keeps the existing safe behavior: ask for confirmation, call the authenticated draft-roadmap DELETE endpoint, remove the deleted draft from frontend state, show success/error feedback, and release the busy state in `finally`.
+- Deletion scope remains drafts only; active and superseded chunks are intentionally protected by the API to preserve learning history.
+- Regression checks: verify the Delete button invokes the handler, cancellation makes no request, successful deletion removes the draft card, and API errors remain visible.
