@@ -69,7 +69,6 @@ function App() {
   const [goals, setGoals] = useState([]);
   const [roadmapsByGoal, setRoadmapsByGoal] = useState({});
   const [learningBriefConfirmedByRoadmap, setLearningBriefConfirmedByRoadmap] = useState({});
-  const [clarificationByRoadmap, setClarificationByRoadmap] = useState({});
   const [generatingGoalId, setGeneratingGoalId] = useState(null);
   const [streamedTopics, setStreamedTopics] = useState([]);
   const [expandedGoalIds, setExpandedGoalIds] = useState(() => new Set());
