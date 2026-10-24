@@ -162,6 +162,7 @@ function App() {
             return [goal.id, saved.data.roadmaps];
           }));
           setRoadmapsByGoal(Object.fromEntries(entries));
+          setExpandedGoalIds(new Set(entries.filter(([, roadmaps]) => roadmaps.length > 0).map(([goalId]) => goalId)));
           const missionEntries = await Promise.all(result.data.goals.map(async (goal) => {
             try {
               const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/missions?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`);
@@ -297,6 +298,11 @@ function App() {
       return [goal.id, saved.data.roadmaps || []];
     }));
     setRoadmapsByGoal(Object.fromEntries(entries));
+    setExpandedGoalIds((current) => {
+      const next = new Set(current);
+      for (const [goalId, roadmaps] of entries) if (roadmaps.length > 0) next.add(goalId);
+      return next;
+    });
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     const missionEntries = await Promise.all(savedGoals.map(async (goal) => {
       try {
