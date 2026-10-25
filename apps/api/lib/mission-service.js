@@ -99,7 +99,7 @@ async function generateInitialRollingMissions({ userId, goalId, timeZone = 'UTC'
   }
   if (dates.length === 0) throw new MissionServiceError(409, 'NO_STUDY_DAYS_BEFORE_DEADLINE', 'There are no study days left before this goal’s target date.');
 
-  const dailyBudget = Math.max(5, Math.floor(goal.minutesPerDay * 0.8));
+  const dailyBudget = Math.max(5, Math.floor(goal.minutesPerDay));
   const groups = dates.map(() => []);
   let dateIndex = 0;
   let usedMinutes = 0;

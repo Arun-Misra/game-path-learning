@@ -393,7 +393,7 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
 
   const brief = proposed.learningBrief && typeof proposed.learningBrief === 'object' ? proposed.learningBrief : {};
   const practiceDays = normalizedPlanningDays;
-  const plannedDailyMinutes = Math.max(5, Math.floor(goal.minutesPerDay * 0.8));
+  const plannedDailyMinutes = Math.max(5, Math.floor(goal.minutesPerDay));
   proposed.learningBrief = {
     ...brief,
     chunkNumber,
@@ -573,7 +573,7 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
     const actualPlanningDays = dates.length;
     const draft = await generateRoadmapDraft({ userId, goalId, planningDays: actualPlanningDays, timeZone, now, db });
     const topics = draft.topics || [];
-    const plannedDailyMinutes = Math.max(5, Math.floor(goal.minutesPerDay * 0.8));
+    const plannedDailyMinutes = Math.max(5, Math.floor(goal.minutesPerDay));
     const topicGroups = dates.map(() => []);
     let dateIndex = 0;
     let usedMinutes = 0;

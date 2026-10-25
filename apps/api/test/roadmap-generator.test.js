@@ -9,6 +9,7 @@ const {
   getTimeBreakdownIssues,
   getJavaBeginnerInstructionIssues,
   getUnjustifiedRepeatedTopicIssues,
+  getExcessSessionCountIssues,
   isLocalOllama,
   normalizeRoadmapProposal,
   validateReview,
@@ -70,6 +71,17 @@ test('planner prompt prioritises the exact outcome, steps, deliverable, and week
   assert.match(prompt, /Choose the teaching approach that fits the learner and skill/i);
   assert.match(prompt, /"prerequisiteKeys"/);
   assert.match(prompt, /valid JSON only/i);
+});
+
+test('weekly planner prompt hard-limits sessions to available study days and daily minutes', () => {
+  const prompt = buildPrompt({ ...goal, minutesPerDay: 45, daysPerWeek: 5, planningDays: 7 });
+  assert.match(prompt, /no more than 5 topics\/sessions/i);
+  assert.match(prompt, /45-minute daily availability/i);
+  assert.match(prompt, /maximum total effort 225 minutes|total estimated effort must not exceed 225 minutes/i);
+  const issues = getExcessSessionCountIssues({ topics: Array.from({ length: 4 }, (_, i) => ({ key: String(i), title: 'Topic ' + i })) }, 3);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].code, 'TOO_MANY_SESSIONS');
+  assert.deepEqual(getExcessSessionCountIssues({ topics: [{ key: 'a' }, { key: 'b' }] }, 3), []);
 });
 
 test('planner prompt uses learner availability without a fixed session quota', () => {

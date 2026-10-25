@@ -449,3 +449,19 @@ Do not update master/reference docs frequently; update this context only for mat
 - The restored handler keeps the existing safe behavior: ask for confirmation, call the authenticated draft-roadmap DELETE endpoint, remove the deleted draft from frontend state, show success/error feedback, and release the busy state in `finally`.
 - Deletion scope remains drafts only; active and superseded chunks are intentionally protected by the API to preserve learning history.
 - Regression checks: verify the Delete button invokes the handler, cancellation makes no request, successful deletion removes the draft card, and API errors remain visible.
+
+
+## Groq hosted generation branch (2026-10-27)
+- Created branch `feat/groq-generation` from the current working branch, preserving the pre-existing uncommitted frontend removal and unrelated untracked files.
+- Switched AI provider defaults from local Ollama to Groq's OpenAI-compatible API at `https://api.groq.com/openai/v1`, using model `openai/gpt-oss-120b`.
+- Updated roadmap, clarification-question, assessment, and experimental roadmap generator defaults; Groq requests use non-strict JSON-schema mode where the existing schemas contain optional fields, followed by existing server-side validation.
+- Updated `.env.example` and README setup guidance. The local ignored `.env` now points to Groq and the selected model; its existing `AI_API_KEY` value was preserved and was not displayed. A valid Groq API key is still required for live generation.
+- Validation: `npm test` passed 118/118; `npm run check` and `npm run build` passed; `git diff --check` passed. The web lint reports four existing unused-code warnings in the project-milestones UI code that was previously removed. No live Groq request was made because the key's availability was not verified.
+
+## Weekly generation limits and daily availability (2026-10-27)
+
+- Hosted roadmap generation now caps a chunk at the learner's available study days, with an absolute maximum of seven sessions/topics. The planner and reviewer prompts both state this hard limit; the structured output schema also caps topics at seven.
+- `planningDays` is treated as a count of study days, capped at seven and at the learner's configured `daysPerWeek`, rather than converted into fewer days using calendar-week arithmetic.
+- Each generated session may use up to the user's full configured `minutesPerDay`; the draft and rolling-generation scheduling budgets no longer apply an implicit 80% multiplier. Recovery replanning now uses the same full daily availability.
+- Generation flags too many sessions as a required revision issue; a still-invalid revision fails rather than saving extra sessions. The prompt discourages splitting one day's work into multiple short 12–20 minute topic entries when a coherent daily session is appropriate. It does not inflate genuine short activities merely to fill time.
+- Regression coverage verifies the weekly prompt uses the configured number of study days, the daily minute limit, and the deterministic excess-session guard.
