@@ -1,3 +1,10 @@
+File: context.md
+
+File: context.md
+
+
+
+
 # Gamified Learning V2 — Context
 
 ## Product and principles
@@ -448,8 +455,3 @@ Do not update master/reference docs frequently; update this context only for mat
 - Fixed the dashboard initial-load state so goals with saved roadmaps automatically expand when roadmap data is loaded. Previously, every goal started collapsed and its roadmap cards had a `hidden` class until the learner manually clicked `View goal`, making already-generated chunks appear to have disappeared after reload/login.
 - Workspace reloads preserve any currently expanded goals and automatically expand goals that have saved chunks. Goals without roadmaps remain collapsed as before; the learner can still collapse a goal manually.
 - Validation: `npm test` passed 118/118, `npm run check`, `npm run build`, and `git diff --check` passed. Existing untracked backup/helper files remain untouched.
-
-## Roadmap chunks always render independently of goal toggle (2026-10-27)
-
-- Corrected the actual visibility issue: roadmap chunk cards were given Tailwind's `hidden` class whenever `goalExpanded` was false. This meant saved/generated chunks could be absent from the page even though they had loaded successfully. Roadmap cards now render without being conditionally hidden by the goal toggle; the goal toggle no longer controls whether the chunks themselves are present.
-- Validation: `npm test` passed 118/118; `npm run check`, `npm run build`, and `git diff --check` passed.
