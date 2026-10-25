@@ -449,9 +449,3 @@ Do not update master/reference docs frequently; update this context only for mat
 - The restored handler keeps the existing safe behavior: ask for confirmation, call the authenticated draft-roadmap DELETE endpoint, remove the deleted draft from frontend state, show success/error feedback, and release the busy state in `finally`.
 - Deletion scope remains drafts only; active and superseded chunks are intentionally protected by the API to preserve learning history.
 - Regression checks: verify the Delete button invokes the handler, cancellation makes no request, successful deletion removes the draft card, and API errors remain visible.
-
-## Existing roadmap chunks visible on workspace load (2026-10-27)
-
-- Fixed the dashboard initial-load state so goals with saved roadmaps automatically expand when roadmap data is loaded. Previously, every goal started collapsed and its roadmap cards had a `hidden` class until the learner manually clicked `View goal`, making already-generated chunks appear to have disappeared after reload/login.
-- Workspace reloads preserve any currently expanded goals and automatically expand goals that have saved chunks. Goals without roadmaps remain collapsed as before; the learner can still collapse a goal manually.
-- Validation: `npm test` passed 118/118, `npm run check`, `npm run build`, and `git diff --check` passed. Existing untracked backup/helper files remain untouched.
