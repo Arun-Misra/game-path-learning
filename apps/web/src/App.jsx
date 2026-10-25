@@ -1151,45 +1151,6 @@ return <div key={roadmap.id} className={`roadmap-card mt-4 rounded-xl bg-[#f7f8f
   <ul className="mt-3 space-y-2 border-t border-[#343432] pt-3">{recoveryByGoal[goal.id].missedMissions.slice(0, 3).map((mission) => <li key={mission.id} className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="min-w-0 flex-1 text-[#d1d1cd]">{mission.topic?.title || 'Learning topic'} · {mission.title}</span><span className="shrink-0 text-[#777773]">{String(mission.scheduledDate).slice(0, 10)}</span></li>)}</ul>
   {recoveryByGoal[goal.id].missedCount > recoveryByGoal[goal.id].missedMissions.length && <p className="mt-2 text-[10px] text-[#777773]">Showing the latest {recoveryByGoal[goal.id].missedMissions.length} of {recoveryByGoal[goal.id].missedCount} missed sessions.</p>}
 </section>}
-{(roadmapsByGoal[goal.id] || []).some((item) => item.generationState === 'ACTIVE') && <section className="project-milestones mt-4 rounded-xl border border-[#343432] p-4" aria-label={`Project milestones for ${goal.skill}`}>
-  <div className="flex flex-wrap items-start justify-between gap-3">
-    <div>
-      <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#ff5933]"><Target size={13} className="mr-1 inline" /> Build toward a real result</p>
-      <h3 className="mt-2 text-lg font-semibold text-[#f2f2f0]">Project milestones</h3>
-      <p className="mt-1 max-w-2xl text-xs leading-5 text-[#a3a39f]">Turn your learning brief into a sequence of demonstrable outcomes. Each milestone saves evidence, not just a checkbox.</p>
-    </div>
-    {(projectMilestonesByGoal[goal.id]?.milestones || []).length === 0 && <button type="button" onClick={() => handleGenerateProjectMilestones(goal)} disabled={milestoneBusyGoal !== null || apiStatus !== 'online' || !projectMilestonesByGoal[goal.id]?.deliverable} className="min-h-10 border border-[#ff3300] bg-[#ff3300] px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{milestoneBusyGoal === goal.id ? 'Creating plan…' : 'Create project plan'}</button>}
-  </div>
-  {projectMilestonesByGoal[goal.id]?.deliverable && <p className="mt-3 border-l-2 border-[#ff5933] pl-3 text-sm leading-6 text-[#d1d1cd]"><span className="font-semibold text-white">Final deliverable</span> · {projectMilestonesByGoal[goal.id].deliverable}</p>}
-  {(projectMilestonesByGoal[goal.id]?.milestones || []).length === 0
-    ? <p className="mt-3 text-xs leading-5 text-[#a3a39f]">{projectMilestonesByGoal[goal.id]?.deliverable ? 'Your project plan has not been created yet.' : 'A confirmed learning brief with a final deliverable is required before a project plan can be generated.'}</p>
-    : <>
-      <div className="mt-4 flex items-center gap-3">
-        <div className="h-1.5 flex-1 overflow-hidden bg-[#343432]"><div className="h-full bg-[#ff3300] transition-all" style={{ width: `${Math.round(projectMilestonesByGoal[goal.id].milestones.filter((item) => item.status === 'COMPLETED').length / projectMilestonesByGoal[goal.id].milestones.length * 100)}%` }} /></div>
-        <span className="shrink-0 text-xs text-[#a3a39f]">{projectMilestonesByGoal[goal.id].milestones.filter((item) => item.status === 'COMPLETED').length} / {projectMilestonesByGoal[goal.id].milestones.length} done</span>
-      </div>
-      <ol className="mt-4 space-y-3">{projectMilestonesByGoal[goal.id].milestones.map((milestone, index) => {
-        const completed = milestone.status === 'COMPLETED';
-        const priorDone = projectMilestonesByGoal[goal.id].milestones.slice(0, index).every((item) => item.status === 'COMPLETED');
-        const evidence = milestoneEvidenceById[milestone.id] ?? milestone.evidence ?? '';
-        return <li key={milestone.id} className="border-t border-[#343432] pt-3">
-          <div className="flex items-start gap-3">
-            <span className={`grid h-8 w-8 shrink-0 place-items-center border ${completed ? 'border-[#ff3300] bg-[#ff3300] text-white' : 'border-[#41413d] text-[#ff5933]'}`}>{completed ? <Check size={16} /> : String(index + 1).padStart(2, '0')}</span>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-semibold text-[#f2f2f0]">{milestone.title}</h4><span className="border border-[#41413d] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[#a3a39f]">{milestone.status.replace('_', ' ').toLowerCase()}</span></div>
-              <p className="mt-1 text-xs leading-5 text-[#a3a39f]">{milestone.description}</p>
-              {Array.isArray(milestone.successCriteria) && milestone.successCriteria.length > 0 && <ul className="mt-2 space-y-1">{milestone.successCriteria.map((criterion, criterionIndex) => <li key={criterionIndex} className="flex items-start gap-2 text-xs leading-5 text-[#d1d1cd]"><span className="mt-1 text-[#ff5933]">•</span><span>{criterion}</span></li>)}</ul>}
-              {completed ? <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-[#a3a39f]"><span className="font-semibold text-[#f2f2f0]">Evidence saved:</span> {milestone.evidence}</p> : <>
-                <label className="mt-3 block"><span className="text-xs font-semibold text-[#d1d1cd]">Evidence / progress note</span><textarea value={evidence} onChange={(event) => setMilestoneEvidenceById((current) => ({ ...current, [milestone.id]: event.target.value }))} maxLength={4000} rows={2} placeholder="What did you build, test, or demonstrate? Add links or test results if useful." className="mt-2 w-full resize-y border border-[#41413d] bg-[#111110] p-3 text-sm leading-5 text-[#f2f2f0] placeholder:text-[#777773] focus:border-[#ff3300] focus:outline-none" /></label>
-                <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => handleUpdateProjectMilestone(goal, milestone, milestone.status)} disabled={milestoneBusyGoal !== null} className="min-h-9 border border-[#41413d] px-3 py-2 text-xs font-semibold text-[#d1d1cd] disabled:opacity-40">{milestoneBusyGoal === goal.id ? 'Saving…' : 'Save note'}</button>{milestone.status !== 'IN_PROGRESS' && <button type="button" onClick={() => handleUpdateProjectMilestone(goal, milestone, 'IN_PROGRESS')} disabled={milestoneBusyGoal !== null || !priorDone} className="min-h-9 border border-[#41413d] px-3 py-2 text-xs font-semibold text-[#d1d1cd] disabled:opacity-40">{milestoneBusyGoal === goal.id ? 'Saving…' : milestone.status === 'PLANNED' ? 'Start milestone' : 'Mark in progress'}</button>}<button type="button" onClick={() => handleUpdateProjectMilestone(goal, milestone, 'COMPLETED')} disabled={milestoneBusyGoal !== null || !priorDone || evidence.trim().length < 20} className="min-h-9 border border-[#ff3300] bg-[#ff3300] px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{milestoneBusyGoal === goal.id ? 'Saving…' : 'Complete with evidence'}</button></div>
-                {!priorDone && <p className="mt-2 text-[11px] text-[#777773]">Finish earlier milestones first to unlock this one.</p>}
-              </>}
-            </div>
-          </div>
-        </li>;
-      })}</ol>
-    </>}
-</section>}
 {(missionsByGoal[goal.id]?.missions || []).length > 0 && <div className="mt-4 rounded-xl border border-[#343432] p-4">
 <div className="flex flex-wrap items-center justify-between gap-3">
 <div>
