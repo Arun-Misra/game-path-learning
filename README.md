@@ -7,7 +7,7 @@ A personalised learning platform for any skill. Learners describe their current 
 - **Web:** React, JavaScript, Vite, Tailwind CSS
 - **API:** Node.js, Express, JavaScript, Zod
 - **Persistence:** PostgreSQL + Prisma
-- **Roadmap generation:** OpenAI structured output, validated server-side before persistence
+- **AI generation:** Groq OpenAI-compatible chat completions with server-side schema validation
 - **Tests:** Node.js built-in test runner
 
 ## Setup
@@ -15,7 +15,7 @@ A personalised learning platform for any skill. Learners describe their current 
 1. Install dependencies: `npm install`.
 2. Configure the root `.env` using `.env.example` as a guide.
 3. Set `DATABASE_URL` to a real PostgreSQL database.
-4. Set `OPENAI_API_KEY` to a valid API key with access to the configured model. Keep it only in the ignored root `.env`; never commit it.
+4. Set `AI_API_KEY` to your Groq API key and configure `AI_BASE_URL="https://api.groq.com/openai/v1"` plus `AI_MODEL="openai/gpt-oss-120b"`. Keep the key only in the ignored root `.env`; never commit it.
 5. Apply the initial schema: `npm run db:migrate`.
 6. Start both applications: `npm run dev`.
 
@@ -29,7 +29,7 @@ The web app uses Vite's default local development port. The API defaults to port
 - `npm run build` — production-build the web app
 - `npm test` — API tests; database integration tests are skipped unless `TEST_DATABASE_URL` is configured
 - `npm run check` — API JavaScript syntax checks and web lint
-- `npm run smoke:continuity` — generate consecutive chunks with local Ollama and inspect progression from verified prior work
+- `npm run smoke:continuity` - generate consecutive chunks and inspect progression from verified prior work (uses the configured AI provider)
 - `npm run db:validate` — validate the Prisma schema
 - `npm run db:generate` — generate the Prisma Client
 - `npm run db:migrate` — create/apply a development migration (requires PostgreSQL)
@@ -85,7 +85,7 @@ Mission scheduling uses the active roadmap, daily minute budget, days-per-week a
 
 ## Current limitations
 
-The API integration suite passes against the isolated PostgreSQL test database when `TEST_DATABASE_URL` points to a migrated test database. If the default `DATABASE_URL` still returns Prisma P1010 in your environment, correct its credentials and apply migrations before using that database. Local AI generation requires Ollama running with the configured model; hosted providers require a valid provider key.
+The API integration suite passes against the isolated PostgreSQL test database when `TEST_DATABASE_URL` points to a migrated test database. If the default `DATABASE_URL` still returns Prisma P1010 in your environment, correct its credentials and apply migrations before using that database. AI generation uses the configured hosted provider; Groq requires a valid API key and model access.
 
 See `context.md` for current implementation status and the master implementation plan for product requirements and implementation order.
 

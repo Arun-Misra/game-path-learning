@@ -1,5 +1,5 @@
-const DEFAULT_BASE_URL = 'http://127.0.0.1:11434/v1';
-const DEFAULT_MODEL = 'gemma4:e4b';
+const DEFAULT_BASE_URL = 'https://api.groq.com/openai/v1';
+const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 const ROADMAP_SCHEMA = {
   type: 'object',
   properties: {
