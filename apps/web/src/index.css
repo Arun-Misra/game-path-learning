@@ -3053,101 +3053,203 @@ body { background:#111110!important; color:#f2f2f0; }
   .app-shell:has(.learning-sidebar) .sidebar-goal-link { transition: none; }
 }
 
-/* Focused learning path: keep the existing charcoal and orange palette, remove nested grid lines. */
+
+
+/* Focused learning workspace: full-width content, clear hierarchy, existing charcoal/orange palette. */
 .app-shell:has(.learning-sidebar) #learning-goals {
-  padding-right: clamp(1.25rem, 4vw, 3.5rem) !important;
-  padding-left: clamp(1.25rem, 4vw, 3.5rem) !important;
-}
-.app-shell:has(.learning-sidebar) #learning-goals > .goals-board > div:first-child > span {
-  display: none;
-}
-.app-shell:has(.learning-sidebar) #learning-goals .goals-board > div:first-child {
-  margin-bottom: 1.5rem !important;
-}
-.app-shell:has(.learning-sidebar) #learning-goals .goal-card {
   width: 100%;
+  max-width: none;
+  padding: 1.5rem clamp(1.25rem, 3.2vw, 3.25rem) 3rem !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goals-board {
+  width: 100%;
+  max-width: none;
   border: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;
+  box-shadow: none !important;
   padding: 0 !important;
 }
-.app-shell:has(.learning-sidebar) #learning-goals .goal-card:hover {
-  transform: none !important;
+.app-shell:has(.learning-sidebar) #learning-goals .goals-board > div:first-child {
+  margin-bottom: 1.25rem !important;
+  padding-bottom: 1.2rem;
+  border-bottom: 1px solid #30302e;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goals-board > div:first-child > div > p:first-child {
+  color: #ff5933 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goals-board > div:first-child > div > h2 {
+  color: #f2f2f0;
+  font-size: clamp(1.5rem, 2vw, 2rem) !important;
+  letter-spacing: -.045em;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goals-board > div:first-child > div > p:last-child {
+  color: #a3a39f !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goals-board > div:first-child > span {
+  border: 1px solid #343432;
+  border-radius: 3px !important;
+  background: #191918 !important;
+  color: #c8c8c3 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card {
+  width: 100%;
+  max-width: none !important;
+  border: 1px solid #343432 !important;
+  border-radius: 5px !important;
+  background: #191918 !important;
+  padding: clamp(1rem, 2vw, 1.6rem) !important;
   box-shadow: none !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card:hover {
+  border-color: #4a3a33 !important;
+  transform: none !important;
+  box-shadow: 0 10px 35px rgb(0 0 0 / 12%) !important;
 }
 .app-shell:has(.learning-sidebar) #learning-goals .goal-card > div:first-child {
   padding-bottom: 1rem;
   border-bottom: 1px solid #30302e;
 }
-.app-shell:has(.learning-sidebar) #learning-goals .goal-card > div:first-child > div:first-child > p:first-child {
-  font-size: clamp(1.35rem, 2.4vw, 1.8rem) !important;
+.app-shell:has(.learning-sidebar) #learning-goals .goal-toggle-title {
+  color: #f2f2f0 !important;
+  font-size: clamp(1.45rem, 2.1vw, 1.9rem) !important;
+  font-weight: 750 !important;
   letter-spacing: -.045em;
 }
+.app-shell:has(.learning-sidebar) #learning-goals .goal-toggle-state {
+  color: #ff5933 !important;
+  font-size: .72rem !important;
+  font-weight: 650 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card > div:first-child > div:first-child > p:nth-child(2) {
+  margin-top: .4rem !important;
+  color: #a3a39f !important;
+  font-size: .95rem !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card > div:first-child > div:first-child > p:nth-child(3) {
+  margin-top: .9rem !important;
+  color: #8d8d87 !important;
+  font-size: .75rem !important;
+  line-height: 1.8 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card .next-step-title {
+  color: #f2f2f0 !important;
+  font-size: .95rem !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card [aria-label^="Next step"] {
+  margin-top: 1rem !important;
+  padding: .85rem 1rem !important;
+  border: 1px solid #343432;
+  border-left: 2px solid #ff5933 !important;
+  background: #141413;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card [aria-label^="Next step"] p:first-child {
+  color: #ff5933 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card [aria-label^="Next step"] p:last-child {
+  color: #a3a39f !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .mastery-details {
+  border-color: #343432 !important;
+  border-radius: 3px !important;
+  background: #141413 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card > div:first-child > div:last-child {
+  flex-wrap: wrap;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card button {
+  border-radius: 3px !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card button[class*="bg-[#ff3300]"],
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card button[class*="bg-[#ff5933]"] {
+  background: #ff3300 !important;
+  color: #fff !important;
+}
 .app-shell:has(.learning-sidebar) #learning-goals .roadmap-card {
-  margin-top: 1.25rem !important;
-  border: 0 !important;
-  border-top: 1px solid #30302e !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  padding: 1.25rem 0 0 !important;
+  width: 100%;
+  max-width: none !important;
+  margin-top: 1.1rem !important;
+  border: 1px solid #343432 !important;
+  border-radius: 5px !important;
+  background: #151514 !important;
+  padding: clamp(1rem, 2vw, 1.5rem) !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .roadmap-card > div:first-child {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #30302e;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .roadmap-card > div:first-child > div:first-child > p:first-child {
+  color: #f2f2f0 !important;
+  font-size: 1.15rem !important;
+  font-weight: 750 !important;
+  letter-spacing: -.025em;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .roadmap-card > div:first-child > div:first-child > p:nth-child(2) {
+  margin-top: .4rem;
+  color: #8d8d87 !important;
+  font-size: .75rem !important;
 }
 .app-shell:has(.learning-sidebar) #learning-goals .learning-path-details {
   border: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;
-  padding: .75rem 0 0 !important;
+  padding: 1rem 0 0 !important;
 }
 .app-shell:has(.learning-sidebar) #learning-goals .learning-path {
-  padding: .35rem 0 .35rem .2rem !important;
+  padding: .5rem 0 !important;
 }
 .app-shell:has(.learning-sidebar) #learning-goals .learning-path::before {
-  left: 1.32rem !important;
+  left: 1.25rem !important;
   width: 2px !important;
-  border-radius: 0 !important;
+  border-radius: 2px !important;
   background: #343432 !important;
 }
 .app-shell:has(.learning-sidebar) #learning-goals .path-step {
-  padding: .9rem 0 !important;
+  padding: .65rem 0 !important;
   border: 0 !important;
 }
 .app-shell:has(.learning-sidebar) #learning-goals .path-step + .path-step {
   border-top: 1px solid #292927 !important;
 }
+.app-shell:has(.learning-sidebar) #learning-goals .path-step > div {
+  gap: 1rem !important;
+}
 .app-shell:has(.learning-sidebar) #learning-goals .path-step > div > span:first-child {
-  width: 38px !important;
-  height: 38px !important;
-  flex-basis: 38px !important;
+  width: 40px !important;
+  height: 40px !important;
+  flex-basis: 40px !important;
   border: 1px solid #41413d !important;
   border-radius: 50% !important;
-  background: #151514 !important;
+  background: #191918 !important;
   color: #ff5933 !important;
-  font-weight: 700 !important;
+  font-weight: 750 !important;
 }
 .app-shell:has(.learning-sidebar) #learning-goals .path-step > div > div {
   min-width: 0;
-  padding: .35rem 0 .65rem !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
+  flex: 1 1 auto;
+  padding: .75rem 1rem !important;
+  border: 1px solid #30302e !important;
+  border-radius: 4px !important;
+  background: #191918 !important;
 }
 .app-shell:has(.learning-sidebar) #learning-goals .path-step > div > div > p:first-child {
   color: #f2f2f0 !important;
-  font-size: 1rem !important;
+  font-size: .98rem !important;
   font-weight: 700 !important;
 }
 .app-shell:has(.learning-sidebar) #learning-goals .path-step > div > div > p:nth-child(2) {
-  max-width: 70ch;
+  max-width: 80ch;
   color: #a3a39f !important;
   font-size: .82rem !important;
   line-height: 1.7 !important;
 }
 .app-shell:has(.learning-sidebar) #learning-goals .path-step > div > div > div > span {
   border-color: #343432 !important;
-  border-radius: 2px !important;
+  border-radius: 3px !important;
 }
 .app-shell:has(.learning-sidebar) #learning-goals .path-step > div > div > div > button {
   border: 1px solid #4a2820 !important;
-  border-radius: 2px !important;
+  border-radius: 3px !important;
   background: #2a1a16 !important;
   color: #ff5933 !important;
 }
@@ -3155,19 +3257,23 @@ body { background:#111110!important; color:#f2f2f0; }
   border-color: #ff5933 !important;
   background: #352019 !important;
 }
-.app-shell:has(.learning-sidebar) #learning-goals .goal-card > div:first-child > div:last-child button {
-  border-radius: 2px !important;
-}
 .app-shell:has(.learning-sidebar) .sidebar-goal-link.active {
   border-left: 2px solid #ff3300 !important;
   background: #211915 !important;
 }
 @media (min-width: 1100px) {
+  .app-shell:has(.learning-sidebar) #learning-goals .goal-card,
+  .app-shell:has(.learning-sidebar) #learning-goals .roadmap-card {
+    max-width: none !important;
+  }
+}
+@media (max-width: 700px) {
   .app-shell:has(.learning-sidebar) #learning-goals {
-    max-width: none;
+    padding-right: 1rem !important;
+    padding-left: 1rem !important;
   }
   .app-shell:has(.learning-sidebar) #learning-goals .goal-card,
   .app-shell:has(.learning-sidebar) #learning-goals .roadmap-card {
-    max-width: 1120px;
+    padding: 1rem !important;
   }
 }

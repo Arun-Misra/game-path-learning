@@ -1045,7 +1045,7 @@ function App() {
 <div className="goals-board rounded-3xl border border-[#e3e6dc] bg-white p-6">
 <div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#688663]">YOUR WORKSPACE</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Your learning path</h2><p className="mt-1 text-sm text-[#737b70]">Pick up where you left off, or plan your next step.</p></div><span className="rounded-full bg-[#edf3e9] px-3 py-1.5 text-xs font-semibold text-[#355a39]">{goals.length} goal{goals.length === 1 ? '' : 's'} saved</span></div>
 
-<div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.filter((goal) => expandedGoalIds.has(goal.id)).map((goal) => {
+<div className="mt-5 grid grid-cols-1 gap-4">{goals.filter((goal) => expandedGoalIds.has(goal.id)).map((goal) => {
 const goalExpanded = true;
 return <article key={goal.id} id={`goal-${goal.id}`} className="goal-card rounded-2xl border border-[#e7e9e1] p-4 scroll-mt-6">
 <div className="flex flex-wrap items-start justify-between gap-3">

@@ -4,6 +4,8 @@ File: context.md
 
 File: context.md
 
+File: context.md
+
 
 
 
@@ -473,3 +475,8 @@ Do not update master/reference docs frequently; update this context only for mat
 - The first saved goal is selected on workspace load when there is no still-valid selection. Newly created goals become selected; deleting the active goal selects another remaining goal when available.
 - Simplified the learning path presentation with CSS-only changes: removed nested card borders and the dashed/repeating timeline, using subtle charcoal dividers, a fine solid connector, and more open session rows. Expanded the content width for desktop readability.
 - Preserved the existing dark charcoal, off-white text, muted gray, and orange Pathwise palette. No API, generation, assessment, mission, or progress behavior was intentionally changed.
+
+## Learning path layout correction (2026-10-27)
+- Follow-up visual review found the single selected goal was still inside a two-column grid, leaving it at half width, and the previous minimalist overrides removed too much card hierarchy.
+- Changed the selected goal layout to a single full-width column and restored intentional dark-surface card hierarchy for goal details, roadmap header, and individual sessions.
+- Preserved the current charcoal, muted gray, off-white, and orange palette. No functional learning behavior was intentionally changed.
