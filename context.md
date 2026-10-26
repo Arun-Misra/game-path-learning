@@ -8,6 +8,8 @@ File: context.md
 
 File: context.md
 
+File: context.md
+
 
 
 
@@ -487,3 +489,8 @@ Do not update master/reference docs frequently; update this context only for mat
 - When a signed-in learner already has goals and opens the add-goal flow, hide the onboarding/marketing hero and present a single centered form in the main content area instead of leaving an awkward split layout and unused space.
 - Added a clear cancel control to close the add-goal flow without changing the existing goal.
 - Kept the current charcoal, off-white, muted-gray, and orange palette. Form submission and goal creation logic are unchanged.
+
+## Goal form defaults (2026-10-27)
+- New learning goals default to seven study days per week. The onboarding/add-goal form no longer displays the weekly rhythm selector; the submitted value remains explicitly set to 7.
+- Removed the explanatory helper beneath the target-duration field at the user's request. Target duration input and validation are unchanged.
+- Existing charcoal/off-white/gray/orange palette is unchanged.

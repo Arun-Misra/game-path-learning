@@ -7,7 +7,7 @@ import AssessmentTestPage from './AssessmentTestPage.jsx';
 
 const initialForm = {
   skill: '', experience: 'beginner', outcome: '',
-  minutesPerDay: '30', daysPerWeek: '5', targetDurationDays: '30',
+  minutesPerDay: '30', daysPerWeek: '7', targetDurationDays: '30',
   name: '', email: '', password: '',
 };
 
@@ -943,8 +943,8 @@ function App() {
                 <Field label="3. What would you like to be able to do?"><textarea name="outcome" value={form.outcome} onChange={updateField} required maxLength={1000} rows={3} placeholder="e.g. Build and deploy my first ML model..." className="field resize-none" /></Field>
                 <div className="schedule-fields grid grid-cols-2 gap-4">
                   <Field label="4. Your daily time"><select name="minutesPerDay" value={form.minutesPerDay} onChange={updateField} className="field"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option><option value="90">1.5 hours</option><option value="120">2 hours</option></select></Field>
-                  <Field label="Your weekly rhythm"><select name="daysPerWeek" value={form.daysPerWeek} onChange={updateField} className="field">{[2, 3, 4, 5, 6, 7].map((days) => <option key={days} value={days}>{days} days</option>)}</select></Field>
-                  <Field label="5. In how many days do you want to achieve this goal?"><input name="targetDurationDays" type="number" min="1" max="365" step="1" required value={form.targetDurationDays} onChange={updateField} className="field" /><span className="block text-xs leading-5 text-[#737b70]">Set your target timeline. Pathwise will build a rolling 3-day plan and adapt it as you progress.</span></Field>
+                  <input type="hidden" name="daysPerWeek" value="7" readOnly />
+                  <Field label="5. In how many days do you want to achieve this goal?"><input name="targetDurationDays" type="number" min="1" max="365" step="1" required value={form.targetDurationDays} onChange={updateField} className="field" /></Field>
                 </div>
               </>}
               <button type="submit" disabled={busy || apiStatus !== 'online'} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#263f32] px-5 py-4 text-sm font-semibold text-white transition hover:bg-[#355640] focus:outline-none focus:ring-4 focus:ring-[#d8e5d3] disabled:cursor-not-allowed disabled:opacity-55">{busy ? (user ? 'Saving your goal…' : accountMode === 'login' ? 'Signing in…' : 'Creating account…') : user ? 'Save my learning goal' : accountMode === 'login' ? 'Sign in to Pathwise' : 'Create my account'} <ArrowRight size={17} className="transition group-hover:translate-x-1" /></button>
