@@ -157,6 +157,7 @@ function App() {
       .then(async (result) => {
         if (result?.data?.goals) {
           setGoals(result.data.goals);
+          setExpandedGoalIds((current) => current.size && result.data.goals.some((goal) => current.has(goal.id)) ? new Set([result.data.goals.find((goal) => current.has(goal.id)).id]) : new Set(result.data.goals[0] ? [result.data.goals[0].id] : []));
           const entries = await Promise.all(result.data.goals.map(async (goal) => {
             const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`);
             return [goal.id, saved.data.roadmaps];
@@ -277,6 +278,7 @@ function App() {
         }),
       });
       setGoals((current) => [result.data.goal, ...current]);
+      setExpandedGoalIds(new Set([result.data.goal.id]));
       void refreshNextStep(result.data.goal.id);
       setNotice({ type: 'success', message: 'Your learning goal is saved. Next, we’ll build its personalised roadmap.' });
       setForm((current) => ({ ...current, skill: '', outcome: '' }));
@@ -292,6 +294,7 @@ function App() {
     const result = await requestJson('/api/v1/learning-goals');
     const savedGoals = result.data.goals || [];
     setGoals(savedGoals);
+    setExpandedGoalIds((current) => current.size && savedGoals.some((goal) => current.has(goal.id)) ? new Set([savedGoals.find((goal) => current.has(goal.id)).id]) : new Set(savedGoals[0] ? [savedGoals[0].id] : []));
     const entries = await Promise.all(savedGoals.map(async (goal) => {
       const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`);
       return [goal.id, saved.data.roadmaps || []];
@@ -325,6 +328,7 @@ function App() {
     try {
       await requestJson(`/api/v1/learning-goals/${goal.id}`, { method: 'DELETE' });
       setGoals((current) => current.filter((item) => item.id !== goal.id));
+      setExpandedGoalIds((current) => current.has(goal.id) ? new Set(goals.find((item) => item.id !== goal.id) ? [goals.find((item) => item.id !== goal.id).id] : []) : current);
       setNextStepByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
       setMasterySummaryByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
       setRoadmapsByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
@@ -798,7 +802,7 @@ function App() {
     }
   }
 
-  const dashboardGoal = goals[0] || null;
+  const dashboardGoal = goals.find((goal) => expandedGoalIds.has(goal.id)) || goals[0] || null;
   const dashboardRoadmap = dashboardGoal
     ? (roadmapsByGoal[dashboardGoal.id] || []).find((roadmap) => roadmap.generationState === 'ACTIVE')
     : null;
@@ -891,7 +895,7 @@ function App() {
         <div className="sidebar-goals" aria-label="Your learning goals">
           <p className="sidebar-goals-label">YOUR GOALS</p>
           <nav className="sidebar-goal-list" aria-label="Learning goals">
-            {goals.map((goal) => <button key={goal.id} type="button" className={`sidebar-goal-link ${expandedGoalIds.has(goal.id) ? 'active' : ''}`} aria-current={expandedGoalIds.has(goal.id) ? 'page' : undefined} title={goal.skill} onClick={() => { setExpandedGoalIds((current) => { const next = new Set(current); if (next.has(goal.id)) next.delete(goal.id); else next.add(goal.id); return next; }); document.getElementById('goal-' + goal.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}><BookOpen size={16} /><span>{goal.skill}</span></button>)}
+            {goals.map((goal) => <button key={goal.id} type="button" className={`sidebar-goal-link ${expandedGoalIds.has(goal.id) ? 'active' : ''}`} aria-current={expandedGoalIds.has(goal.id) ? 'page' : undefined} title={goal.skill} onClick={() => { setExpandedGoalIds(new Set([goal.id])); document.getElementById('learning-goals')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}><BookOpen size={16} /><span>{goal.skill}</span></button>)}
           </nav>
         </div>
         <div className="sidebar-profile"><span className="profile-avatar">{(user.name || user.email || 'L').slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{user.name || 'Learner'}</strong><small>Level {gamification?.level?.level || 1} explorer</small></span><button type="button" onClick={handleLogout} aria-label="Sign out" title="Sign out">↗</button></div>
@@ -1041,12 +1045,12 @@ function App() {
 <div className="goals-board rounded-3xl border border-[#e3e6dc] bg-white p-6">
 <div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#688663]">YOUR WORKSPACE</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Your learning path</h2><p className="mt-1 text-sm text-[#737b70]">Pick up where you left off, or plan your next step.</p></div><span className="rounded-full bg-[#edf3e9] px-3 py-1.5 text-xs font-semibold text-[#355a39]">{goals.length} goal{goals.length === 1 ? '' : 's'} saved</span></div>
 
-<div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.map((goal) => {
-const goalExpanded = expandedGoalIds.has(goal.id);
+<div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.filter((goal) => expandedGoalIds.has(goal.id)).map((goal) => {
+const goalExpanded = true;
 return <article key={goal.id} id={`goal-${goal.id}`} className="goal-card rounded-2xl border border-[#e7e9e1] p-4 scroll-mt-6">
 <div className="flex flex-wrap items-start justify-between gap-3">
 <div>
-<button type="button" onClick={() => setExpandedGoalIds((current) => { const next = new Set(current); if (next.has(goal.id)) next.delete(goal.id); else next.add(goal.id); return next; })} aria-expanded={goalExpanded} className="goal-toggle flex w-full items-center gap-2 text-left font-semibold"><span className="goal-toggle-title">{goal.skill}</span><span className="goal-toggle-state ml-auto text-xs font-medium">{goalExpanded ? 'Hide details' : 'View goal'}</span><span aria-hidden="true" className="text-[#82917b]">{goalExpanded ? '⌃' : '⌄'}</span></button>
+<div className="goal-toggle flex w-full items-center gap-2 text-left font-semibold" aria-current="page"><span className="goal-toggle-title">{goal.skill}</span><span className="goal-toggle-state ml-auto text-xs font-medium">Selected goal</span></div>
 
 <p className="mt-1 text-sm text-[#737b70]">{goal.outcome}</p>
 

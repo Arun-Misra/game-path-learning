@@ -2,6 +2,8 @@ File: context.md
 
 File: context.md
 
+File: context.md
+
 
 
 
@@ -465,3 +467,9 @@ Do not update master/reference docs frequently; update this context only for mat
 - Each generated session may use up to the user's full configured `minutesPerDay`; the draft and rolling-generation scheduling budgets no longer apply an implicit 80% multiplier. Recovery replanning now uses the same full daily availability.
 - Generation flags too many sessions as a required revision issue; a still-invalid revision fails rather than saving extra sessions. The prompt discourages splitting one day's work into multiple short 12–20 minute topic entries when a coherent daily session is appropriate. It does not inflate genuine short activities merely to fill time.
 - Regression coverage verifies the weekly prompt uses the configured number of study days, the daily minute limit, and the deterministic excess-session guard.
+
+## Learning workspace UI simplification (2026-10-27)
+- The sidebar is now the source of truth for active learning-goal selection. Only the selected goal's card and roadmap are rendered in the main learning-path area; selecting another goal switches the active goal rather than toggling multiple roadmaps open.
+- The first saved goal is selected on workspace load when there is no still-valid selection. Newly created goals become selected; deleting the active goal selects another remaining goal when available.
+- Simplified the learning path presentation with CSS-only changes: removed nested card borders and the dashed/repeating timeline, using subtle charcoal dividers, a fine solid connector, and more open session rows. Expanded the content width for desktop readability.
+- Preserved the existing dark charcoal, off-white text, muted gray, and orange Pathwise palette. No API, generation, assessment, mission, or progress behavior was intentionally changed.

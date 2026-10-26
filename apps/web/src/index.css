@@ -3052,3 +3052,122 @@ body { background:#111110!important; color:#f2f2f0; }
 @media (prefers-reduced-motion: reduce) {
   .app-shell:has(.learning-sidebar) .sidebar-goal-link { transition: none; }
 }
+
+/* Focused learning path: keep the existing charcoal and orange palette, remove nested grid lines. */
+.app-shell:has(.learning-sidebar) #learning-goals {
+  padding-right: clamp(1.25rem, 4vw, 3.5rem) !important;
+  padding-left: clamp(1.25rem, 4vw, 3.5rem) !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals > .goals-board > div:first-child > span {
+  display: none;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goals-board > div:first-child {
+  margin-bottom: 1.5rem !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card {
+  width: 100%;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card:hover {
+  transform: none !important;
+  box-shadow: none !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card > div:first-child {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #30302e;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card > div:first-child > div:first-child > p:first-child {
+  font-size: clamp(1.35rem, 2.4vw, 1.8rem) !important;
+  letter-spacing: -.045em;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .roadmap-card {
+  margin-top: 1.25rem !important;
+  border: 0 !important;
+  border-top: 1px solid #30302e !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 1.25rem 0 0 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .learning-path-details {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: .75rem 0 0 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .learning-path {
+  padding: .35rem 0 .35rem .2rem !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .learning-path::before {
+  left: 1.32rem !important;
+  width: 2px !important;
+  border-radius: 0 !important;
+  background: #343432 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .path-step {
+  padding: .9rem 0 !important;
+  border: 0 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .path-step + .path-step {
+  border-top: 1px solid #292927 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .path-step > div > span:first-child {
+  width: 38px !important;
+  height: 38px !important;
+  flex-basis: 38px !important;
+  border: 1px solid #41413d !important;
+  border-radius: 50% !important;
+  background: #151514 !important;
+  color: #ff5933 !important;
+  font-weight: 700 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .path-step > div > div {
+  min-width: 0;
+  padding: .35rem 0 .65rem !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .path-step > div > div > p:first-child {
+  color: #f2f2f0 !important;
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .path-step > div > div > p:nth-child(2) {
+  max-width: 70ch;
+  color: #a3a39f !important;
+  font-size: .82rem !important;
+  line-height: 1.7 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .path-step > div > div > div > span {
+  border-color: #343432 !important;
+  border-radius: 2px !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .path-step > div > div > div > button {
+  border: 1px solid #4a2820 !important;
+  border-radius: 2px !important;
+  background: #2a1a16 !important;
+  color: #ff5933 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .path-step > div > div > div > button:hover {
+  border-color: #ff5933 !important;
+  background: #352019 !important;
+}
+.app-shell:has(.learning-sidebar) #learning-goals .goal-card > div:first-child > div:last-child button {
+  border-radius: 2px !important;
+}
+.app-shell:has(.learning-sidebar) .sidebar-goal-link.active {
+  border-left: 2px solid #ff3300 !important;
+  background: #211915 !important;
+}
+@media (min-width: 1100px) {
+  .app-shell:has(.learning-sidebar) #learning-goals {
+    max-width: none;
+  }
+  .app-shell:has(.learning-sidebar) #learning-goals .goal-card,
+  .app-shell:has(.learning-sidebar) #learning-goals .roadmap-card {
+    max-width: 1120px;
+  }
+}
