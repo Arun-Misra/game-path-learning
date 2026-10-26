@@ -922,7 +922,7 @@ function App() {
           <div className="goal-panel relative p-5 sm:p-8">
             <div className="mb-7 flex items-start justify-between goal-panel-heading">
               <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#82917b]">{user ? 'YOUR NEXT CHAPTER STARTS HERE' : accountMode === 'login' ? 'WELCOME BACK' : 'YOUR FIRST QUEST STARTS HERE'}</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">{user ? 'Let’s build your learning plan' : accountMode === 'login' ? 'Sign in to Pathwise' : 'Create your free account'}</h2><p className="mt-2 text-sm leading-6 text-[#7c8378]">{user ? 'A few details help us make the next step clear and realistic.' : accountMode === 'login' ? 'Your saved goals and progress are waiting for you.' : 'Your progress belongs to you. Save it, return to it, and keep growing.'}</p></div>
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#edf3e9] text-[#4c704b]"><GraduationCap size={22} /></span>
+              {user && goals.length > 0 ? <button type="button" onClick={() => setShowGoalForm(false)} aria-label="Cancel new learning goal" title="Cancel" className="grid h-9 w-9 shrink-0 place-items-center border border-[#41413d] bg-[#111110] text-[#a3a39f] transition hover:border-[#ff5933] hover:text-[#ff5933]">×</button> : <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#edf3e9] text-[#4c704b]"><GraduationCap size={22} /></span>}
             </div>
 
             <form onSubmit={handleSubmit} className="goal-form space-y-5">

@@ -3277,3 +3277,72 @@ body { background:#111110!important; color:#f2f2f0; }
     padding: 1rem !important;
   }
 }
+
+/* Existing-user add-goal flow: one focused, centered form instead of a split marketing hero. */
+.app-shell:has(.learning-sidebar) .dashboard-goal-create {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  justify-items: center;
+  align-content: start;
+  gap: 0 !important;
+  padding: clamp(1.25rem, 3vw, 2.75rem) clamp(1rem, 3vw, 2.5rem) 3rem !important;
+}
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .hero-copy {
+  display: none !important;
+}
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .goal-panel-wrap {
+  grid-column: 1;
+  width: 100% !important;
+  max-width: 880px !important;
+  margin: 0 auto !important;
+  align-self: start;
+}
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .goal-panel {
+  padding: clamp(1.1rem, 2.5vw, 2rem) !important;
+  border: 1px solid #343432 !important;
+  border-radius: 5px !important;
+  background: #191918 !important;
+}
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .goal-panel-heading {
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem !important;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid #30302e;
+}
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .goal-panel-heading h2 {
+  font-size: clamp(1.4rem, 2.2vw, 1.9rem) !important;
+  letter-spacing: -.04em;
+}
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .goal-form {
+  gap: 1.25rem;
+}
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .goal-form > label,
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .goal-form label {
+  color: #d5d5d0 !important;
+}
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .schedule-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .goal-form input,
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .goal-form textarea,
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .goal-form select {
+  width: 100%;
+  max-width: 100%;
+}
+.app-shell:has(.learning-sidebar) .dashboard-goal-create .goal-form > button[type="submit"] {
+  margin-top: .35rem;
+}
+@media (max-width: 700px) {
+  .app-shell:has(.learning-sidebar) .dashboard-goal-create {
+    padding: 1rem .75rem 2rem !important;
+  }
+  .app-shell:has(.learning-sidebar) .dashboard-goal-create .goal-panel {
+    padding: 1rem !important;
+  }
+  .app-shell:has(.learning-sidebar) .dashboard-goal-create .schedule-fields {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}

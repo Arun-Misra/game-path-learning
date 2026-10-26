@@ -6,6 +6,8 @@ File: context.md
 
 File: context.md
 
+File: context.md
+
 
 
 
@@ -480,3 +482,8 @@ Do not update master/reference docs frequently; update this context only for mat
 - Follow-up visual review found the single selected goal was still inside a two-column grid, leaving it at half width, and the previous minimalist overrides removed too much card hierarchy.
 - Changed the selected goal layout to a single full-width column and restored intentional dark-surface card hierarchy for goal details, roadmap header, and individual sessions.
 - Preserved the current charcoal, muted gray, off-white, and orange palette. No functional learning behavior was intentionally changed.
+
+## Existing-user add learning goal form polish (2026-10-27)
+- When a signed-in learner already has goals and opens the add-goal flow, hide the onboarding/marketing hero and present a single centered form in the main content area instead of leaving an awkward split layout and unused space.
+- Added a clear cancel control to close the add-goal flow without changing the existing goal.
+- Kept the current charcoal, off-white, muted-gray, and orange palette. Form submission and goal creation logic are unchanged.
