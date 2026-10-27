@@ -867,6 +867,7 @@ function App() {
         <div className="art-learning-token"><Sparkles size={22} /><span>+XP</span></div>
         <div className="art-mini-path"><i /><i /><i /><b><Check size={12} /></b></div>
       </div>}
+      {notice && <div className={`app-toast-notification app-toast-${notice.type}`} role={notice.type === 'error' ? 'alert' : 'status'} aria-live={notice.type === 'error' ? 'assertive' : 'polite'}><span className="app-toast-indicator" aria-hidden="true" /><p>{notice.message}</p><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification">×</button></div>}
       <header className="app-header mx-auto flex max-w-7xl items-center justify-between px-5 py-5 sm:px-8" data-reveal="down">
         <a href="/" className="flex items-center gap-3" aria-label="Pathwise home">
           <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#263f32] text-white"><Compass size={21} /></span>
@@ -948,7 +949,7 @@ function App() {
                 </div>
               </>}
               <button type="submit" disabled={busy || apiStatus !== 'online'} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#263f32] px-5 py-4 text-sm font-semibold text-white transition hover:bg-[#355640] focus:outline-none focus:ring-4 focus:ring-[#d8e5d3] disabled:cursor-not-allowed disabled:opacity-55">{busy ? (user ? 'Saving your goal…' : accountMode === 'login' ? 'Signing in…' : 'Creating account…') : user ? 'Save my learning goal' : accountMode === 'login' ? 'Sign in to Pathwise' : 'Create my account'} <ArrowRight size={17} className="transition group-hover:translate-x-1" /></button>
-              {notice && <div role="status" className={`rounded-xl border px-4 py-3 text-sm leading-6 ${notice.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-rose-200 bg-rose-50 text-rose-900'}`}>{notice.message}</div>}
+
               <p className="text-center text-xs text-[#9aa095]">{user ? 'Your learning goals are saved to your account.' : 'Your account and learning progress are saved securely. Sign in on this device to continue later.'}</p>
             </form>
           </div>

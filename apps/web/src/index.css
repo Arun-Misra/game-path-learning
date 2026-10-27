@@ -3346,3 +3346,66 @@ body { background:#111110!important; color:#f2f2f0; }
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
+
+/* App-wide notifications float above the workspace without shifting dashboard content. */
+.app-toast-notification {
+  position: fixed;
+  z-index: 1000;
+  top: max(1rem, env(safe-area-inset-top));
+  left: 50%;
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: .85rem;
+  width: min( min(680px, calc(100vw - 2rem)), calc(100vw - 2rem));
+  padding: .85rem 1rem;
+  transform: translateX(-50%);
+  border: 1px solid #41413d;
+  border-radius: 4px;
+  background: #191918;
+  color: #f2f2f0;
+  box-shadow: 0 12px 38px rgb(0 0 0 / 35%);
+  animation: app-toast-enter 180ms ease-out both;
+}
+.app-toast-notification p {
+  margin: 0;
+  color: #e5e5e0;
+  font-size: .875rem;
+  line-height: 1.55;
+}
+.app-toast-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ff5933;
+  box-shadow: 0 0 0 4px rgb(255 89 51 / 12%);
+}
+.app-toast-notification button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid #343432;
+  border-radius: 3px;
+  background: #111110;
+  color: #a3a39f;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.app-toast-notification button:hover {
+  border-color: #ff5933;
+  color: #ff5933;
+}
+.app-toast-error {
+  border-left: 2px solid #ff5933;
+}
+.app-toast-success {
+  border-left: 2px solid #ff5933;
+}
+@keyframes app-toast-enter {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-toast-notification { animation: none; }
+}

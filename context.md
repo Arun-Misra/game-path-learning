@@ -10,6 +10,8 @@ File: context.md
 
 File: context.md
 
+File: context.md
+
 
 
 
@@ -494,3 +496,8 @@ Do not update master/reference docs frequently; update this context only for mat
 - New learning goals default to seven study days per week. The onboarding/add-goal form no longer displays the weekly rhythm selector; the submitted value remains explicitly set to 7.
 - Removed the explanatory helper beneath the target-duration field at the user's request. Target duration input and validation are unchanged.
 - Existing charcoal/off-white/gray/orange palette is unchanged.
+
+## Floating app notifications (2026-10-27)
+- App notices, including streaming roadmap-generation status, render as a fixed top-center toast instead of inline content that changes dashboard/form layout.
+- Toast uses the existing charcoal and orange palette, has an accessible status/alert role, and can be dismissed. It overlays the app without consuming document flow space.
+- Removed the inline notice from the goal form to prevent duplicate notifications.
