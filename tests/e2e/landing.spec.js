@@ -134,11 +134,11 @@ test('mission player requires a reflection and persists it with completion evide
     json: { data: { missions: [], totalXp: 0 } },
   }));
   await page.route(/\/api\/v1\/learning-goals\/goal-test-1\/missions\/recovery(?:\?.*)?$/, (route) => route.fulfill({ json: { data: { roadmapId: 'roadmap-test-1', missedCount: 0, missedMissions: [], currentWeekMissions: [], hasCurrentPlan: false, canReplan: true, timeZone: 'UTC', weekStartsOn: '2026-10-21' } } }));
-  await page.route('**/api/v1/learning-goals/goal-test-1/missions/mission-test-1/complete', async (route) => {
+  await page.route(/\/api\/v1\/learning-goals\/goal-test-1\/missions\/mission-test-1\/complete(?:\?.*)?$/, async (route) => {
     const body = route.request().postDataJSON();
     savedEvidence = body.evidence;
     await route.fulfill({
-      json: { data: { mission: { completedAt: '2026-10-20T12:00:00.000Z' }, xpAwarded: 15, totalXp: 15, alreadyCompleted: false } },
+      json: { data: { mission: { completedAt: '2026-10-20T12:00:00.000Z' }, xpAwarded: 15, totalXp: 15, alreadyCompleted: false, rollingContinuation: { generated: false, reason: 'ROLLING_WINDOW_FULL', pendingDays: 3 } } },
     });
   });
   await page.route('**/api/v1/gamification**', (route) => route.fulfill({

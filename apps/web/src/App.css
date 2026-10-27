@@ -182,3 +182,52 @@
     border-right-color: var(--border);
   }
 }
+
+/* Short-lived, non-layout dashboard notifications */
+.app-toast {
+  position: fixed;
+  z-index: 1000;
+  top: 18px;
+  left: 50%;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  width: min(560px, calc(100vw - 32px));
+  padding: 14px 14px 14px 18px;
+  border: 1px solid #41413d;
+  background: #1a1a18;
+  color: #f2f2f0;
+  font-size: 14px;
+  line-height: 1.5;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 28%);
+  transform: translate(-50%, 0);
+  animation: app-toast-enter 180ms ease-out both, app-toast-exit 450ms ease-in 4.55s both;
+}
+
+.app-toast p { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.app-toast-success { border-color: #3f5b46; }
+.app-toast-error { border-color: #733b2c; }
+.app-toast-dismiss {
+  display: grid;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  margin: -4px -4px 0 0;
+  place-items: center;
+  border: 1px solid #41413d;
+  color: #c8c8c3;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.app-toast-dismiss:hover { background: #343432; color: #fff; }
+@keyframes app-toast-enter {
+  from { opacity: 0; transform: translate(-50%, -14px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes app-toast-exit {
+  to { opacity: 0; transform: translate(-50%, -12px); visibility: hidden; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-toast { animation: none; }
+}

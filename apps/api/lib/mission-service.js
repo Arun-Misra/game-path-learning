@@ -1,4 +1,5 @@
 const { prisma } = require('./prisma');
+const { rollForwardRoadmap } = require('./roadmap-service');
 const { buildWeeklyMissionPlan, addDays, dateInTimeZone, sessionDayIndexes } = require('./mission-scheduler');
 
 class MissionServiceError extends Error {
@@ -30,11 +31,17 @@ async function listMissions({ userId, goalId, from, to, timeZone = 'UTC', db = p
     throw new MissionServiceError(400, 'INVALID_DATE_RANGE', 'Provide a valid date range.');
   }
 
+  const activeRoadmap = await db.roadmap.findFirst({
+    where: { learningGoalId: goalId, generationState: 'ACTIVE' },
+    orderBy: { version: 'desc' },
+    select: { id: true },
+  });
   const [missions, xp] = await Promise.all([
     db.dailyMission.findMany({
       where: {
         userId,
         learningGoalId: goalId,
+        ...(activeRoadmap ? { roadmapId: activeRoadmap.id } : {}),
         scheduledDate: { gte: utcDate(startDate), lte: utcDate(endDate) },
       },
       orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
@@ -82,8 +89,10 @@ async function generateInitialRollingMissions({ userId, goalId, timeZone = 'UTC'
   }
 
   const dayIndexes = new Set(sessionDayIndexes(goal.daysPerWeek));
+  const plannedDays = Number.isInteger(roadmap.learningBrief?.planningDays)
+    ? Math.min(7, Math.max(1, roadmap.learningBrief.planningDays)) : 3;
   const dates = [];
-  for (let offset = 0; offset <= 365 && dates.length < 3; offset += 1) {
+  for (let offset = 0; offset <= 365 && dates.length < plannedDays; offset += 1) {
     const candidate = addDays(today, offset);
     if (deadline && candidate > deadline) break;
     if (dayIndexes.has(offset % 7)) dates.push(candidate);
@@ -103,7 +112,7 @@ async function generateInitialRollingMissions({ userId, goalId, timeZone = 'UTC'
       usedMinutes = 0;
     }
     if (dateIndex >= groups.length) {
-      throw new MissionServiceError(409, 'INITIAL_CHUNK_DAILY_BUDGET_INVALID', 'The first learning chunk is larger than the first three study days can support. Regenerate a smaller chunk.');
+      throw new MissionServiceError(409, 'INITIAL_CHUNK_DAILY_BUDGET_INVALID', `The first learning chunk is larger than its ${plannedDays}-study-day schedule can support. Regenerate a smaller chunk.`);
     }
     groups[dateIndex].push(topic);
     usedMinutes += topic.estimatedMinutes;
@@ -139,7 +148,7 @@ async function generateInitialRollingMissions({ userId, goalId, timeZone = 'UTC'
     }),
     db.xpTransaction.aggregate({ where: { userId }, _sum: { amount: true } }),
   ]);
-  return { missions, totalXp: xp._sum.amount || 0, from: today, to: dates[dates.length - 1], timeZone, alreadyScheduled: false, plannedDays: dates.length, scheduledMinutes: missionRows.reduce((sum, item) => sum + item.estimatedMinutes, 0), availableMinutes: dailyBudget * dates.length };
+  return { missions, totalXp: xp._sum.amount || 0, from: today, to: dates[dates.length - 1], timeZone, alreadyScheduled: false, plannedDays: dates.length, scheduledMinutes: missionRows.reduce((sum, item) => sum + item.estimatedMinutes, 0), availableMinutes: Math.max(5, Math.floor(goal.minutesPerDay)) * dates.length };
 }
 
 async function generateWeeklyMissions({ userId, goalId, timeZone = 'UTC', now = new Date(), forceReplan = false, db = prisma }) {
@@ -462,7 +471,7 @@ async function recoverMissedSessions({ userId, goalId, timeZone = 'UTC', now = n
   return { ...plan, recoveredMissedCount: recovery.missedCount };
 }
 
-async function completeMission({ userId, goalId, missionId, evidence, db = prisma }) {
+async function completeMission({ userId, goalId, missionId, evidence, timeZone = 'UTC', db = prisma }) {
   const result = await db.$transaction(async (tx) => {
     await ownedGoal(tx, userId, goalId);
     const mission = await tx.dailyMission.findFirst({
@@ -561,6 +570,28 @@ async function completeMission({ userId, goalId, missionId, evidence, db = prism
     };
   });
 
+  if (result.alreadyCompleted) return result;
+
+  // Trigger continuation from the server after persisting completion. The client
+  // must not be responsible for firing a best-effort background request that can
+  // be lost on navigation or refresh. The rolling service decides whether this
+  // was the final unfinished session before it calls the model.
+  try {
+    result.rollingContinuation = await rollForwardRoadmap({
+      userId,
+      goalId,
+      completedDate: result.mission.scheduledDate.toISOString().slice(0, 10),
+      timeZone,
+      db,
+    });
+  } catch (error) {
+    // Completion and XP are already committed. Preserve that success and return
+    // the continuation failure so the UI can show it and let the learner retry.
+    result.rollingContinuationError = {
+      code: error?.code || 'ROLL_FORWARD_FAILED',
+      message: error?.message || 'The next learning chunk could not be prepared.',
+    };
+  }
   return result;
 }
 

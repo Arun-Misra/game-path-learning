@@ -14,6 +14,12 @@ class RoadmapServiceError extends Error {
   }
 }
 
+function normalizeInitialPlanningDays(planningDays, daysPerWeek) {
+  const requested = Number.isInteger(planningDays) ? Math.max(1, Math.min(28, planningDays)) : 3;
+  const weeklyStudyDays = Number.isFinite(Number(daysPerWeek)) ? Math.max(1, Math.min(7, Math.floor(Number(daysPerWeek)))) : 3;
+  return Math.min(requested, weeklyStudyDays);
+}
+
 function getValidatedRoadmap(input) {
   const result = validateRoadmap(input);
   if (!result.success) {
@@ -109,7 +115,7 @@ function buildDeadlineFeasibility({ goal, estimatedRemainingMinutes, estimateCon
       ? 'AT_RISK'
       : 'ON_TRACK';
   const recommendation = status === 'OVER_CAPACITY'
-    ? `The estimate is ${shortfallMinutes} minutes over available capacity. To keep the deadline, plan about ${requiredMinutesPerStudyDay} minutes per study day (${additionalMinutesPerStudyDay} extra minutes/day above your current daily limit); otherwise, extend by approximately ${additionalStudyDaysRequired} study days (~${estimatedExtensionCalendarDays} calendar days) or reduce the outcome scope.`
+    ? `The estimate exceeds your available capacity by ${shortfallMinutes} minutes. Pathwise will keep sessions within your chosen daily limit. To improve feasibility, extend the deadline by approximately ${additionalStudyDaysRequired} study days (~${estimatedExtensionCalendarDays} calendar days) or reduce the goal scope. Only increase your daily limit if you choose to.`
     : status === 'AT_RISK'
       ? 'The goal may fit, but there is little room for delays. Keep the scope focused and review progress after the next chunk.'
       : 'The current estimate fits within the available study time. Recheck after each chunk because estimates and pace can change.';
@@ -245,6 +251,8 @@ function buildPriorLearningContext(activeRoadmap, priorRoadmaps = [], chunkNumbe
           minutes: item.estimatedMinutes,
           ...(typeof evidence.sessionFeeling === 'string' ? { sessionFeeling: evidence.sessionFeeling } : {}),
           ...(typeof evidence.reflection === 'string' && evidence.reflection.trim() ? { learnerReflection: evidence.reflection.trim().slice(0, 300) } : {}),
+          ...(Number.isInteger(evidence.actualMinutes) && evidence.actualMinutes > 0 ? { actualMinutes: evidence.actualMinutes } : {}),
+          ...(Array.isArray(evidence.checklist) ? { checklist: evidence.checklist.slice(0, 30).map((item) => ({ objective: String(item.objective || '').slice(0, 300), completed: item.completed === true })) } : {}),
         };
       }),
       incompleteActivities: missions.filter((item) => item.status !== 'COMPLETED').map((item) => ({ title: item.title, topic: item.topic?.title, status: item.status })),
@@ -259,6 +267,7 @@ function buildPriorLearningContext(activeRoadmap, priorRoadmaps = [], chunkNumbe
       'Use the most recent assessment attempt for each topic; older high scores must not hide a weak retake.',
       'Treat completion as evidence that an activity was finished, not proof that the skill was mastered.',
       'Use the learner’s own session feeling and reflection as coaching signals: stuck means isolate the obstacle and scaffold a retry; too easy means offer a transfer or stretch; about right means keep a productive level of challenge. These signals inform the plan but do not prove mastery by themselves.',
+      'Use checklist results as learner-reported objective evidence: unchecked objectives are candidate gaps to revisit, while checked objectives still do not prove independent mastery.',
       'Interpret assessment scores alongside the specific errors, task difficulty, confidence and other evidence. Use the actual gap to choose reinforcement or progression instead of applying a universal percentage threshold.',
       'A score of 85% or higher is evidence only for the concepts that assessment tested. Hands-on skills still require independent performance or an authentic artifact before mastery is assumed.',
       'Carry unfinished work forward when it still serves the goal; otherwise explain why the next step should change.',
@@ -301,7 +310,7 @@ function buildContinuationSummary(priorLearningContext, nextTopics = []) {
   if (!evidence.length) evidence.push('Evidence is limited. Start with a brief retrieval or diagnostic attempt before assuming earlier material is mastered.');
   return { heading: 'How this chunk builds on your progress', evidence, nextFocus: (Array.isArray(nextTopics) ? nextTopics : []).slice(0, 3).map((topic) => topic.title).filter(Boolean) };
 }
-async function generateRoadmapDraft({ userId, goalId, clarifications = '', planningDays = 3, unrestrictedGeneration = false, answers = [], timeZone = 'UTC', now = new Date(), db = prisma, generator = generateRoadmap }) {
+async function generateRoadmapDraft({ userId, goalId, clarifications = '', planningDays = 3, unrestrictedGeneration = false, answers = [], timeZone = 'UTC', now = new Date(), db = prisma, generator = generateRoadmap, onToken }) {
   const goal = await db.learningGoal.findFirst({
     where: { id: goalId, userId },
     select: {
@@ -319,7 +328,7 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
   if (!goal) {
     throw new RoadmapServiceError(404, 'GOAL_NOT_FOUND', 'Learning goal not found.');
   }
-  const normalizedPlanningDays = Number.isInteger(planningDays) ? Math.max(1, Math.min(28, planningDays)) : 3;
+  let normalizedPlanningDays = Number.isInteger(planningDays) ? Math.max(1, Math.min(28, planningDays)) : 3;
   const timingHistory = await db.missionCompletion.findMany({
     where: { userId, mission: { is: { learningGoalId: goalId } } },
     orderBy: { completedAt: 'desc' },
@@ -338,6 +347,9 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
   const timeCalibration = buildTimeCalibrationContext(timingHistory);
   const activeRoadmap = await db.roadmap.findFirst({ where: { learningGoalId: goalId, generationState: 'ACTIVE' }, orderBy: { version: 'desc' }, include: { topics: { orderBy: { position: 'asc' }, select: { id: true, title: true, description: true, learningObjectives: true, estimatedMinutes: true, position: true, userProgress: { where: { userId }, select: { status: true, masteryScore: true, attempts: true } }, assessment: { include: { attempts: { where: { userId }, orderBy: { createdAt: 'desc' }, take: 2, select: { score: true, passed: true } } } } } }, missions: { where: { userId }, select: { title: true, estimatedMinutes: true, status: true, completion: { select: { evidence: true, completedAt: true } }, topic: { select: { title: true } } }, orderBy: { scheduledDate: 'desc' }, take: 50 } } });
   const chunkNumber = activeRoadmap ? Number(activeRoadmap.learningBrief?.chunkNumber || 1) + 1 : 1;
+  // The first chunk is personalized to the learner's weekly study cadence.
+  // A request or stale client must not turn a 3-days/week goal into 7 study days.
+  if (!activeRoadmap) normalizedPlanningDays = normalizeInitialPlanningDays(normalizedPlanningDays, goal.daysPerWeek);
   let priorRoadmaps = [activeRoadmap].filter(Boolean);
   if (activeRoadmap && typeof db.roadmap.findMany === 'function') {
     priorRoadmaps = await db.roadmap.findMany({
@@ -366,7 +378,7 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
 
   let proposed;
   try {
-    proposed = await generator({ ...goal, learnerClarifications: combinedClarifications, planningDays: normalizedPlanningDays, unrestrictedGeneration: unrestrictedGeneration === true, chunkNumber, priorLearningContext, timeCalibrationContext: timeCalibration.context });
+    proposed = await generator({ ...goal, learnerClarifications: combinedClarifications, planningDays: normalizedPlanningDays, unrestrictedGeneration: unrestrictedGeneration === true, chunkNumber, priorLearningContext, timeCalibrationContext: timeCalibration.context }, { onToken });
   } catch (error) {
     if (process.env.AI_DEBUG === 'true') {
       console.error('[roadmap-service] Roadmap generation failed:', JSON.stringify({
@@ -392,7 +404,7 @@ async function generateRoadmapDraft({ userId, goalId, clarifications = '', plann
     daysPerWeek: goal.daysPerWeek,
     availableCapacityMinutes: goal.minutesPerDay * practiceDays,
     chunkBudgetMinutes: plannedDailyMinutes * practiceDays,
-    bufferMinutes: 0,
+    bufferMinutes: Math.max(0, goal.minutesPerDay * practiceDays - plannedDailyMinutes * practiceDays),
     deadlineFeasibility: buildDeadlineFeasibility({ goal, estimatedRemainingMinutes: brief.estimatedRemainingMinutes, estimateConfidence: brief.estimateConfidence, now, timeZone }),
     timeCalibrationSampleCount: timeCalibration.sampleCount,
     ...(timeCalibration.medianRatio === null ? {} : { medianActualToEstimatedRatio: timeCalibration.medianRatio }),
@@ -440,7 +452,7 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
     if (!goal) throw new RoadmapServiceError(404, 'GOAL_NOT_FOUND', 'Learning goal not found.');
     const currentActiveRoadmap = await db.roadmap.findFirst({
       where: { learningGoalId: goalId, generationState: 'ACTIVE' },
-      select: { id: true },
+      select: { id: true, learningBrief: true },
     });
     if (!currentActiveRoadmap) throw new RoadmapServiceError(409, 'ACTIVE_ROADMAP_REQUIRED', 'Activate the initial roadmap before generating continuation sessions.');
 
@@ -452,7 +464,7 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
     let existingGenerationRun = null;
     if (db.roadmapGenerationRun) {
       existingGenerationRun = await db.roadmapGenerationRun.findUnique({
-        where: { learningGoalId_triggerDate: { learningGoalId: goalId, triggerDate } },
+        where: { sourceRoadmapId_triggerDate: { sourceRoadmapId: currentActiveRoadmap.id, triggerDate } },
       });
       if (existingGenerationRun?.status === 'COMPLETED') {
         return getCompletedRollingGeneration({ db, run: existingGenerationRun, goalId });
@@ -462,7 +474,28 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
       }
     }
 
-    if (completedDate) {
+    // Option A: prepare the next chunk when only one lesson remains in the active
+    // chunk. Every earlier completion is persisted without calling the model.
+    // This server-side check is authoritative and safe against stale frontend state.
+    let remainingActiveChunkLessons = null;
+    if (completedDate && typeof db.dailyMission.count === 'function') {
+      remainingActiveChunkLessons = await db.dailyMission.count({
+        where: {
+          userId,
+          learningGoalId: goalId,
+          roadmapId: currentActiveRoadmap.id,
+          status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+        },
+      });
+      // Do not activate a continuation while any prior session is unfinished.
+      // Activating the new roadmap supersedes the old one; generating early would
+      // orphan the final mission and often recreate it as a duplicate topic.
+      if (remainingActiveChunkLessons > 0) {
+        return { generated: false, reason: 'CHUNK_HAS_UNFINISHED_SESSIONS', remainingLessons: remainingActiveChunkLessons };
+      }
+    }
+
+    if (completedDate && remainingActiveChunkLessons === null) {
       const unfinishedOnCompletedDate = await db.dailyMission.count({
         where: { userId, learningGoalId: goalId, scheduledDate: utcDate(completedDate), status: { in: ['SCHEDULED', 'IN_PROGRESS'] } },
       });
@@ -470,14 +503,22 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
     }
 
     const pending = await db.dailyMission.findMany({
-      where: { userId, learningGoalId: goalId, scheduledDate: { gte: utcDate(today) }, status: { in: ['SCHEDULED', 'IN_PROGRESS'] } },
-      select: { scheduledDate: true },
-      orderBy: { scheduledDate: 'asc' },
+      where: { userId, learningGoalId: goalId, roadmapId: currentActiveRoadmap.id, scheduledDate: { gte: utcDate(today) }, status: { in: ['SCHEDULED', 'IN_PROGRESS'] } },
+      select: { scheduledDate: true, id: true, status: true },
+      orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
     });
     const pendingDates = [...new Set(pending.map((item) => item.scheduledDate.toISOString().slice(0, 10)))];
+    const weeklyGeneration = Number(currentActiveRoadmap.learningBrief?.planningDays) >= 7;
+    // Keep the weekly chunk intact while more than one lesson remains.
+    // Once only the final lesson remains, a new chunk may be prepared ahead of it.
+    // A weekly chunk may be generated ahead while its final lesson remains
+    // scheduled. Keep the old lesson intact; it can be completed on its own roadmap.
+    if (weeklyGeneration && pending.length > 1) {
+      return { generated: false, reason: 'ROLLING_WINDOW_FULL', pendingDays: pendingDates.length };
+    }
     if (pendingDates.length >= 3) return { generated: false, reason: 'ROLLING_WINDOW_FULL', pendingDays: pendingDates.length };
 
-    const planningDays = Math.min(2, 3 - pendingDates.length);
+    const planningDays = weeklyGeneration ? 7 : Math.min(2, 3 - pendingDates.length);
     if (planningDays < 1) return { generated: false, reason: 'ROLLING_WINDOW_FULL', pendingDays: pendingDates.length };
 
     const lastPendingDate = pendingDates[pendingDates.length - 1] || today;
@@ -505,7 +546,7 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
         });
         if (claimed.count !== 1) {
           const latestRun = await db.roadmapGenerationRun.findUnique({
-            where: { learningGoalId_triggerDate: { learningGoalId: goalId, triggerDate } },
+            where: { sourceRoadmapId_triggerDate: { sourceRoadmapId: currentActiveRoadmap.id, triggerDate } },
           });
           if (latestRun?.status === 'COMPLETED') return getCompletedRollingGeneration({ db, run: latestRun, goalId });
           return { generated: false, reason: 'GENERATION_IN_PROGRESS' };
@@ -521,7 +562,7 @@ async function rollForwardRoadmap({ userId, goalId, completedDate, timeZone = 'U
         } catch (error) {
           if (error?.code !== 'P2002') throw error;
           const latestRun = await db.roadmapGenerationRun.findUnique({
-            where: { learningGoalId_triggerDate: { learningGoalId: goalId, triggerDate } },
+            where: { sourceRoadmapId_triggerDate: { sourceRoadmapId: currentActiveRoadmap.id, triggerDate } },
           });
           if (latestRun?.status === 'COMPLETED') return getCompletedRollingGeneration({ db, run: latestRun, goalId });
           return { generated: false, reason: 'GENERATION_IN_PROGRESS' };
@@ -755,7 +796,7 @@ async function activateRoadmap({ userId, goalId, roadmapId, confirmLearningBrief
   });
 }
 
-module.exports = {
+module.exports = { normalizeInitialPlanningDays,
   RoadmapServiceError,
   getClarifyingQuestions,
   createRoadmapDraft,

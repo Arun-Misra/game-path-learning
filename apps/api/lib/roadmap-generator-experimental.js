@@ -1,5 +1,5 @@
-const DEFAULT_BASE_URL = 'http://127.0.0.1:11434/v1';
-const DEFAULT_MODEL = 'gemma4:e4b';
+const DEFAULT_BASE_URL = 'https://api.groq.com/openai/v1';
+const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 const ROADMAP_SCHEMA = {
   type: 'object',
   properties: {
@@ -66,6 +66,7 @@ function buildLearnerBrief(goal, now = new Date()) {
   return {
     skill: goal.title, goal: goal.targetOutcome || goal.originalDescription || goal.title,
     experienceLevel: goal.experienceLevel || 'UNSPECIFIED', minutesPerDay: Number(goal.minutesPerDay),
+    sessionBudgetMinutes: Math.max(5, Math.floor(Number(goal.minutesPerDay) * 0.8)),
     daysPerWeek: Number(goal.daysPerWeek), minutesAvailablePerWeek: Number(goal.minutesPerDay) * Number(goal.daysPerWeek),
     planningDays, unrestrictedGeneration,
     chunkNumber: Number.isInteger(goal.chunkNumber) ? goal.chunkNumber : 1,
@@ -82,7 +83,9 @@ function buildLearnerBrief(goal, now = new Date()) {
 // Keep the earliest coherent sequence; never shrink individual estimates to make it fit.
 function fitTopicsToChunk(topics, learner) {
   if (learner.unrestrictedGeneration) return topics;
-  const dailyMinutes = Math.floor(learner.minutesPerDay);
+  const dailyMinutes = Number.isFinite(learner.sessionBudgetMinutes)
+    ? Math.max(5, Math.floor(learner.sessionBudgetMinutes))
+    : Math.max(5, Math.floor(learner.minutesPerDay * 0.8));
   const practiceDays = learner.planningDays;
   const chunkBudgetMinutes = dailyMinutes * practiceDays;
   let totalMinutes = 0;
@@ -169,7 +172,10 @@ function buildMessages(learner) {
     ? `${learner.daysUntilTarget} days from now (${learner.targetDate})` : 'not specified';
   const planningDays = Number.isInteger(learner.planningDays) ? Math.max(1, learner.planningDays) : 3;
   const practiceDays = planningDays;
-  const chunkBudgetMinutes = Math.floor(learner.minutesPerDay) * practiceDays;
+  const dailyBudgetMinutes = Number.isFinite(learner.sessionBudgetMinutes)
+    ? Math.max(5, Math.floor(learner.sessionBudgetMinutes))
+    : Math.max(5, Math.floor(learner.minutesPerDay * 0.8));
+  const chunkBudgetMinutes = dailyBudgetMinutes * practiceDays;
   const scopeInstructions = learner.unrestrictedGeneration
     ? [
       'Plan the complete learning journey for the stated outcome, using the overall deadline as the target horizon when one is provided.',
@@ -178,7 +184,7 @@ function buildMessages(learner) {
     ]
     : [
       `Generate only the next ${planningDays} study days of this roadmap chunk, not the entire curriculum through the deadline. The deadline describes the overall goal, not the length of this chunk.`,
-      `This chunk has ${practiceDays} planned study days and a hard total budget of ${chunkBudgetMinutes} minutes. Every session must be 5 to ${Math.floor(learner.minutesPerDay)} minutes, and all session estimates added together must not exceed ${chunkBudgetMinutes} minutes.`,
+      `This chunk has ${practiceDays} planned study days and a hard total work budget of ${chunkBudgetMinutes} minutes. Reserve at least 20% of each study day as a buffer: every session must be 5 to ${dailyBudgetMinutes} minutes, and all session estimates added together must not exceed ${chunkBudgetMinutes} minutes.`,
       'Return only the first coherent sequence of sessions that fits this chunk. Do not include later work just because it belongs in the overall journey; later chunks are generated after this one is completed.',
       'The title and summary must describe this short chunk, not claim that the full deadline-length journey is included. Do not put the overall deadline duration in the chunk title.',
     ];
@@ -195,7 +201,7 @@ function buildMessages(learner) {
     '5. Choose practice methods native to this learner’s skill and outcome; never copy a template from an unrelated domain. Use focused repetitions and cumulative application for performance skills, runnable or buildable work and tests for technical skills, and retrieval plus applied problems for conceptual skills. These are adaptable principles, not mandatory templates.',
     '6. Avoid fake precision, filler, motivational padding, generic “research/watch/read about” tasks, oversized sessions, and repeating the same lesson structure mechanically. Prefer one useful, well-scoped activity over several shallow activities.',
     '7. Never invent source-specific facts, song chords/tabs, APIs, or other details that are not supported by the input. When exact details are unknown, state how to verify them and provide a safe practical alternative.',
-    '8. Treat time availability as a hard limit. Topic estimatedMinutes must be an integer of at least 5 and no greater than minutesPerDay. Keep the total planned work within the chunk budget; do not silently compress estimates to make a plan appear feasible.',
+    '8. Treat time availability as a hard limit. Reserve 20% of each study day as a buffer. Topic estimatedMinutes must be an integer of at least 5 and no greater than the daily session budget. Keep the total planned work within the chunk budget; do not silently compress estimates to make a plan appear feasible.',
     '9. For follow-up chunks, continue from the most recent work. Do not restart the course, repeat completed sessions, or assume completion equals mastery. Use recent assessment attempts, session feelings, reflections, unfinished work, and actual-time evidence to decide what to reinforce or advance.',
     ...(learner.rejectedTopics.length ? [`REQUIRED CORRECTION: Your previous draft repeated these topics without a justified learning gap: ${learner.rejectedTopics.join('; ')}. Do not reuse these titles or teach the same concept under a synonym. Choose genuinely new next-step material, or use a clearly different prerequisite/application only when needed for the stated goal.`] : []),
     '10. If prior evidence is missing, do not pretend to know the learner’s progress. Start with a brief, relevant retrieval check or a sensible next step based on the supplied starting level.',
@@ -207,7 +213,50 @@ function buildMessages(learner) {
     { role: 'user', content: JSON.stringify(learner) },
   ];
 }
-async function generateRoadmapOnce(goal, { apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '', baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL, model = process.env.AI_MODEL || process.env.OPENAI_MODEL || DEFAULT_MODEL, fetchImpl = globalThis.fetch, now = new Date() } = {}) {
+
+async function readStreamingContent(response, localOllama, onToken) {
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_STREAM_UNSUPPORTED', 'The AI provider did not expose a readable token stream.');
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '', content = '';
+  const consumeLine = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed || (!localOllama && !trimmed.startsWith('data:'))) return;
+    const data = localOllama ? trimmed : trimmed.slice(5).trim();
+    if (!data || data === '[DONE]') return;
+    let payload;
+    try { payload = JSON.parse(data); } catch { return; }
+    const token = localOllama
+      ? payload?.message?.content
+      : payload?.choices?.[0]?.delta?.content;
+    if (typeof token === 'string' && token.length) {
+      content += token;
+      onToken(token);
+    }
+    if (payload?.error) throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_PROVIDER_ERROR', 'The AI provider returned an error while streaming the roadmap.');
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) consumeLine(line);
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) consumeLine(buffer);
+  } catch (error) {
+    if (error instanceof ExperimentalRoadmapGenerationError) throw error;
+    throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_STREAM_INTERRUPTED', 'The AI token stream ended unexpectedly.');
+  }
+  if (!content.trim()) throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_EMPTY_MODEL_RESPONSE', 'The model did not stream a roadmap.');
+  return content.trim();
+}
+
+async function generateRoadmapOnce(goal, { apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '', baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL, model = process.env.AI_MODEL || process.env.OPENAI_MODEL || DEFAULT_MODEL, fetchImpl = globalThis.fetch, now = new Date(), onToken } = {}) {
   const localOllama = isLocalOllama(baseUrl);
   if (!apiKey && !localOllama) throw new ExperimentalRoadmapGenerationError(503, 'ROADMAP_GENERATOR_NOT_CONFIGURED', 'No AI API key is configured.');
   const learner = buildLearnerBrief(goal, now), endpoint = getEndpoint(baseUrl), headers = { 'Content-Type': 'application/json' };
@@ -219,8 +268,8 @@ async function generateRoadmapOnce(goal, { apiKey = process.env.AI_API_KEY || pr
   // Full-plan generation has no artificial output-token ceiling. Rolling chunks remain bounded.
   const numPredict = learner.unrestrictedGeneration ? -1 : (learner.planningDays <= 1 ? 2048 : learner.planningDays <= 3 ? 3072 : learner.planningDays <= 7 ? 6144 : 8192);
   const body = localOllama
-    ? { model, messages, format: ollamaFormat, think: reasoningEffort, options: { num_ctx: Number.isFinite(contextLength) ? Math.max(4096, Math.min(32768, contextLength)) : 16384, num_predict: numPredict, temperature: 0.4 }, stream: false }
-    : { model, messages, ...(learner.unrestrictedGeneration ? {} : { max_tokens: numPredict }), temperature: 0.4, reasoning_effort: reasoningEffort, response_format: { type: 'json_object' }, stream: false };
+    ? { model, messages, format: ollamaFormat, think: (typeof onToken === 'function' && /gemma4/i.test(model) ? true : reasoningEffort), options: { num_ctx: Number.isFinite(contextLength) ? Math.max(4096, Math.min(32768, contextLength)) : 16384, num_predict: numPredict, temperature: 0.4 }, stream: typeof onToken === 'function' }
+    : { model, messages, ...(learner.unrestrictedGeneration ? {} : { max_tokens: numPredict }), temperature: 0.4, reasoning_effort: reasoningEffort, response_format: { type: 'json_object' }, stream: typeof onToken === 'function' };
   let response;
   try {
     response = await fetchImpl(endpoint, { method: 'POST', headers, signal: AbortSignal.timeout(240000), body: JSON.stringify(body) });
@@ -228,12 +277,18 @@ async function generateRoadmapOnce(goal, { apiKey = process.env.AI_API_KEY || pr
     throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_PROVIDER_UNAVAILABLE', 'The AI provider could not be reached. Check that the selected model is running.');
   }
   if (!response.ok) throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_PROVIDER_ERROR', 'The AI provider returned an error while generating the roadmap.');
-  let payload;
-  try { payload = await response.json(); } catch {
-    throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_INVALID_PROVIDER_RESPONSE', 'The AI provider returned an unreadable response.');
+  let content;
+  if (typeof onToken === 'function') {
+    content = await readStreamingContent(response, localOllama, onToken);
+  } else {
+    let payload;
+    try { payload = await response.json(); } catch {
+      throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_INVALID_PROVIDER_RESPONSE', 'The AI provider returned an unreadable response.');
+    }
+    content = getMessageContent(payload);
   }
   // Exactly one provider call per generation; don't silently pay for a repair generation.
-  const decision = parseDecision(getMessageContent(payload));
+  const decision = parseDecision(content);
   const roadmap = decision.roadmap && typeof decision.roadmap === 'object' ? decision.roadmap : decision;
   if (typeof roadmap.title !== 'string' || typeof roadmap.summary !== 'string' || !Array.isArray(roadmap.topics)) {
     throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_MISSING_CONTENT', 'The model returned JSON but omitted the roadmap title, summary, or topics. One model request was used; no repair retry was made.');
@@ -268,4 +323,4 @@ async function generateRoadmap(goal, options = {}) {
   throw new ExperimentalRoadmapGenerationError(502, 'ROADMAP_DUPLICATE_CONTENT', 'The model repeated prior topics after one correction attempt. No new chunk was activated.');
 }
 
-module.exports = { ExperimentalRoadmapGenerationError, buildLearnerBrief, buildMessages, fitTopicsToChunk, normalizeTopicTitle, findRepeatedCompletedTopics, assertContinuationProgress, getEndpoint, parseDecision, generateRoadmap };
+module.exports = { ExperimentalRoadmapGenerationError, buildLearnerBrief, buildMessages, fitTopicsToChunk, normalizeTopicTitle, findRepeatedCompletedTopics, assertContinuationProgress, getEndpoint, parseDecision, readStreamingContent, generateRoadmap };

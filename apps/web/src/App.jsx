@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight, BookOpen, Check, Clock3, Compass, Flame,
   GraduationCap, Sparkles, Target, Zap, House, Map, Trophy, Plus,
@@ -7,9 +7,44 @@ import AssessmentTestPage from './AssessmentTestPage.jsx';
 
 const initialForm = {
   skill: '', experience: 'beginner', outcome: '',
-  minutesPerDay: '30', daysPerWeek: '5', targetDurationDays: '30',
+  minutesPerDay: '30', daysPerWeek: '7', targetDurationDays: '30',
   name: '', email: '', password: '',
 };
+
+
+async function requestRoadmapStream(url, options = {}, onToken = () => {}) {
+  const response = await fetch(url, {
+    credentials: 'include',
+    ...options,
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(options.headers || {}) },
+  });
+  if (!response.ok || !response.body) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error?.message || 'Could not start streamed roadmap generation.');
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let result = null;
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() || '';
+    for (const block of blocks) {
+      const dataLine = block.split(/\r?\n/).find((line) => line.startsWith('data:'));
+      if (!dataLine) continue;
+      let event;
+      try { event = JSON.parse(dataLine.slice(5).trim()); } catch { continue; }
+      if (event.type === 'token') onToken(event.token);
+      if (event.type === 'complete') result = event.roadmap;
+      if (event.type === 'error') throw new Error(event.error?.message || 'Roadmap generation failed.');
+    }
+    if (done) break;
+  }
+  if (!result) throw new Error('The stream ended before a saved roadmap was returned. Please retry.');
+  return { data: { roadmap: result } };
+}
 
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
@@ -34,7 +69,6 @@ function App() {
   const [goals, setGoals] = useState([]);
   const [roadmapsByGoal, setRoadmapsByGoal] = useState({});
   const [learningBriefConfirmedByRoadmap, setLearningBriefConfirmedByRoadmap] = useState({});
-  const [clarificationByRoadmap, setClarificationByRoadmap] = useState({});
   const [generatingGoalId, setGeneratingGoalId] = useState(null);
   const [expandedGoalIds, setExpandedGoalIds] = useState(() => new Set());
   const [expandedRoadmapIds, setExpandedRoadmapIds] = useState(() => new Set());
@@ -44,6 +78,7 @@ function App() {
   const [missionBusyId, setMissionBusyId] = useState(null);
   const [expandedMissionId, setExpandedMissionId] = useState(null);
   const [missionEvidenceById, setMissionEvidenceById] = useState({});
+  const [missionChecklistById, setMissionChecklistById] = useState({});
   const [missionFeelingById, setMissionFeelingById] = useState({});
   const [missionActualMinutesById, setMissionActualMinutesById] = useState({});
   const [assessmentByTopic, setAssessmentByTopic] = useState({});
@@ -56,6 +91,14 @@ function App() {
   const [projectMilestonesByGoal, setProjectMilestonesByGoal] = useState({});
   const [milestoneBusyGoal, setMilestoneBusyGoal] = useState(null);
   const [milestoneEvidenceById, setMilestoneEvidenceById] = useState({});
+  const rollingCatchupRef = useRef(new Set());
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    if (generatingGoalId && notice.type === 'success') return undefined;
+    const timeout = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [notice, generatingGoalId]);
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
@@ -114,6 +157,7 @@ function App() {
       .then(async (result) => {
         if (result?.data?.goals) {
           setGoals(result.data.goals);
+          setExpandedGoalIds((current) => current.size && result.data.goals.some((goal) => current.has(goal.id)) ? new Set([result.data.goals.find((goal) => current.has(goal.id)).id]) : new Set(result.data.goals[0] ? [result.data.goals[0].id] : []));
           const entries = await Promise.all(result.data.goals.map(async (goal) => {
             const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`);
             return [goal.id, saved.data.roadmaps];
@@ -234,6 +278,7 @@ function App() {
         }),
       });
       setGoals((current) => [result.data.goal, ...current]);
+      setExpandedGoalIds(new Set([result.data.goal.id]));
       void refreshNextStep(result.data.goal.id);
       setNotice({ type: 'success', message: 'Your learning goal is saved. Next, we’ll build its personalised roadmap.' });
       setForm((current) => ({ ...current, skill: '', outcome: '' }));
@@ -249,6 +294,7 @@ function App() {
     const result = await requestJson('/api/v1/learning-goals');
     const savedGoals = result.data.goals || [];
     setGoals(savedGoals);
+    setExpandedGoalIds((current) => current.size && savedGoals.some((goal) => current.has(goal.id)) ? new Set([savedGoals.find((goal) => current.has(goal.id)).id]) : new Set(savedGoals[0] ? [savedGoals[0].id] : []));
     const entries = await Promise.all(savedGoals.map(async (goal) => {
       const saved = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`);
       return [goal.id, saved.data.roadmaps || []];
@@ -282,6 +328,7 @@ function App() {
     try {
       await requestJson(`/api/v1/learning-goals/${goal.id}`, { method: 'DELETE' });
       setGoals((current) => current.filter((item) => item.id !== goal.id));
+      setExpandedGoalIds((current) => current.has(goal.id) ? new Set(goals.find((item) => item.id !== goal.id) ? [goals.find((item) => item.id !== goal.id).id] : []) : current);
       setNextStepByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
       setMasterySummaryByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
       setRoadmapsByGoal((current) => { const next = { ...current }; delete next[goal.id]; return next; });
@@ -305,12 +352,46 @@ function App() {
   async function handleGenerateRoadmap(goal) {
     setRoadmapBusyGoal(goal.id);
     setGeneratingGoalId(goal.id);
-    setNotice({ type: 'success', message: `Pathwise is building your personalised day-by-day ${goal.skill} plan. This can take a little while; keep this page open.` });
+    setNotice({ type: 'success', message: `Pathwise is streaming your personalised week of ${goal.skill} practice as the AI generates it.` });
     try {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-      const result = await requestJson(
+      let streamedText = '';
+      const result = await requestRoadmapStream(
         '/api/v1/learning-goals/' + goal.id + '/roadmaps/generate?timeZone=' + encodeURIComponent(timeZone),
-        { method: 'POST', body: JSON.stringify({ planningDays: 3 }) },
+        { method: 'POST', body: JSON.stringify({ planningDays: Math.min(7, Math.max(1, Number(goal.daysPerWeek) || 3)) }) },
+        (token) => {
+          streamedText += token;
+          const foundTopics = [];
+          const objectStarts = [];
+          let inString = false, escaped = false;
+          for (let index = 0; index < streamedText.length; index += 1) {
+            const char = streamedText[index];
+            if (inString) {
+              if (escaped) escaped = false;
+              else if (char === '\\') escaped = true;
+              else if (char === '"') inString = false;
+              continue;
+            }
+            if (char === '"') inString = true;
+            else if (char === '{') objectStarts.push(index);
+            else if (char === '}') {
+              const objectStart = objectStarts.pop();
+              if (objectStart !== undefined) {
+                try {
+                  const item = JSON.parse(streamedText.slice(objectStart, index + 1));
+                  if (item && typeof item.key === 'string' && typeof item.title === 'string'
+                    && typeof item.description === 'string' && Array.isArray(item.learningObjectives)
+                    && Number.isFinite(item.estimatedMinutes)) {
+                    foundTopics.push({ key: item.key, title: item.title, description: item.description, estimatedMinutes: item.estimatedMinutes });
+                  }
+                } catch { /* Ignore objects that are not complete topic records. */ }
+              }
+            }
+          }
+          setNotice({ type: 'success', message: foundTopics.length
+            ? `AI is writing session ${foundTopics.length} of your week…`
+            : `AI is drafting your personalised week… ${streamedText.length.toLocaleString()} characters received` });
+        },
       );
       let roadmap = result?.data?.roadmap;
       if (!roadmap?.id) {
@@ -330,38 +411,11 @@ function App() {
         ...current,
         [goal.id]: [roadmap, ...(current[goal.id] || []).filter((item) => item.id !== roadmap.id)],
       }));
-      setNotice({ type: 'success', message: 'Your day-by-day learning plan is ready. It is saved below as a draft; review it before activating it.' });
+      setNotice({ type: 'success', message: 'Your personalised week is ready and saved below as a draft; review it before activating it.' });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
     } finally {
       setGeneratingGoalId(null);
-      setRoadmapBusyGoal(null);
-    }
-  }
-
-  async function handleRegenerateRoadmapWithClarification(goal, roadmap) {
-    const clarifications = (clarificationByRoadmap[roadmap.id] || '').trim();
-    if (!clarifications) return;
-
-    setRoadmapBusyGoal(goal.id);
-    setNotice(null);
-    try {
-      const result = await requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps/generate`, {
-        method: 'POST',
-        body: JSON.stringify({ clarifications }),
-      });
-      setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [result.data.roadmap.id]: false }));
-      setExpandedGoalIds((current) => new Set(current).add(goal.id));
-      setExpandedRoadmapIds((current) => new Set(current).add(result.data.roadmap.id));
-      setClarificationByRoadmap((current) => ({ ...current, [roadmap.id]: '' }));
-      setRoadmapsByGoal((current) => ({
-        ...current,
-        [goal.id]: [result.data.roadmap, ...(current[goal.id] || [])],
-      }));
-      setNotice({ type: 'success', message: 'Created a new draft using your clarification. Review its updated learning brief before activating it.' });
-    } catch (error) {
-      setNotice({ type: 'error', message: error.message });
-    } finally {
       setRoadmapBusyGoal(null);
     }
   }
@@ -534,13 +588,32 @@ function App() {
     }
   }
 
-  async function prepareNextChunkAfterCompletion(goal, mission, xpAwarded) {
+  async function prepareNextChunkAfterCompletion(goal, mission, xpAwarded, continuation, continuationError) {
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     try {
-      const rollingResult = await requestJson(
+      // The completion API runs the rolling gate server-side. If that attempt
+      // failed, retry once now; the run lease is released on failure and the
+      // saved completion remains intact.
+      const retryRollForward = () => requestJson(
         `/api/v1/learning-goals/${goal.id}/roadmaps/roll-forward?timeZone=${encodeURIComponent(timeZone)}`,
         { method: 'POST', body: JSON.stringify({ completedDate: String(mission.scheduledDate).slice(0, 10) }) },
       );
+      let rollingResult = continuationError
+        ? await retryRollForward()
+        : continuation
+          ? { data: continuation }
+          : await retryRollForward();
+
+      // The completion request can overlap a catch-up request from the dashboard.
+      // If that request owns the generation lease, retry after it has had time to
+      // finish rather than treating GENERATION_IN_PROGRESS as a terminal result.
+      for (let attempt = 0; attempt < 2
+        && !rollingResult.data.generated
+        && rollingResult.data.reason === 'GENERATION_IN_PROGRESS'; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+        rollingResult = await retryRollForward();
+      }
+
       if (!rollingResult.data.generated) {
         if (rollingResult.data.reason === 'ALREADY_GENERATED') {
           const [missionRefresh, roadmapRefresh] = await Promise.all([
@@ -551,26 +624,36 @@ function App() {
           setRoadmapsByGoal((current) => ({ ...current, [goal.id]: roadmapRefresh.data.roadmaps }));
           await refreshNextStep(goal.id);
           setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Your next learning days were already prepared and have been refreshed.` });
+        } else if (rollingResult.data.reason === 'CHUNK_NOT_NEAR_END') {
+          setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Pathwise saved your learning evidence and will prepare the next chunk when one lesson remains.` });
         } else if (rollingResult.data.reason === 'DAY_NOT_COMPLETE') {
           setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Finish the remaining sessions for today and Pathwise will prepare the next days.` });
         } else if (rollingResult.data.reason === 'ROLLING_WINDOW_FULL') {
           setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Your next learning days are already scheduled.` });
+        } else if (rollingResult.data.reason === 'CHUNK_HAS_UNFINISHED_SESSIONS') {
+          setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Finish the remaining ${rollingResult.data.remainingLessons || 'unfinished'} session(s) in this chunk before the next chunk is prepared.` });
+        } else if (rollingResult.data.reason === 'GENERATION_IN_PROGRESS') {
+          setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Pathwise is already preparing your next learning days; refresh shortly to see them.` });
+        } else {
+          setNotice({ type: 'error', message: `Mission complete! You earned ${xpAwarded} XP, but the next chunk was not prepared (${rollingResult.data.reason || 'unknown reason'}). Try completing the last session again or refresh the page.` });
         }
         return;
       }
 
       const nextRoadmap = rollingResult.data.roadmap;
-      setRoadmapsByGoal((current) => ({
-        ...current,
-        [goal.id]: [nextRoadmap, ...(current[goal.id] || []).map((item) => item.generationState === 'ACTIVE' ? { ...item, generationState: 'SUPERSEDED' } : item)],
-      }));
-      setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [nextRoadmap.id]: true }));
-      const missionRefresh = await requestJson(
-        `/api/v1/learning-goals/${goal.id}/missions?timeZone=${encodeURIComponent(timeZone)}`,
-      );
+      // Reload the persisted roadmap list instead of relying on the generation
+      // response's partial/optimistic shape. The dashboard renders from this list.
+      const [roadmapRefresh, missionRefresh] = await Promise.all([
+        requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps?timeZone=${encodeURIComponent(timeZone)}`),
+        requestJson(`/api/v1/learning-goals/${goal.id}/missions?timeZone=${encodeURIComponent(timeZone)}`),
+      ]);
+      setRoadmapsByGoal((current) => ({ ...current, [goal.id]: roadmapRefresh.data.roadmaps || [] }));
       setMissionsByGoal((current) => ({ ...current, [goal.id]: missionRefresh.data }));
-      await refreshNextStep(goal.id);
-      setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Pathwise prepared the next ${rollingResult.data.planningDays} day(s).` });
+      if (nextRoadmap?.id) {
+        setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [nextRoadmap.id]: true }));
+      }
+      await Promise.all([refreshNextStep(goal.id), refreshMissionRecovery(goal.id)]);
+      setNotice({ type: 'success', message: `Mission complete! You earned ${xpAwarded} XP. Pathwise prepared the next ${rollingResult.data.planningDays} day(s), and the saved roadmap list has been refreshed.` });
     } catch (error) {
       const detail = error instanceof Error && error.message ? ` Reason: ${error.message}` : '';
       setNotice({ type: 'error', message: `Mission complete! You earned ${xpAwarded} XP. Your progress is saved, but the next chunk could not be prepared.${detail}` });
@@ -593,7 +676,7 @@ function App() {
     setNotice(null);
     try {
       const result = await requestJson(
-        `/api/v1/learning-goals/${goal.id}/missions/${mission.id}/complete`,
+        `/api/v1/learning-goals/${goal.id}/missions/${mission.id}/complete?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`,
         {
           method: 'POST',
           body: JSON.stringify({
@@ -601,6 +684,10 @@ function App() {
               reflection,
               ...(missionFeelingById[mission.id] ? { sessionFeeling: missionFeelingById[mission.id] } : {}),
               ...(actualMinutes === null ? {} : { actualMinutes }),
+              checklist: (Array.isArray(mission.completionCriteria?.objectives) ? mission.completionCriteria.objectives : []).map((objective, index) => ({
+                objective: String(objective),
+                completed: missionChecklistById[mission.id]?.[index] === true,
+              })),
               completionCriteria: mission.completionCriteria || {},
               missionType: mission.missionType || 'LEARN',
             },
@@ -623,9 +710,9 @@ function App() {
       await Promise.all([refreshGamification(), refreshNextStep(goal.id), refreshMissionRecovery(goal.id)]);
       setNotice({ type: 'success', message: result.data.alreadyCompleted
         ? 'This mission was already completed.'
-        : `Mission complete! You earned ${result.data.xpAwarded} XP. Checking the next learning days in the background…` });
+        : `Mission complete! You earned ${result.data.xpAwarded} XP. Updating your learning plan…` });
       if (!result.data.alreadyCompleted) {
-        void prepareNextChunkAfterCompletion(goal, mission, result.data.xpAwarded);
+        void prepareNextChunkAfterCompletion(goal, mission, result.data.xpAwarded, result.data.rollingContinuation, result.data.rollingContinuationError);
       }
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
@@ -713,10 +800,56 @@ function App() {
     }
   }
 
-  const dashboardGoal = goals[0] || null;
+  const dashboardGoal = goals.find((goal) => expandedGoalIds.has(goal.id)) || goals[0] || null;
   const dashboardRoadmap = dashboardGoal
     ? (roadmapsByGoal[dashboardGoal.id] || []).find((roadmap) => roadmap.generationState === 'ACTIVE')
     : null;
+
+  useEffect(() => {
+    if (window.location.pathname === '/assessment-test' || !user || apiStatus !== 'online') return;
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+    for (const goal of goals) {
+      const roadmaps = roadmapsByGoal[goal.id];
+      const activeRoadmap = Array.isArray(roadmaps) ? roadmaps.find((item) => item.generationState === 'ACTIVE') : null;
+      const missionState = missionsByGoal[goal.id];
+      if (!activeRoadmap || !missionState || !Array.isArray(missionState.missions)) continue;
+      const chunkNumber = Number(activeRoadmap.learningBrief?.chunkNumber || activeRoadmap.version || 1);
+      // Only attempt catch-up when the visible sessions are finished (or a
+      // later chunk has no sessions in the current date range). The API repeats
+      // the authoritative check across every mission on the active roadmap.
+      if (missionState.missions.some((mission) => ['SCHEDULED', 'IN_PROGRESS'].includes(mission.status))) continue;
+      if (missionState.missions.length === 0 && chunkNumber <= 1) continue;
+      if (rollingCatchupRef.current.has(activeRoadmap.id)) continue;
+      rollingCatchupRef.current.add(activeRoadmap.id);
+
+      void requestJson(
+        `/api/v1/learning-goals/${goal.id}/roadmaps/roll-forward?timeZone=${encodeURIComponent(timeZone)}`,
+        { method: 'POST', body: JSON.stringify({}) },
+      ).then(async (result) => {
+        if (!result.data.generated && result.data.reason !== 'ALREADY_GENERATED') {
+          // Do not permanently poison catch-up for this roadmap. A transient
+          // lock or stale mission snapshot must not prevent a later completion
+          // event from trying again.
+          rollingCatchupRef.current.delete(activeRoadmap.id);
+          return;
+        }
+        const [roadmapRefresh, missionRefresh] = await Promise.all([
+          requestJson(`/api/v1/learning-goals/${goal.id}/roadmaps?timeZone=${encodeURIComponent(timeZone)}`),
+          requestJson(`/api/v1/learning-goals/${goal.id}/missions?timeZone=${encodeURIComponent(timeZone)}`),
+        ]);
+        setRoadmapsByGoal((current) => ({ ...current, [goal.id]: roadmapRefresh.data.roadmaps || [] }));
+        setMissionsByGoal((current) => ({ ...current, [goal.id]: missionRefresh.data }));
+        await Promise.all([refreshNextStep(goal.id), refreshMissionRecovery(goal.id)]);
+        if (result.data.generated) {
+          setNotice({ type: 'success', message: `Pathwise caught up your learning plan and prepared the next ${result.data.planningDays} day(s).` });
+        }
+      }).catch((error) => {
+        rollingCatchupRef.current.delete(activeRoadmap.id);
+        setNotice({ type: 'error', message: `Pathwise could not check the next chunk: ${error.message || 'Unknown error'}` });
+      });
+    }
+  }, [user, apiStatus, goals, roadmapsByGoal, missionsByGoal]);
 
   if (window.location.pathname === '/assessment-test') {
     return <AssessmentTestPage user={user} goals={goals} roadmapsByGoal={roadmapsByGoal} apiStatus={apiStatus} />;
@@ -732,6 +865,7 @@ function App() {
         <div className="art-learning-token"><Sparkles size={22} /><span>+XP</span></div>
         <div className="art-mini-path"><i /><i /><i /><b><Check size={12} /></b></div>
       </div>}
+      {notice && <div className={`app-toast-notification app-toast-${notice.type}`} role={notice.type === 'error' ? 'alert' : 'status'} aria-live={notice.type === 'error' ? 'assertive' : 'polite'}><span className="app-toast-indicator" aria-hidden="true" /><p>{notice.message}</p><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification">×</button></div>}
       <header className="app-header mx-auto flex max-w-7xl items-center justify-between px-5 py-5 sm:px-8" data-reveal="down">
         <a href="/" className="flex items-center gap-3" aria-label="Pathwise home">
           <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#263f32] text-white"><Compass size={21} /></span>
@@ -757,6 +891,12 @@ function App() {
           <p>{gamification?.currentStreak ? 'You’re building a habit. Keep it alive!' : 'One small session starts your streak.'}</p>
         </div>
         <button type="button" className="sidebar-add-goal" onClick={() => { setShowGoalForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Plus size={18} /> New learning goal</button>
+        <div className="sidebar-goals" aria-label="Your learning goals">
+          <p className="sidebar-goals-label">YOUR GOALS</p>
+          <nav className="sidebar-goal-list" aria-label="Learning goals">
+            {goals.map((goal) => <button key={goal.id} type="button" className={`sidebar-goal-link ${expandedGoalIds.has(goal.id) ? 'active' : ''}`} aria-current={expandedGoalIds.has(goal.id) ? 'page' : undefined} title={goal.skill} onClick={() => { setExpandedGoalIds(new Set([goal.id])); document.getElementById('learning-goals')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}><BookOpen size={16} /><span>{goal.skill}</span></button>)}
+          </nav>
+        </div>
         <div className="sidebar-profile"><span className="profile-avatar">{(user.name || user.email || 'L').slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{user.name || 'Learner'}</strong><small>Level {gamification?.level?.level || 1} explorer</small></span><button type="button" onClick={handleLogout} aria-label="Sign out" title="Sign out">↗</button></div>
       </aside>}
 
@@ -781,7 +921,7 @@ function App() {
           <div className="goal-panel relative p-5 sm:p-8">
             <div className="mb-7 flex items-start justify-between goal-panel-heading">
               <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#82917b]">{user ? 'YOUR NEXT CHAPTER STARTS HERE' : accountMode === 'login' ? 'WELCOME BACK' : 'YOUR FIRST QUEST STARTS HERE'}</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">{user ? 'Let’s build your learning plan' : accountMode === 'login' ? 'Sign in to Pathwise' : 'Create your free account'}</h2><p className="mt-2 text-sm leading-6 text-[#7c8378]">{user ? 'A few details help us make the next step clear and realistic.' : accountMode === 'login' ? 'Your saved goals and progress are waiting for you.' : 'Your progress belongs to you. Save it, return to it, and keep growing.'}</p></div>
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#edf3e9] text-[#4c704b]"><GraduationCap size={22} /></span>
+              {user && goals.length > 0 ? <button type="button" onClick={() => setShowGoalForm(false)} aria-label="Cancel new learning goal" title="Cancel" className="grid h-9 w-9 shrink-0 place-items-center border border-[#41413d] bg-[#111110] text-[#a3a39f] transition hover:border-[#ff5933] hover:text-[#ff5933]">×</button> : <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#edf3e9] text-[#4c704b]"><GraduationCap size={22} /></span>}
             </div>
 
             <form onSubmit={handleSubmit} className="goal-form space-y-5">
@@ -802,12 +942,12 @@ function App() {
                 <Field label="3. What would you like to be able to do?"><textarea name="outcome" value={form.outcome} onChange={updateField} required maxLength={1000} rows={3} placeholder="e.g. Build and deploy my first ML model..." className="field resize-none" /></Field>
                 <div className="schedule-fields grid grid-cols-2 gap-4">
                   <Field label="4. Your daily time"><select name="minutesPerDay" value={form.minutesPerDay} onChange={updateField} className="field"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option><option value="90">1.5 hours</option><option value="120">2 hours</option></select></Field>
-                  <Field label="Your weekly rhythm"><select name="daysPerWeek" value={form.daysPerWeek} onChange={updateField} className="field">{[2, 3, 4, 5, 6, 7].map((days) => <option key={days} value={days}>{days} days</option>)}</select></Field>
-                  <Field label="5. In how many days do you want to achieve this goal?"><input name="targetDurationDays" type="number" min="1" max="365" step="1" required value={form.targetDurationDays} onChange={updateField} className="field" /><span className="block text-xs leading-5 text-[#737b70]">Set your target timeline. Pathwise will build a rolling 3-day plan and adapt it as you progress.</span></Field>
+                  <input type="hidden" name="daysPerWeek" value="7" readOnly />
+                  <Field label="5. In how many days do you want to achieve this goal?"><input name="targetDurationDays" type="number" min="1" max="365" step="1" required value={form.targetDurationDays} onChange={updateField} className="field" /></Field>
                 </div>
               </>}
               <button type="submit" disabled={busy || apiStatus !== 'online'} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#263f32] px-5 py-4 text-sm font-semibold text-white transition hover:bg-[#355640] focus:outline-none focus:ring-4 focus:ring-[#d8e5d3] disabled:cursor-not-allowed disabled:opacity-55">{busy ? (user ? 'Saving your goal…' : accountMode === 'login' ? 'Signing in…' : 'Creating account…') : user ? 'Save my learning goal' : accountMode === 'login' ? 'Sign in to Pathwise' : 'Create my account'} <ArrowRight size={17} className="transition group-hover:translate-x-1" /></button>
-              {notice && <div role="status" className={`rounded-xl border px-4 py-3 text-sm leading-6 ${notice.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-rose-200 bg-rose-50 text-rose-900'}`}>{notice.message}</div>}
+
               <p className="text-center text-xs text-[#9aa095]">{user ? 'Your learning goals are saved to your account.' : 'Your account and learning progress are saved securely. Sign in on this device to continue later.'}</p>
             </form>
           </div>
@@ -889,7 +1029,7 @@ function App() {
         <div className="dashboard-spark dashboard-spark-two" aria-hidden="true">✦</div>
       </section>}
 
-      {user && goals.length > 0 && notice && <div role="status" aria-live="polite" className={`mx-auto mb-5 max-w-7xl px-5 sm:px-8`}><div className={`border px-4 py-3 text-sm leading-6 ${notice.type === 'success' ? 'border-[#3f5b46] bg-[#1a241d] text-[#c6e5c9]' : 'border-[#733b2c] bg-[#271915] text-[#ffc0ad]'}`}>{notice.message}</div></div>}
+      {notice && <div role="status" aria-live="polite" className={`app-toast ${notice.type === 'success' ? 'app-toast-success' : 'app-toast-error'}`}><p>{notice.message}</p><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification" className="app-toast-dismiss"><span aria-hidden="true">�</span></button></div>}
 
       {user && gamification && <section id="learning-stats" data-reveal="up" className="dashboard-section mx-auto max-w-7xl px-5 pb-6 sm:px-8">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -904,12 +1044,12 @@ function App() {
 <div className="goals-board rounded-3xl border border-[#e3e6dc] bg-white p-6">
 <div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#688663]">YOUR WORKSPACE</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Your learning path</h2><p className="mt-1 text-sm text-[#737b70]">Pick up where you left off, or plan your next step.</p></div><span className="rounded-full bg-[#edf3e9] px-3 py-1.5 text-xs font-semibold text-[#355a39]">{goals.length} goal{goals.length === 1 ? '' : 's'} saved</span></div>
 
-<div className="mt-4 grid gap-3 sm:grid-cols-2">{goals.map((goal) => {
-const goalExpanded = expandedGoalIds.has(goal.id);
-return <article key={goal.id} className="goal-card rounded-2xl border border-[#e7e9e1] p-4">
+<div className="mt-5 grid grid-cols-1 gap-4">{goals.filter((goal) => expandedGoalIds.has(goal.id)).map((goal) => {
+const goalExpanded = true;
+return <article key={goal.id} id={`goal-${goal.id}`} className="goal-card rounded-2xl border border-[#e7e9e1] p-4 scroll-mt-6">
 <div className="flex flex-wrap items-start justify-between gap-3">
 <div>
-<button type="button" onClick={() => setExpandedGoalIds((current) => { const next = new Set(current); if (next.has(goal.id)) next.delete(goal.id); else next.add(goal.id); return next; })} aria-expanded={goalExpanded} className="goal-toggle flex w-full items-center gap-2 text-left font-semibold"><span className="goal-toggle-title">{goal.skill}</span><span className="goal-toggle-state ml-auto text-xs font-medium">{goalExpanded ? 'Hide details' : 'View goal'}</span><span aria-hidden="true" className="text-[#82917b]">{goalExpanded ? '⌃' : '⌄'}</span></button>
+<div className="goal-toggle flex w-full items-center gap-2 text-left font-semibold" aria-current="page"><span className="goal-toggle-title">{goal.skill}</span><span className="goal-toggle-state ml-auto text-xs font-medium">Selected goal</span></div>
 
 <p className="mt-1 text-sm text-[#737b70]">{goal.outcome}</p>
 
@@ -939,7 +1079,7 @@ return <article key={goal.id} className="goal-card rounded-2xl border border-[#e
 </div>
 
 </div>
-{generatingGoalId === goal.id && <div role="status" aria-live="polite" className="mt-4 flex items-start gap-3 rounded-xl border border-[#41413d] bg-[#191918] p-4 text-sm text-[#d1d1cd]"><span className="mt-0.5 inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#777773] border-t-[#ff5933]" aria-hidden="true" /><span><strong className="block text-[#f2f2f0]">Building your learning plan</strong><span className="mt-1 block text-xs leading-5 text-[#a3a39f]">The AI is organising practice day by day. Your saved roadmap will appear here automatically when generation finishes.</span></span></div>}
+
 {(roadmapsByGoal[goal.id] || []).map((roadmap) => {
 const roadmapExpanded = expandedRoadmapIds.has(roadmap.id) || roadmap.generationState === 'DRAFT';
 return <div key={roadmap.id} className={`roadmap-card mt-4 rounded-xl bg-[#f7f8f4] p-4 ${goalExpanded ? '' : 'hidden'}`}>
@@ -955,32 +1095,9 @@ return <div key={roadmap.id} className={`roadmap-card mt-4 rounded-xl bg-[#f7f8f
 </div>
 }</div>
 
-{roadmapExpanded && <><p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p>{roadmap.learningBrief?.continuationSummary && <section className="mt-3 rounded-xl border border-[#cbdcc3] bg-[#f0f6ec] p-3"><p className="text-xs font-bold uppercase tracking-wide text-[#355a39]">{roadmap.learningBrief.continuationSummary.heading}</p>{roadmap.learningBrief.continuationSummary.evidence?.length > 0 && <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-[#4d6049]">{roadmap.learningBrief.continuationSummary.evidence.map((item, index) => <li key={index}>{item}</li>)}</ul>}{roadmap.learningBrief.continuationSummary.nextFocus?.length > 0 && <p className="mt-2 text-xs leading-5 text-[#355a39]"><strong>This chunk focuses on:</strong> {roadmap.learningBrief.continuationSummary.nextFocus.join(" · ")}</p>}</section>}{roadmap.learningBrief?.chunkBudgetMinutes && <p className="mt-2 rounded-lg bg-[#edf3e9] p-2 text-xs text-[#355a39]">Workload cap: {roadmap.learningBrief.chunkBudgetMinutes} minutes across {roadmap.learningBrief.practiceDays ?? roadmap.learningBrief.planningDays} planned study days ({roadmap.learningBrief.plannedDailyMinutes ?? roadmap.learningBrief.dailyMinutes} minutes/day). Your availability is {roadmap.learningBrief.availableCapacityMinutes ?? roadmap.learningBrief.chunkBudgetMinutes} minutes total, with {roadmap.learningBrief.bufferMinutes ?? 0} minutes reserved as a buffer. This chunk contains {roadmap.topics.length} study sessions across {roadmap.learningBrief.practiceDays ?? roadmap.learningBrief.planningDays} planned study days. Estimates are checked against the daily and total limits; future chunks adapt to progress.</p>}{roadmap.learningBrief?.deadlineFeasibility && <p className={`mt-2 rounded-lg border p-2 text-xs leading-5 ${['OVER_CAPACITY', 'DEADLINE_PASSED'].includes(roadmap.learningBrief.deadlineFeasibility.status) ? 'border-rose-200 bg-rose-50 text-rose-800' : roadmap.learningBrief.deadlineFeasibility.status === 'AT_RISK' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-[#dfe7d9] bg-white text-[#737b70]'}`}><strong>Deadline outlook: {roadmap.learningBrief.deadlineFeasibility.status.replaceAll('_', ' ').toLowerCase()}.</strong> {roadmap.learningBrief.deadlineFeasibility.estimatedRemainingMinutes !== null && roadmap.learningBrief.deadlineFeasibility.estimatedRemainingMinutes !== undefined ? `Estimated remaining effort: ${roadmap.learningBrief.deadlineFeasibility.estimatedRemainingMinutes} min (${roadmap.learningBrief.deadlineFeasibility.estimateConfidence} confidence); available capacity: ${roadmap.learningBrief.deadlineFeasibility.availableMinutes} min across ${roadmap.learningBrief.deadlineFeasibility.availableStudyDays} study days. ` : ''}{roadmap.learningBrief.deadlineFeasibility.recommendation}</p>}{roadmap.learningBrief?.timeCalibrationSampleCount >= 3 && roadmap.learningBrief?.medianActualToEstimatedRatio && <p className="mt-2 rounded-lg border border-[#dfe7d9] p-2 text-xs text-[#737b70]">Personalized timing: your last {roadmap.learningBrief.timeCalibrationSampleCount} timed sessions typically took {roadmap.learningBrief.medianActualToEstimatedRatio.toFixed(2)}× the estimated time. Pathwise uses this evidence when planning future chunks.</p>}
+{roadmapExpanded && <><p className="mt-2 text-sm text-[#737b70]">{roadmap.summary}</p>{roadmap.learningBrief?.continuationSummary && <section className="mt-3 rounded-xl border border-[#cbdcc3] bg-[#f0f6ec] p-3"><p className="text-xs font-bold uppercase tracking-wide text-[#355a39]">{roadmap.learningBrief.continuationSummary.heading}</p>{roadmap.learningBrief.continuationSummary.evidence?.length > 0 && <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-[#4d6049]">{roadmap.learningBrief.continuationSummary.evidence.map((item, index) => <li key={index}>{item}</li>)}</ul>}{roadmap.learningBrief.continuationSummary.nextFocus?.length > 0 && <p className="mt-2 text-xs leading-5 text-[#355a39]"><strong>This chunk focuses on:</strong> {roadmap.learningBrief.continuationSummary.nextFocus.join(" · ")}</p>}</section>}{roadmap.learningBrief?.timeCalibrationSampleCount >= 3 && roadmap.learningBrief?.medianActualToEstimatedRatio && <p className="mt-2 rounded-lg border border-[#dfe7d9] p-2 text-xs text-[#737b70]">Personalized timing: your last {roadmap.learningBrief.timeCalibrationSampleCount} timed sessions typically took {roadmap.learningBrief.medianActualToEstimatedRatio.toFixed(2)}× the estimated time. Pathwise uses this evidence when planning future chunks.</p>}
 
-{roadmap.learningBrief && <section className="mt-4 rounded-xl border border-[#dfe7d9] bg-white p-4">
-<p className="text-xs font-bold uppercase tracking-wide text-[#688663]">Enhanced learning brief</p>
-<p className="mt-2 text-sm font-semibold">{roadmap.learningBrief.outcomeRestatement}</p>
-<p className="mt-2 text-xs leading-5 text-[#737b70]"><strong className="text-[#424a40]">Final deliverable:</strong> {roadmap.learningBrief.finalDeliverable}</p>
-{roadmap.learningBrief.capabilities?.length > 0 && <div className="mt-3">
-<p className="text-xs font-semibold text-[#424a40]">Capabilities this roadmap should cover</p>
-<ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-5 text-[#737b70]">{roadmap.learningBrief.capabilities.map((item, index) => <li key={index}><strong>{item.capability}</strong> — {item.evidenceOfSuccess}</li>)}</ul>
-</div>}
-{roadmap.learningBrief.prerequisiteKnowledge?.length > 0 && <div className="mt-3"><p className="text-xs font-semibold text-[#424a40]">Expected prerequisites</p><ul className="mt-1 list-disc pl-5 text-xs leading-5 text-[#737b70]">{roadmap.learningBrief.prerequisiteKnowledge.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
-{roadmap.learningBrief.assumptions?.length > 0 && <div className="mt-3 rounded-lg bg-[#fff6e5] p-3"><p className="text-xs font-semibold text-[#825a21]">Assumptions to review</p><ul className="mt-1 list-disc pl-5 text-xs leading-5 text-[#785d31]">{roadmap.learningBrief.assumptions.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
-{roadmap.learningBrief.outOfScope?.length > 0 && <div className="mt-3"><p className="text-xs font-semibold text-[#424a40]">Not included in this plan</p><ul className="mt-1 list-disc pl-5 text-xs leading-5 text-[#737b70]">{roadmap.learningBrief.outOfScope.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
-{roadmap.learningBrief.learnerClarifications && <p className="mt-3 rounded-lg bg-[#edf3e9] p-3 text-xs leading-5 text-[#355a39]"><strong>Clarification applied:</strong> {roadmap.learningBrief.learnerClarifications}</p>}
-{roadmap.generationState === 'DRAFT' && <div className="mt-4 border-t border-[#e4e8df] pt-3">
-<label className="block text-xs font-semibold text-[#424a40]" htmlFor={'roadmap-clarification-' + roadmap.id}>Need to correct an assumption?</label>
-<p className="mt-1 text-xs leading-5 text-[#737b70]">Tell Pathwise what you meant. It will enhance the request again and generate a separate draft, leaving this version untouched.</p>
-<textarea id={'roadmap-clarification-' + roadmap.id} value={clarificationByRoadmap[roadmap.id] || ''} onChange={(event) => setClarificationByRoadmap((current) => ({ ...current, [roadmap.id]: event.target.value }))} maxLength={1200} rows={2} placeholder="e.g. Use plain Java rather than Spring Boot; keep all work local." className="field mt-2 resize-y" />
-<button type="button" onClick={() => handleRegenerateRoadmapWithClarification(goal, roadmap)} disabled={roadmapBusyGoal !== null || !(clarificationByRoadmap[roadmap.id] || '').trim()} className="mt-2 rounded-lg border border-[#b9cbb2] px-3 py-1.5 text-xs font-semibold text-[#355a39] disabled:opacity-50">{roadmapBusyGoal === goal.id ? 'Regenerating…' : 'Regenerate with clarification'}</button>
-</div>}
-{roadmap.generationState === 'DRAFT' && <label className="mt-4 flex cursor-pointer items-start gap-2 border-t border-[#e4e8df] pt-3 text-xs leading-5 text-[#424a40]">
-<input type="checkbox" checked={Boolean(learningBriefConfirmedByRoadmap[roadmap.id])} onChange={(event) => setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [roadmap.id]: event.target.checked }))} className="mt-1 accent-[#355a39]" />
-<span>I’ve reviewed this brief, including its assumptions, and it reflects what I want to achieve. I understand I can delete this draft and generate another if it doesn’t.</span>
-</label>}
-{roadmap.learningBriefConfirmedAt && <p className="mt-3 text-xs text-[#688663]">Learning brief confirmed before activation.</p>}
-</section>}
+{roadmap.learningBrief && roadmap.generationState === 'DRAFT' && <label className="mt-4 flex cursor-pointer items-start gap-2 text-xs leading-5 text-[#424a40]"><input type="checkbox" checked={Boolean(learningBriefConfirmedByRoadmap[roadmap.id])} onChange={(event) => setLearningBriefConfirmedByRoadmap((current) => ({ ...current, [roadmap.id]: event.target.checked }))} className="mt-1 accent-[#355a39]" /><span>I confirm this learning path matches the goal I want to achieve.</span></label>}
 
 <details open={roadmap.generationState === 'DRAFT'} className="learning-path-details mt-3 rounded-lg border border-[#e4e8df] bg-white/70 p-3"><summary className="cursor-pointer text-xs font-semibold text-[#355a39]">Sessions in this chunk · {roadmap.topics.length}</summary><ol className="learning-path mt-3 space-y-2">{roadmap.topics.map((topic) => <li key={topic.id} className="path-step border-t border-[#e4e8df] pt-3">
 <div className="flex gap-3">
@@ -1037,45 +1154,6 @@ return <div key={roadmap.id} className={`roadmap-card mt-4 rounded-xl bg-[#f7f8f
   <ul className="mt-3 space-y-2 border-t border-[#343432] pt-3">{recoveryByGoal[goal.id].missedMissions.slice(0, 3).map((mission) => <li key={mission.id} className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="min-w-0 flex-1 text-[#d1d1cd]">{mission.topic?.title || 'Learning topic'} · {mission.title}</span><span className="shrink-0 text-[#777773]">{String(mission.scheduledDate).slice(0, 10)}</span></li>)}</ul>
   {recoveryByGoal[goal.id].missedCount > recoveryByGoal[goal.id].missedMissions.length && <p className="mt-2 text-[10px] text-[#777773]">Showing the latest {recoveryByGoal[goal.id].missedMissions.length} of {recoveryByGoal[goal.id].missedCount} missed sessions.</p>}
 </section>}
-{(roadmapsByGoal[goal.id] || []).some((item) => item.generationState === 'ACTIVE') && <section className="project-milestones mt-4 rounded-xl border border-[#343432] p-4" aria-label={`Project milestones for ${goal.skill}`}>
-  <div className="flex flex-wrap items-start justify-between gap-3">
-    <div>
-      <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#ff5933]"><Target size={13} className="mr-1 inline" /> Build toward a real result</p>
-      <h3 className="mt-2 text-lg font-semibold text-[#f2f2f0]">Project milestones</h3>
-      <p className="mt-1 max-w-2xl text-xs leading-5 text-[#a3a39f]">Turn your learning brief into a sequence of demonstrable outcomes. Each milestone saves evidence, not just a checkbox.</p>
-    </div>
-    {(projectMilestonesByGoal[goal.id]?.milestones || []).length === 0 && <button type="button" onClick={() => handleGenerateProjectMilestones(goal)} disabled={milestoneBusyGoal !== null || apiStatus !== 'online' || !projectMilestonesByGoal[goal.id]?.deliverable} className="min-h-10 border border-[#ff3300] bg-[#ff3300] px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{milestoneBusyGoal === goal.id ? 'Creating plan…' : 'Create project plan'}</button>}
-  </div>
-  {projectMilestonesByGoal[goal.id]?.deliverable && <p className="mt-3 border-l-2 border-[#ff5933] pl-3 text-sm leading-6 text-[#d1d1cd]"><span className="font-semibold text-white">Final deliverable</span> · {projectMilestonesByGoal[goal.id].deliverable}</p>}
-  {(projectMilestonesByGoal[goal.id]?.milestones || []).length === 0
-    ? <p className="mt-3 text-xs leading-5 text-[#a3a39f]">{projectMilestonesByGoal[goal.id]?.deliverable ? 'Your project plan has not been created yet.' : 'A confirmed learning brief with a final deliverable is required before a project plan can be generated.'}</p>
-    : <>
-      <div className="mt-4 flex items-center gap-3">
-        <div className="h-1.5 flex-1 overflow-hidden bg-[#343432]"><div className="h-full bg-[#ff3300] transition-all" style={{ width: `${Math.round(projectMilestonesByGoal[goal.id].milestones.filter((item) => item.status === 'COMPLETED').length / projectMilestonesByGoal[goal.id].milestones.length * 100)}%` }} /></div>
-        <span className="shrink-0 text-xs text-[#a3a39f]">{projectMilestonesByGoal[goal.id].milestones.filter((item) => item.status === 'COMPLETED').length} / {projectMilestonesByGoal[goal.id].milestones.length} done</span>
-      </div>
-      <ol className="mt-4 space-y-3">{projectMilestonesByGoal[goal.id].milestones.map((milestone, index) => {
-        const completed = milestone.status === 'COMPLETED';
-        const priorDone = projectMilestonesByGoal[goal.id].milestones.slice(0, index).every((item) => item.status === 'COMPLETED');
-        const evidence = milestoneEvidenceById[milestone.id] ?? milestone.evidence ?? '';
-        return <li key={milestone.id} className="border-t border-[#343432] pt-3">
-          <div className="flex items-start gap-3">
-            <span className={`grid h-8 w-8 shrink-0 place-items-center border ${completed ? 'border-[#ff3300] bg-[#ff3300] text-white' : 'border-[#41413d] text-[#ff5933]'}`}>{completed ? <Check size={16} /> : String(index + 1).padStart(2, '0')}</span>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-semibold text-[#f2f2f0]">{milestone.title}</h4><span className="border border-[#41413d] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[#a3a39f]">{milestone.status.replace('_', ' ').toLowerCase()}</span></div>
-              <p className="mt-1 text-xs leading-5 text-[#a3a39f]">{milestone.description}</p>
-              {Array.isArray(milestone.successCriteria) && milestone.successCriteria.length > 0 && <ul className="mt-2 space-y-1">{milestone.successCriteria.map((criterion, criterionIndex) => <li key={criterionIndex} className="flex items-start gap-2 text-xs leading-5 text-[#d1d1cd]"><span className="mt-1 text-[#ff5933]">•</span><span>{criterion}</span></li>)}</ul>}
-              {completed ? <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-[#a3a39f]"><span className="font-semibold text-[#f2f2f0]">Evidence saved:</span> {milestone.evidence}</p> : <>
-                <label className="mt-3 block"><span className="text-xs font-semibold text-[#d1d1cd]">Evidence / progress note</span><textarea value={evidence} onChange={(event) => setMilestoneEvidenceById((current) => ({ ...current, [milestone.id]: event.target.value }))} maxLength={4000} rows={2} placeholder="What did you build, test, or demonstrate? Add links or test results if useful." className="mt-2 w-full resize-y border border-[#41413d] bg-[#111110] p-3 text-sm leading-5 text-[#f2f2f0] placeholder:text-[#777773] focus:border-[#ff3300] focus:outline-none" /></label>
-                <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => handleUpdateProjectMilestone(goal, milestone, milestone.status)} disabled={milestoneBusyGoal !== null} className="min-h-9 border border-[#41413d] px-3 py-2 text-xs font-semibold text-[#d1d1cd] disabled:opacity-40">{milestoneBusyGoal === goal.id ? 'Saving…' : 'Save note'}</button>{milestone.status !== 'IN_PROGRESS' && <button type="button" onClick={() => handleUpdateProjectMilestone(goal, milestone, 'IN_PROGRESS')} disabled={milestoneBusyGoal !== null || !priorDone} className="min-h-9 border border-[#41413d] px-3 py-2 text-xs font-semibold text-[#d1d1cd] disabled:opacity-40">{milestoneBusyGoal === goal.id ? 'Saving…' : milestone.status === 'PLANNED' ? 'Start milestone' : 'Mark in progress'}</button>}<button type="button" onClick={() => handleUpdateProjectMilestone(goal, milestone, 'COMPLETED')} disabled={milestoneBusyGoal !== null || !priorDone || evidence.trim().length < 20} className="min-h-9 border border-[#ff3300] bg-[#ff3300] px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{milestoneBusyGoal === goal.id ? 'Saving…' : 'Complete with evidence'}</button></div>
-                {!priorDone && <p className="mt-2 text-[11px] text-[#777773]">Finish earlier milestones first to unlock this one.</p>}
-              </>}
-            </div>
-          </div>
-        </li>;
-      })}</ol>
-    </>}
-</section>}
 {(missionsByGoal[goal.id]?.missions || []).length > 0 && <div className="mt-4 rounded-xl border border-[#343432] p-4">
 <div className="flex flex-wrap items-center justify-between gap-3">
 <div>
@@ -1106,10 +1184,23 @@ return <div key={roadmap.id} className={`roadmap-card mt-4 rounded-xl bg-[#f7f8f
       {objectives.length > 0 && <>
         <h4 className="mt-4 text-xs font-bold uppercase tracking-[0.12em] text-[#a3a39f]">Success checklist</h4>
         <ul className="mt-2 space-y-2">
-          {objectives.map((objective, index) => <li key={index} className="flex items-start gap-2 text-sm leading-5 text-[#d1d1cd]">
-            <span className="mt-1 inline-block h-3 w-3 shrink-0 border border-[#ff5933]" aria-hidden="true" />
-            <span>{objective}</span>
-          </li>)}
+          {objectives.map((objective, index) => {
+            const checked = Boolean(missionChecklistById[mission.id]?.[index]);
+            return <li key={index}>
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#343432] p-3 text-sm leading-5 text-[#d1d1cd] transition-colors hover:border-[#777773]">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => setMissionChecklistById((current) => ({
+                    ...current,
+                    [mission.id]: { ...(current[mission.id] || {}), [index]: event.target.checked },
+                  }))}
+                  className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[#ff5933]"
+                />
+                <span className={checked ? 'text-[#777773] line-through' : ''}>{objective}</span>
+              </label>
+            </li>;
+          })}
         </ul>
       </>}
       {!completed && <>

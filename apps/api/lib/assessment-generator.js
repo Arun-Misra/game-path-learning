@@ -176,8 +176,8 @@ function isLocalOllama(baseUrl) {
 
 async function generateAssessment(topic, {
   apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '',
-  baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1',
-  model = process.env.AI_MODEL || process.env.OPENAI_MODEL || 'gemma4:e2b',
+  baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || 'https://api.groq.com/openai/v1',
+  model = process.env.AI_MODEL || process.env.OPENAI_MODEL || 'openai/gpt-oss-120b',
   fetchImpl = globalThis.fetch,
 } = {}) {
   if (!apiKey && !isLocalOllama(baseUrl)) {
@@ -206,7 +206,7 @@ async function generateAssessment(topic, {
           type: 'json_schema',
           json_schema: {
             name: 'topic_assessment',
-            strict: true,
+            strict: !baseUrl.startsWith('https://api.groq.com/'),
             schema: responseSchema,
           },
         },
@@ -214,7 +214,7 @@ async function generateAssessment(topic, {
       }),
     });
   } catch {
-    throw new AssessmentGenerationError(502, 'ASSESSMENT_PROVIDER_UNAVAILABLE', 'The AI assessment provider could not be reached. Check that Ollama is running and the model is installed.');
+    throw new AssessmentGenerationError(502, 'ASSESSMENT_PROVIDER_UNAVAILABLE', 'The configured AI assessment provider could not be reached. Check its base URL, network access, and API status.');
   }
 
   if (!response.ok) {

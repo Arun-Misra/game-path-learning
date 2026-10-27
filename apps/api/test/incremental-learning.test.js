@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { buildTimeCalibrationContext, buildDeadlineFeasibility, rollForwardRoadmap, buildPriorLearningContext, buildContinuationSummary } = require('../lib/roadmap-service');
+const { buildTimeCalibrationContext, buildDeadlineFeasibility, rollForwardRoadmap, buildPriorLearningContext, buildContinuationSummary, normalizeInitialPlanningDays } = require('../lib/roadmap-service');
 const { generateInitialRollingMissions } = require('../lib/mission-service');
 const {
   applyChunkBudget,
@@ -15,6 +15,14 @@ function responseFor(value) {
   const content = JSON.stringify(value);
   return { ok: true, status: 200, json: async () => ({ message: { content }, choices: [{ message: { content } }] }) };
 }
+
+test('initial chunk study days cannot exceed the learner custom weekly cadence', () => {
+  assert.equal(normalizeInitialPlanningDays(7, 3), 3);
+  assert.equal(normalizeInitialPlanningDays(3, 3), 3);
+  assert.equal(normalizeInitialPlanningDays(2, 5), 2);
+  assert.equal(normalizeInitialPlanningDays(7, 7), 7);
+  assert.equal(normalizeInitialPlanningDays(7, 0), 1);
+});
 
 test('follow-up context preserves four-chunk continuity and uses the latest assessment attempt', () => {
   const active = {
@@ -51,7 +59,7 @@ test('follow-up context carries the learner’s session feeling and reflection i
       status: 'COMPLETED',
       topic: { title: 'Chord changes' },
       completion: {
-        evidence: { sessionFeeling: 'STUCK', reflection: 'I can form both chords, but the transition is slow.' },
+        evidence: { sessionFeeling: 'STUCK', reflection: 'I can form both chords, but the transition is slow.', actualMinutes: 32, checklist: [{ objective: 'Change chords cleanly', completed: false }, { objective: 'Keep a steady rhythm', completed: true }] },
         completedAt: new Date('2026-10-21T10:00:00Z'),
       },
     }],
@@ -59,6 +67,8 @@ test('follow-up context carries the learner’s session feeling and reflection i
   const context = JSON.parse(buildPriorLearningContext(roadmap, [roadmap], 2));
   assert.equal(context.completedActivities[0].sessionFeeling, 'STUCK');
   assert.match(context.completedActivities[0].learnerReflection, /transition is slow/);
+  assert.equal(context.completedActivities[0].actualMinutes, 32);
+  assert.deepEqual(context.completedActivities[0].checklist, [{ objective: 'Change chords cleanly', completed: false }, { objective: 'Keep a steady rhythm', completed: true }]);
   assert.match(context.continuationRules.join(' '), /stuck means isolate the obstacle and scaffold a retry/i);
 });
 
@@ -258,8 +268,8 @@ test('rolling generation does not call the model when three upcoming study days 
   assert.equal(result.pendingDays, 3);
 });
 
-test('rolling generation waits until every session for the completed date is finished', async () => {
-  let pendingDaysQueried = false;
+test('rolling generation waits until every prior session is finished before superseding its roadmap', async () => {
+  let pendingQueried = false;
   const db = {
     learningGoal: {
       findFirst: async () => ({
@@ -273,10 +283,10 @@ test('rolling generation waits until every session for the completed date is fin
         originalDescription: 'Learn React',
       }),
     },
-    roadmap: { findFirst: async () => ({ id: 'active-roadmap-1' }) },
+    roadmap: { findFirst: async () => ({ id: 'active-roadmap-1', learningBrief: { planningDays: 7 } }) },
     dailyMission: {
       count: async () => 1,
-      findMany: async () => { pendingDaysQueried = true; return []; },
+      findMany: async () => { pendingQueried = true; return []; },
     },
   };
 
@@ -290,8 +300,9 @@ test('rolling generation waits until every session for the completed date is fin
   });
 
   assert.equal(result.generated, false);
-  assert.equal(result.reason, 'DAY_NOT_COMPLETE');
-  assert.equal(pendingDaysQueried, false);
+  assert.equal(result.reason, 'CHUNK_HAS_UNFINISHED_SESSIONS');
+  assert.equal(result.remainingLessons, 1);
+  assert.equal(pendingQueried, false);
 });
 
 test('initial mission scheduling prepares at most three study dates within learner availability', async () => {
@@ -331,6 +342,72 @@ test('initial mission scheduling prepares at most three study dates within learn
   assert.ok(created.every((mission) => mission.estimatedMinutes <= 30));
 });
 
+
+test('initial mission scheduling prepares all seven study days for a weekly roadmap', async () => {
+  const created = [];
+  let listCalls = 0;
+  const topics = Array.from({ length: 7 }, (_, index) => ({
+    id: 'week-topic-' + index,
+    title: 'Week topic ' + index,
+    description: 'Practise week topic ' + index,
+    learningObjectives: ['Demonstrate week topic ' + index],
+    estimatedMinutes: 20,
+    position: index,
+  }));
+  const db = {
+    learningGoal: { findFirst: async () => ({ id: 'goal-1', minutesPerDay: 30, daysPerWeek: 7, targetDate: null }) },
+    roadmap: { findFirst: async () => ({ id: 'roadmap-week', learningBrief: { planningDays: 7 }, topics }) },
+    dailyMission: {
+      findMany: async () => {
+        listCalls += 1;
+        if (listCalls === 1) return [];
+        return created.map((mission) => ({ ...mission, topic: topics.find((topic) => topic.id === mission.topicId), completion: null }));
+      },
+      createMany: async ({ data }) => { created.push(...data); return { count: data.length }; },
+    },
+    xpTransaction: { aggregate: async () => ({ _sum: { amount: 0 } }) },
+  };
+
+  const result = await generateInitialRollingMissions({
+    userId: 'user-1',
+    goalId: 'goal-1',
+    timeZone: 'UTC',
+    now: new Date('2026-10-26T10:00:00.000Z'),
+    db,
+  });
+
+  assert.equal(result.plannedDays, 7);
+  assert.equal(new Set(created.map((mission) => mission.scheduledDate.toISOString().slice(0, 10))).size, 7);
+  assert.equal(created.length, 7);
+  assert.ok(created.every((mission) => mission.estimatedMinutes <= 30));
+});
+
+test('weekly rolling generation waits for the active week to finish even when fewer than three days remain', async () => {
+  const db = {
+    learningGoal: {
+      findFirst: async () => ({
+        id: 'goal-week', title: 'Java', targetOutcome: 'Practise Java',
+        experienceLevel: 'BEGINNER', minutesPerDay: 30, daysPerWeek: 7,
+        targetDate: null, originalDescription: 'Practise Java',
+      }),
+    },
+    roadmap: { findFirst: async () => ({ id: 'weekly-roadmap', learningBrief: { planningDays: 7 } }) },
+    dailyMission: {
+      findMany: async () => [
+        { scheduledDate: new Date('2026-10-30T00:00:00.000Z') },
+        { scheduledDate: new Date('2026-10-31T00:00:00.000Z') },
+      ],
+    },
+  };
+  const result = await rollForwardRoadmap({
+    userId: 'user-week', goalId: 'goal-week', timeZone: 'UTC',
+    now: new Date('2026-10-29T10:00:00.000Z'), db,
+  });
+  assert.equal(result.generated, false);
+  assert.equal(result.reason, 'ROLLING_WINDOW_FULL');
+  assert.equal(result.pendingDays, 2);
+});
+
 test('deadline feasibility compares remaining effort with learner study availability', () => {
   const goal = {
     minutesPerDay: 60,
@@ -354,9 +431,12 @@ test('deadline feasibility compares remaining effort with learner study availabi
   assert.equal(overCapacity.additionalMinutesPerStudyDay, 65);
   assert.equal(overCapacity.additionalStudyDaysRequired, 5);
   assert.equal(overCapacity.estimatedExtensionCalendarDays, 5);
-  assert.match(overCapacity.recommendation, /260 minutes over available capacity/);
-  assert.match(overCapacity.recommendation, /125 minutes per study day/);
-  assert.match(overCapacity.recommendation, /reduce the outcome scope/i);
+  assert.match(overCapacity.recommendation, /exceeds your available capacity by 260 minutes/);
+  assert.match(overCapacity.recommendation, /keep sessions within your chosen daily limit/i);
+  assert.match(overCapacity.recommendation, /reduce the goal scope/i);
+  assert.match(overCapacity.recommendation, /only increase your daily limit if you choose/i);
+  assert.doesNotMatch(overCapacity.recommendation, /plan about 125 minutes per study day/i);
+  assert.match(overCapacity.recommendation, /reduce the goal scope/i);
 });
 
 test('deadline feasibility is explicit when there is no deadline or the estimate is unavailable', () => {
@@ -383,7 +463,7 @@ test('a completed rolling generation is returned idempotently for the same goal 
     },
     roadmapGenerationRun: {
       findUnique: async () => ({
-        id: 'run-1', status: 'COMPLETED', resultRoadmapId: 'roadmap-next',
+        id: 'run-1', status: 'COMPLETED', sourceRoadmapId: 'active-roadmap-2', resultRoadmapId: 'roadmap-next',
         leaseExpiresAt: new Date('2026-10-21T12:00:00.000Z'),
       }),
     },
@@ -402,6 +482,41 @@ test('a completed rolling generation is returned idempotently for the same goal 
   assert.equal(result.roadmap.id, 'roadmap-next');
   assert.equal(result.missions[0].id, 'mission-next');
   assert.equal(missionCountCalled, false);
+});
+
+test('rolling generation keys idempotency to the source chunk, allowing a later chunk on the same date', async () => {
+  const activeRoadmap = { id: 'active-roadmap-2', learningBrief: { planningDays: 7 } };
+  let runLookup = null;
+  const db = {
+    learningGoal: { findFirst: async () => ({
+      id: 'goal-1', title: 'Learn React', targetOutcome: 'Build an app',
+      experienceLevel: 'BEGINNER', minutesPerDay: 60, daysPerWeek: 7,
+      targetDate: null, originalDescription: 'Learn React',
+    }) },
+    roadmap: { findFirst: async () => activeRoadmap },
+    roadmapGenerationRun: {
+      findUnique: async ({ where }) => { runLookup = where; return null; },
+      create: async () => ({ id: 'run-new' }),
+      update: async () => ({}),
+    },
+    dailyMission: {
+      count: async () => 1,
+      findMany: async ({ where }) => {
+        if (where.roadmapId === activeRoadmap.id) return [];
+        return [{ id: 'new-mission', scheduledDate: new Date('2026-10-22T00:00:00.000Z'), status: 'SCHEDULED' }];
+      },
+      createMany: async () => ({ count: 0 }),
+    },
+  };
+  // A missing source-specific run must proceed to generation; the former
+  // goal/date key incorrectly found the prior chunk's completed run here.
+  const result = await rollForwardRoadmap({
+    userId: 'user-1', goalId: 'goal-1', completedDate: '2026-10-21',
+    now: new Date('2026-10-21T10:00:00.000Z'), db,
+  });
+  assert.deepEqual(Object.keys(runLookup), ['sourceRoadmapId_triggerDate']);
+  assert.equal(runLookup.sourceRoadmapId_triggerDate.sourceRoadmapId, activeRoadmap.id);
+  assert.equal(result.reason, 'CHUNK_HAS_UNFINISHED_SESSIONS');
 });
 
 test('a live rolling-generation lease prevents a duplicate cross-instance generation attempt', async () => {

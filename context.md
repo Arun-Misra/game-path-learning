@@ -1,7 +1,23 @@
+File: context.md
+
+File: context.md
+
+File: context.md
+
+File: context.md
+
+File: context.md
+
+File: context.md
+
+File: context.md
+
+File: context.md
 
 
 
-# Gamified Learning V2 — Contextrning V2 — Context
+
+# Gamified Learning V2 — Context
 
 ## Product and principles
 A personalised learning platform for any skill. Learners provide their skill, existing knowledge, target outcome, and availability; the app generates a validated roadmap, schedules missions, tracks demonstrated progress, and adapts future work. Backend owns identity, persistence, business rules, progress, and rewards. Frontend presents API state. Keep the original app untouched and use it only as a reference. Use generated scaffolds and prefer JavaScript. The master implementation plan remains the source of full requirements and sequencing.
@@ -387,3 +403,107 @@ Do not update master/reference docs frequently; update this context only for mat
 - Initial generation has no application-set output-token ceiling: native Ollama receives `num_predict: -1`, and the hosted request omits `max_tokens`. It remains a single model request, with no automatic repair call.
 - Follow-up rolling chunks remain bounded because the mission scheduler must place those sessions within the available dates and daily time budget. The roadmap validator still validates fields and prerequisite integrity, but no longer caps the number of topics at 40.
 - Added tests for the unrestricted initial prompt and unbounded local/hosted request settings. `set AI_CONTEXT_LENGTH=16384&& npm test` passed 104/104. Live Ollama verification and full check/build/E2E/database validation are pending.
+
+## Rolling continuation idempotency repair (2026-10-26)
+
+- Fixed a continuation-generation blocker where generation runs were uniquely keyed by learning goal + trigger date. After one chunk generated, a later chunk completed on the same date could find the earlier chunk's completed run and return `ALREADY_GENERATED` instead of generating the next chunk.
+- `RoadmapGenerationRun` idempotency is now scoped to source roadmap + trigger date. Each active chunk can therefore generate its own continuation on the same date, while retries for that same source chunk/date remain idempotent. Updated the Prisma unique constraint and added migration `20261026100000_scope_rolling_runs_to_source_roadmap`.
+- Updated the dashboard's continuation feedback to explicitly handle `CHUNK_HAS_UNFINISHED_SESSIONS` and `GENERATION_IN_PROGRESS`, and to surface other non-generation reasons instead of silently leaving a stale notice.
+- Regression coverage checks that a continuation lookup uses the active source roadmap key and does not reuse a previous chunk's generation run.
+- Validation on 2026-10-26: API tests passed 118/118 including PostgreSQL integration; root `npm run check`, `npm run build`, and `npm run db:validate` passed. The migration was applied successfully to the isolated `gamified_learning_test` database with `npm run db:migrate:test`.
+- E2E result: 10/11 passed. One existing mocked generation journey failed waiting for the fixture title “Guitar day-by-day plan”; this needs separate investigation and the suite is not considered fully green. No claim of live Ollama continuation or full multi-chunk browser verification has been made.
+- Working branch: `feat/streamed-weekly-roadmap-generation`. Preserve the pre-existing untracked files `apps/web/src/App.jsx.backup-20261024` and `apps/web/streamed-app-check.js`; do not stage unrelated files.
+
+## Frontend refresh after rolling generation (2026-10-27)
+
+- After a successful rolling continuation, the dashboard now reloads the authoritative persisted roadmap list and mission list from the API rather than optimistically inserting the generation response into React state. This avoids relying on a partial or mismatched response shape when rendering the newly generated chunk.
+- The success path also refreshes the next-step recommendation and mission recovery state.
+- Validation after the change: `npm run check`, `npm run build`, and `npm test` passed; API tests passed 118/118, including PostgreSQL integration. Browser verification of the specific previously generated chunk remains outstanding.
+
+## Server-owned rolling continuation trigger (2026-10-27)
+
+- Mission completion now invokes the rolling continuation gate from the API after the completion and XP transaction commits. The browser no longer needs to successfully fire a separate best-effort roll-forward request for the next chunk to be considered.
+- The completion route accepts the browser's validated IANA timezone and passes it to the rolling scheduler. Continuation results or structured continuation errors are returned alongside the saved completion; a continuation failure does not undo the already-persisted completion or XP.
+- The dashboard consumes the server-returned continuation result, refreshes persisted roadmaps/missions on generation, and displays failures rather than silently leaving the old chunk visible.
+- Updated the mission-player E2E mock for the timezone query and continuation result. Validation: API tests 118/118, `npm run check`, `npm run build`, Prisma validation, and `git diff --check` passed. E2E has 10/11 passing after correcting the mission-player URL mock; the remaining generated-roadmap fixture test still fails to find its expected title and is unrelated to continuation generation.
+
+## Rolling generation retry after a transient lock (2026-10-27)
+
+- Fixed a frontend race where the completion response and dashboard catch-up effect could overlap. If the completion response reports `GENERATION_IN_PROGRESS`, the completion flow now retries the authoritative roll-forward request twice with a short delay instead of treating the lock response as final.
+- Dashboard catch-up now releases its per-roadmap in-flight guard after a non-terminal response or request error. This prevents one stale/transient attempt from permanently blocking future catch-up checks for that roadmap.
+- This addresses the case where the next chunk was never requested from the AI because an overlapping request returned early at the generation-lock gate. Duplicate model calls remain protected by the server-side lock and persisted generation lease.
+- Validation after the change: `npm test` passed 118/118; `npm run check`, `npm run build`, `npm run db:validate`, and `git diff --check` passed. `npm run test:e2e` remains 10/11: the pre-existing mocked generated-roadmap journey still fails to find the fixture title “Guitar day-by-day plan”. Live multi-chunk verification against Ollama has not yet been performed.
+## Dashboard toast notifications (2026-10-27)
+
+- Replaced the in-flow green dashboard status banner with a fixed top-of-screen toast, so notices no longer push dashboard content down or leave a large empty area.
+- Toasts include a dismiss (�) button, appear with a short downward entrance, and automatically clear after five seconds; CSS fades them upward/out at the end of the five-second window. Repeated notice updates restart the timer.
+- Added reduced-motion handling. Existing notice types and message sources remain unchanged.
+
+## Learning goals in the sidebar (2026-10-27)
+
+- Added a compact `YOUR GOALS` list directly below `New learning goal`, with one shortcut per saved learning goal (for example, Java or Guitar), in a chat-history-inspired style.
+- Selecting a goal toggles its expanded details and smoothly scrolls its goal card into view. The active expanded goal is highlighted in the sidebar. Goal cards now have stable IDs for navigation.
+- The list scrolls independently if the user has many goals; existing create-goal and profile controls remain in place.
+
+## Deadline outlook respects learner time limits (2026-10-27)
+
+- Clarified over-capacity recommendations: Pathwise no longer tells the learner to schedule longer sessions as the default way to meet the deadline. It explicitly keeps the chosen daily limit as the planning constraint and recommends extending the deadline or reducing goal scope; increasing availability is presented only as the learner's choice.
+- Added regression assertions to ensure the over-capacity message respects the learner's daily limit and does not instruct them to exceed it.
+
+## Simplified roadmap card information (2026-10-27)
+
+- Removed the verbose workload-capacity and deadline-outlook panels from roadmap cards, along with the large Enhanced learning brief display and its unused detail lists.
+- Kept the draft activation confirmation as a short, plain checkbox so the existing confirmation-required activation flow still works.
+
+## Roadmap deletion handler restored (2026-10-27)
+
+- Restored the missing `handleDeleteRoadmap` frontend handler. The roadmap card still rendered its Delete button, but the handler was accidentally removed during the roadmap-card simplification, causing the button to fail when clicked.
+- The restored handler keeps the existing safe behavior: ask for confirmation, call the authenticated draft-roadmap DELETE endpoint, remove the deleted draft from frontend state, show success/error feedback, and release the busy state in `finally`.
+- Deletion scope remains drafts only; active and superseded chunks are intentionally protected by the API to preserve learning history.
+- Regression checks: verify the Delete button invokes the handler, cancellation makes no request, successful deletion removes the draft card, and API errors remain visible.
+
+
+## Groq hosted generation branch (2026-10-27)
+- Created branch `feat/groq-generation` from the current working branch, preserving the pre-existing uncommitted frontend removal and unrelated untracked files.
+- Switched AI provider defaults from local Ollama to Groq's OpenAI-compatible API at `https://api.groq.com/openai/v1`, using model `openai/gpt-oss-120b`.
+- Updated roadmap, clarification-question, assessment, and experimental roadmap generator defaults; Groq requests use non-strict JSON-schema mode where the existing schemas contain optional fields, followed by existing server-side validation.
+- Updated `.env.example` and README setup guidance. The local ignored `.env` now points to Groq and the selected model; its existing `AI_API_KEY` value was preserved and was not displayed. A valid Groq API key is still required for live generation.
+- Validation: `npm test` passed 118/118; `npm run check` and `npm run build` passed; `git diff --check` passed. The web lint reports four existing unused-code warnings in the project-milestones UI code that was previously removed. No live Groq request was made because the key's availability was not verified.
+
+## Weekly generation limits and daily availability (2026-10-27)
+
+- Hosted roadmap generation now caps a chunk at the learner's available study days, with an absolute maximum of seven sessions/topics. The planner and reviewer prompts both state this hard limit; the structured output schema also caps topics at seven.
+- `planningDays` is treated as a count of study days, capped at seven and at the learner's configured `daysPerWeek`, rather than converted into fewer days using calendar-week arithmetic.
+- Each generated session may use up to the user's full configured `minutesPerDay`; the draft and rolling-generation scheduling budgets no longer apply an implicit 80% multiplier. Recovery replanning now uses the same full daily availability.
+- Generation flags too many sessions as a required revision issue; a still-invalid revision fails rather than saving extra sessions. The prompt discourages splitting one day's work into multiple short 12–20 minute topic entries when a coherent daily session is appropriate. It does not inflate genuine short activities merely to fill time.
+- Regression coverage verifies the weekly prompt uses the configured number of study days, the daily minute limit, and the deterministic excess-session guard.
+
+## Learning workspace UI simplification (2026-10-27)
+- The sidebar is now the source of truth for active learning-goal selection. Only the selected goal's card and roadmap are rendered in the main learning-path area; selecting another goal switches the active goal rather than toggling multiple roadmaps open.
+- The first saved goal is selected on workspace load when there is no still-valid selection. Newly created goals become selected; deleting the active goal selects another remaining goal when available.
+- Simplified the learning path presentation with CSS-only changes: removed nested card borders and the dashed/repeating timeline, using subtle charcoal dividers, a fine solid connector, and more open session rows. Expanded the content width for desktop readability.
+- Preserved the existing dark charcoal, off-white text, muted gray, and orange Pathwise palette. No API, generation, assessment, mission, or progress behavior was intentionally changed.
+
+## Learning path layout correction (2026-10-27)
+- Follow-up visual review found the single selected goal was still inside a two-column grid, leaving it at half width, and the previous minimalist overrides removed too much card hierarchy.
+- Changed the selected goal layout to a single full-width column and restored intentional dark-surface card hierarchy for goal details, roadmap header, and individual sessions.
+- Preserved the current charcoal, muted gray, off-white, and orange palette. No functional learning behavior was intentionally changed.
+
+## Existing-user add learning goal form polish (2026-10-27)
+- When a signed-in learner already has goals and opens the add-goal flow, hide the onboarding/marketing hero and present a single centered form in the main content area instead of leaving an awkward split layout and unused space.
+- Added a clear cancel control to close the add-goal flow without changing the existing goal.
+- Kept the current charcoal, off-white, muted-gray, and orange palette. Form submission and goal creation logic are unchanged.
+
+## Goal form defaults (2026-10-27)
+- New learning goals default to seven study days per week. The onboarding/add-goal form no longer displays the weekly rhythm selector; the submitted value remains explicitly set to 7.
+- Removed the explanatory helper beneath the target-duration field at the user's request. Target duration input and validation are unchanged.
+- Existing charcoal/off-white/gray/orange palette is unchanged.
+
+## Floating app notifications (2026-10-27)
+- App notices, including streaming roadmap-generation status, render as a fixed top-center toast instead of inline content that changes dashboard/form layout.
+- Toast uses the existing charcoal and orange palette, has an accessible status/alert role, and can be dismissed. It overlays the app without consuming document flow space.
+- Removed the inline notice from the goal form to prevent duplicate notifications.
+
+## Roadmap generation status placement (2026-10-27)
+- Removed the duplicate inline generation panel and streamed topic preview from the learning-path dashboard. Generation progress is communicated only by the existing top floating notification, avoiding duplicate text and stray spinner/glyph rendering in the dashboard.
+- The top success notification remains visible throughout generation, updating with streamed progress. Once generation finishes, the final notification returns to the normal five-second auto-dismiss behavior.
