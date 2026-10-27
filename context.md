@@ -12,6 +12,8 @@ File: context.md
 
 File: context.md
 
+File: context.md
+
 
 
 
@@ -501,3 +503,7 @@ Do not update master/reference docs frequently; update this context only for mat
 - App notices, including streaming roadmap-generation status, render as a fixed top-center toast instead of inline content that changes dashboard/form layout.
 - Toast uses the existing charcoal and orange palette, has an accessible status/alert role, and can be dismissed. It overlays the app without consuming document flow space.
 - Removed the inline notice from the goal form to prevent duplicate notifications.
+
+## Roadmap generation status placement (2026-10-27)
+- Removed the duplicate inline generation panel and streamed topic preview from the learning-path dashboard. Generation progress is communicated only by the existing top floating notification, avoiding duplicate text and stray spinner/glyph rendering in the dashboard.
+- The top success notification remains visible throughout generation, updating with streamed progress. Once generation finishes, the final notification returns to the normal five-second auto-dismiss behavior.

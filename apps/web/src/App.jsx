@@ -96,9 +96,10 @@ function App() {
 
   useEffect(() => {
     if (!notice) return undefined;
+    if (generatingGoalId && notice.type === 'success') return undefined;
     const timeout = window.setTimeout(() => setNotice(null), 5000);
     return () => window.clearTimeout(timeout);
-  }, [notice]);
+  }, [notice, generatingGoalId]);
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
@@ -1081,7 +1082,7 @@ return <article key={goal.id} id={`goal-${goal.id}`} className="goal-card rounde
 </div>
 
 </div>
-{generatingGoalId === goal.id && <section role="status" aria-live="polite" className="mt-4 border border-[#41413d] bg-[#191918] p-4 text-sm text-[#d1d1cd]"><div className="flex items-start gap-3"><span className="mt-0.5 inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#777773] border-t-[#ff5933]" aria-hidden="true" /><span><strong className="block text-[#f2f2f0]">Building your learning plan</strong><span className="mt-1 block text-xs leading-5 text-[#a3a39f]">{streamedTopics.length ? `Live draft · ${streamedTopics.length} session${streamedTopics.length === 1 ? '' : 's'} received from the model` : 'Waiting for the first session tokens from the AI…'}</span></span></div>{streamedTopics.length > 0 && <ol className="mt-4 space-y-3 border-t border-[#343432] pt-3">{streamedTopics.map((topic, index) => <li key={topic.title + index} className="border-b border-[#343432] pb-3 last:border-b-0 last:pb-0"><div className="flex items-start justify-between gap-3"><strong className="text-sm text-[#f2f2f0]">{index + 1}. {topic.title}</strong>{Number.isFinite(topic.estimatedMinutes) && <span className="shrink-0 text-xs text-[#a3a39f]">{topic.estimatedMinutes} min</span>}</div><p className="mt-1 text-xs leading-5 text-[#a3a39f]">{topic.description}</p></li>)}</ol>}</section>}
+
 {(roadmapsByGoal[goal.id] || []).map((roadmap) => {
 const roadmapExpanded = expandedRoadmapIds.has(roadmap.id) || roadmap.generationState === 'DRAFT';
 return <div key={roadmap.id} className={`roadmap-card mt-4 rounded-xl bg-[#f7f8f4] p-4 ${goalExpanded ? '' : 'hidden'}`}>
