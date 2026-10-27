@@ -2,6 +2,8 @@
 
 Pathwise is a personalised learning platform that turns a learner’s goal into a practical, adaptive plan. Learners describe what they want to achieve, their current experience, available study time, and target date. The application uses AI to create a small learning chunk, then adapts future work using progress and assessment evidence instead of locking the learner into a rigid, one-size-fits-all syllabus.
 
+https://drive.google.com/drive/folders/17DqwIFAoUeWjwneYtRNwVGJZHsrGrCDl?usp=sharing
+
 ## Highlights
 
 - **Personalised learning goals** — capture the target outcome, experience level, daily time budget, weekly frequency, and optional deadline.
