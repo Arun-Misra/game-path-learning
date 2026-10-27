@@ -70,7 +70,6 @@ function App() {
   const [roadmapsByGoal, setRoadmapsByGoal] = useState({});
   const [learningBriefConfirmedByRoadmap, setLearningBriefConfirmedByRoadmap] = useState({});
   const [generatingGoalId, setGeneratingGoalId] = useState(null);
-  const [streamedTopics, setStreamedTopics] = useState([]);
   const [expandedGoalIds, setExpandedGoalIds] = useState(() => new Set());
   const [expandedRoadmapIds, setExpandedRoadmapIds] = useState(() => new Set());
   const [roadmapBusyGoal, setRoadmapBusyGoal] = useState(null);
@@ -353,7 +352,6 @@ function App() {
   async function handleGenerateRoadmap(goal) {
     setRoadmapBusyGoal(goal.id);
     setGeneratingGoalId(goal.id);
-    setStreamedTopics([]);
     setNotice({ type: 'success', message: `Pathwise is streaming your personalised week of ${goal.skill} practice as the AI generates it.` });
     try {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -390,7 +388,6 @@ function App() {
               }
             }
           }
-          setStreamedTopics(foundTopics);
           setNotice({ type: 'success', message: foundTopics.length
             ? `AI is writing session ${foundTopics.length} of your week…`
             : `AI is drafting your personalised week… ${streamedText.length.toLocaleString()} characters received` });
