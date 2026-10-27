@@ -12,6 +12,7 @@
     "dev:web": "npm run dev -w @gamified-learning/web",
     "dev:api": "npm run dev -w @gamified-learning/api",
     "build": "npm run build -w @gamified-learning/web",
+    "postinstall": "prisma generate",
     "test": "npm test -w @gamified-learning/api",
     "test:e2e": "playwright test",
     "check": "npm run check -w @gamified-learning/api && npm run lint -w @gamified-learning/web && node --check apps/api/routes/gamification.js && node --check apps/api/lib/gamification-service.js",
@@ -29,5 +30,10 @@
     "@playwright/test": "^1.64.1",
     "concurrently": "^10.0.6",
     "prisma": "^6.19.0"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.0": true,
+    "@prisma/engines@6.19.0": true,
+    "prisma@6.19.0": true
   }
 }

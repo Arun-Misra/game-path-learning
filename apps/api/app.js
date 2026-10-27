@@ -40,7 +40,17 @@ app.get('/api/v1/ready', async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     return res.status(200).json({ status: 'ready', database: 'connected' });
-  } catch {
+  } catch (error) {
+    const message = String(error?.message || 'Unknown database error')
+      .replace(/postgres(?:ql)?:\/\/[^\s"'\x60]+/gi, 'postgresql://[REDACTED]');
+
+    console.error('[DATABASE_READY_CHECK_FAILED]', {
+      name: error?.name || 'Error',
+      code: error?.code || null,
+      clientVersion: error?.clientVersion || null,
+      message,
+    });
+
     return res.status(503).json({
       status: 'not_ready',
       error: { code: 'DATABASE_UNAVAILABLE', message: 'The database is not available.' },
